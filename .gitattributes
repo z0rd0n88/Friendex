@@ -1,0 +1,17 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+Dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+
+uv.lock binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
