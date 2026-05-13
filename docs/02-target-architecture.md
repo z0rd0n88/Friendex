@@ -1,8 +1,8 @@
-# StockXchange — Target Architecture
+# Friendex — Target Architecture
 
 ## Executive Summary
 
-The refactored StockXchange is organized as a layered Python package where domain logic, application orchestration, and Discord/persistence adapters form three concentric rings with dependencies pointing strictly inward. Every piece of mutable game state is owned by typed repository objects rather than bare global dicts, and each repository exposes atomic write operations using the `.tmp`-then-`os.replace()` pattern. Per-user `asyncio.Lock` instances serialise all price and portfolio mutations, eliminating the race conditions identified in Phase 1. All hardcoded Discord IDs, timing constants, and APY parameters are lifted into a `pydantic-settings` configuration class loaded at startup, making the bot deployable to any server without code changes.
+The refactored Friendex is organized as a layered Python package where domain logic, application orchestration, and Discord/persistence adapters form three concentric rings with dependencies pointing strictly inward. Every piece of mutable game state is owned by typed repository objects rather than bare global dicts, and each repository exposes atomic write operations using the `.tmp`-then-`os.replace()` pattern. Per-user `asyncio.Lock` instances serialise all price and portfolio mutations, eliminating the race conditions identified in Phase 1. All hardcoded Discord IDs, timing constants, and APY parameters are lifted into a `pydantic-settings` configuration class loaded at startup, making the bot deployable to any server without code changes.
 
 ---
 
@@ -58,7 +58,7 @@ Every exception either propagates to a top-level handler that converts it to a D
 
 ```
 src/
-└── stockxchange/
+└── friendex/
     ├── __init__.py
     ├── main.py                         # Entry point: build container, start bot
     │
@@ -198,7 +198,7 @@ graph TD
 
 ## Domain Model
 
-All models live in `src/stockxchange/domain/models.py`. They are plain `dataclasses` with `frozen=False` (mutable by the application layer) but construction-time invariant checks via `__post_init__`.
+All models live in `src/friendex/domain/models.py`. They are plain `dataclasses` with `frozen=False` (mutable by the application layer) but construction-time invariant checks via `__post_init__`.
 
 ```python
 @dataclass
@@ -499,12 +499,12 @@ Redis is not warranted here: the bot is single-process, there is no multi-server
 **JSON → SQLite Migration Sketch:**
 
 ```python
-# run once: python -m stockxchange.adapters.persistence.migrate_json_to_sqlite
+# run once: python -m friendex.adapters.persistence.migrate_json_to_sqlite
 
 from pathlib import Path
 import json
-from stockxchange.adapters.persistence.db import engine, Base
-from stockxchange.adapters.persistence import user_repo, price_repo, fund_repo, penalty_repo
+from friendex.adapters.persistence.db import engine, Base
+from friendex.adapters.persistence import user_repo, price_repo, fund_repo, penalty_repo
 
 Base.metadata.create_all(engine)
 
@@ -533,7 +533,7 @@ The migration is idempotent (uses `merge`). Run it once before the first bot sta
 
 ### Settings Class
 
-`src/stockxchange/adapters/config.py`
+`src/friendex/adapters/config.py`
 
 ```python
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -553,7 +553,7 @@ class Settings(BaseSettings):
     command_prefix: str = "$"
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///data/stockxchange.db"
+    database_url: str = "sqlite+aiosqlite:///data/friendex.db"
 
     # Market hours
     market_open: time = time(6, 30)
@@ -605,7 +605,7 @@ DISCORD_TOKEN=your_bot_token_here
 GUILD_ID=123456789012345678
 
 # Optional — override defaults
-DATABASE_URL=sqlite+aiosqlite:///data/stockxchange.db
+DATABASE_URL=sqlite+aiosqlite:///data/friendex.db
 COMMAND_PREFIX=$
 MARKET_OPEN=06:30
 MARKET_CLOSE=04:30
@@ -660,7 +660,7 @@ Every log record carries at minimum:
   "price": 142.50,
   "cost": 1425.00,
   "latency_ms": 34,
-  "logger": "stockxchange.application.trading_service"
+  "logger": "friendex.application.trading_service"
 }
 ```
 
@@ -709,7 +709,7 @@ def configure_logging(settings: Settings) -> None:
 
 ### Exception Taxonomy
 
-**Domain errors** (`src/stockxchange/domain/errors.py`):
+**Domain errors** (`src/friendex/domain/errors.py`):
 These represent game-rule violations. They carry a `user_facing_message: str` field that the Discord error handler can relay directly.
 
 ```
@@ -730,7 +730,7 @@ DomainError (base)
 **Infrastructure errors** (not user-facing; logged and re-raised or suppressed at the adapter boundary):
 
 ```
-StockXchangeError (base)
+FriendexError (base)
 ├── PersistenceError(operation: str, detail: str)
 └── DiscordError(detail: str)
 ```
@@ -759,7 +759,7 @@ Background task errors follow the same pattern but the `on_command_error` handle
 
 ### Per-User Locks
 
-`src/stockxchange/application/lock_manager.py` holds a `defaultdict(asyncio.Lock)` keyed by `user_id`. It is a singleton passed by dependency injection to all application services.
+`src/friendex/application/lock_manager.py` holds a `defaultdict(asyncio.Lock)` keyed by `user_id`. It is a singleton passed by dependency injection to all application services.
 
 ```python
 class LockManager:
@@ -832,7 +832,7 @@ Each task is a class in `adapters/tasks/`. The constructor receives only injecte
 ```python
 # adapters/tasks/liquidation_task.py
 from discord.ext import tasks
-from stockxchange.application.liquidation_service import LiquidationService
+from friendex.application.liquidation_service import LiquidationService
 import structlog
 
 log = structlog.get_logger()

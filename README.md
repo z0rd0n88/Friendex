@@ -1,4 +1,4 @@
-# StockXchange
+# Friendex
 
 Discord bot that simulates a stock exchange game. Each server member has their
 own "stock" that others can buy, sell, or short. Prices move with real Discord

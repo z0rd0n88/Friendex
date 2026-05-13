@@ -1,8 +1,8 @@
-# StockXchange — Testing Strategy
+# Friendex — Testing Strategy
 
 ## Executive Summary
 
-StockXchange's test suite is organized around the three-layer architecture defined in `docs/02-target-architecture.md`: a large base of synchronous unit tests covers every pure function in the domain layer with no mocking required; a mid-tier of async service tests exercises application use-cases against in-memory fake repositories; and a thin top layer of Discord integration and end-to-end smoke tests validates the adapter boundary using `dpytest`. The smallest testable unit — a single pure function operating on typed domain objects — is the primary test vehicle. All external dependencies (Discord API, database, clock) are isolated from every test that does not explicitly declare itself an integration or end-to-end test. The coverage targets are 95%+ on `domain/`, 90%+ on `application/`, and 80% overall; the CI gate fails the build on any regression below 80%.
+Friendex's test suite is organized around the three-layer architecture defined in `docs/02-target-architecture.md`: a large base of synchronous unit tests covers every pure function in the domain layer with no mocking required; a mid-tier of async service tests exercises application use-cases against in-memory fake repositories; and a thin top layer of Discord integration and end-to-end smoke tests validates the adapter boundary using `dpytest`. The smallest testable unit — a single pure function operating on typed domain objects — is the primary test vehicle. All external dependencies (Discord API, database, clock) are isolated from every test that does not explicitly declare itself an integration or end-to-end test. The coverage targets are 95%+ on `domain/`, 90%+ on `application/`, and 80% overall; the CI gate fails the build on any regression below 80%.
 
 ---
 
@@ -109,8 +109,8 @@ markers = [
 ```toml
 # pyproject.toml
 [tool.coverage.run]
-source = ["src/stockxchange"]
-omit = ["tests/*", "src/stockxchange/adapters/persistence/migrate_json_to_sqlite.py"]
+source = ["src/friendex"]
+omit = ["tests/*", "src/friendex/adapters/persistence/migrate_json_to_sqlite.py"]
 branch = true
 
 [tool.coverage.report]
@@ -203,7 +203,7 @@ tests/
 
 ## Domain Layer Tests — Smallest Units
 
-Domain tests are synchronous (`def test_...`, not `async def`). They import only from `src/stockxchange/domain/`. No mocks, no fixtures beyond simple factory calls.
+Domain tests are synchronous (`def test_...`, not `async def`). They import only from `src/friendex/domain/`. No mocks, no fixtures beyond simple factory calls.
 
 ### price_engine.py
 
@@ -955,9 +955,9 @@ async def test_buy_and_balance_reflect_deducted_cash():
 import pytest
 from freezegun import freeze_time
 from datetime import datetime
-from stockxchange.adapters.config import Settings
-from stockxchange.application.lock_manager import LockManager
-from stockxchange.domain.models import (
+from friendex.adapters.config import Settings
+from friendex.application.lock_manager import LockManager
+from friendex.domain.models import (
     UserAccount, Stock, HedgeFund, FundPenalty,
     LongPosition, ShortPosition, ActivityBucket, DailyProgress,
 )
@@ -1093,7 +1093,7 @@ def make_fund(
 
 ## TDD Workflow Per Feature
 
-The mandatory RED-GREEN-REFACTOR cycle from `~/.claude/rules/common/testing.md` applies to every feature in this codebase. The specific application order for StockXchange is:
+The mandatory RED-GREEN-REFACTOR cycle from `~/.claude/rules/common/testing.md` applies to every feature in this codebase. The specific application order for Friendex is:
 
 **Step 1 — Write the domain unit test first (RED).**
 Before touching `price_engine.py`, write `test_price_engine.py` with a failing test for the specific function. Run `pytest tests/domain/test_price_engine.py` — it must fail with `ImportError` or `AttributeError` because the function does not exist yet.
@@ -1157,7 +1157,7 @@ jobs:
         run: |
           uv run pytest \
             -m "not e2e" \
-            --cov=src/stockxchange \
+            --cov=src/friendex \
             --cov-report=term-missing \
             --cov-fail-under=80 \
             -x

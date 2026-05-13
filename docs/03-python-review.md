@@ -1,4 +1,4 @@
-# StockXchange — Python Code Review: Phase 2 Target Architecture
+# Friendex — Python Code Review: Phase 2 Target Architecture
 
 ## Executive Summary
 
@@ -134,11 +134,11 @@ Configure `ruff` isort with:
 
 ```toml
 [tool.ruff.lint.isort]
-known-first-party = ["stockxchange"]
+known-first-party = ["friendex"]
 split-on-trailing-comma = true
 ```
 
-Import order: stdlib, third-party (`discord`, `sqlalchemy`, `pydantic_settings`, `structlog`), first-party (`stockxchange.*`). No relative imports except within the same module subpackage (e.g., `from .models import UserAccount` within `domain/`).
+Import order: stdlib, third-party (`discord`, `sqlalchemy`, `pydantic_settings`, `structlog`), first-party (`friendex.*`). No relative imports except within the same module subpackage (e.g., `from .models import UserAccount` within `domain/`).
 
 ### Naming Conventions
 
@@ -161,7 +161,7 @@ Phase 2's Background Tasks section states tasks are "started from `on_ready` in 
 Use `setup_hook` on the `Bot` subclass instead:
 
 ```python
-class StockXchangeBot(commands.Bot):
+class FriendexBot(commands.Bot):
     async def setup_hook(self) -> None:
         await self.add_cog(TradingCog(self._container.trading_service, self._settings))
         # ... add all cogs and listeners
@@ -730,7 +730,7 @@ Add `redact_token` as the first processor in the chain so it runs before any ser
 
 ```toml
 [project]
-name = "stockxchange"
+name = "friendex"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -754,14 +754,14 @@ dev = [
 ]
 
 [project.scripts]
-stockxchange = "stockxchange.main:main"
+friendex = "friendex.main:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 ```
 
-The entry point `stockxchange.main:main` enables `python -m stockxchange` and `stockxchange` CLI invocation after install.
+The entry point `friendex.main:main` enables `python -m friendex` and `friendex` CLI invocation after install.
 
 ### Dependency Management: `uv`
 
@@ -805,7 +805,7 @@ In `pre-commit` and CI, run in this order:
 1. `ruff format --check` (formatting)
 2. `ruff check` (linting)
 3. `mypy --strict src/` (type checking)
-4. `pytest --cov=stockxchange --cov-fail-under=80` (tests with coverage gate)
+4. `pytest --cov=friendex --cov-fail-under=80` (tests with coverage gate)
 
 Order matters: format check before lint avoids false positives in some ruff rules that parse indentation. mypy after lint because mypy is slower and lint failures are faster to fix. Tests last because they are the most expensive.
 
@@ -859,7 +859,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run mypy --strict src/
-      - run: uv run pytest --cov=stockxchange --cov-report=xml --cov-fail-under=80
+      - run: uv run pytest --cov=friendex --cov-report=xml --cov-fail-under=80
       - uses: codecov/codecov-action@v4
         with:
           files: coverage.xml
@@ -970,7 +970,7 @@ Uses a synchronous `Session` and synchronous `engine`. Since the migration is a 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-sync_engine = create_engine("sqlite:///data/stockxchange.db")
+sync_engine = create_engine("sqlite:///data/friendex.db")
 Base.metadata.create_all(sync_engine)
 
 with Session(sync_engine) as session:

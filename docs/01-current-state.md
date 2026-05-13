@@ -1,8 +1,8 @@
-# StockXchange — Specification Analysis: Current State
+# Friendex — Specification Analysis: Current State
 
 ## Executive Summary
 
-StockXchange is a single-file Discord bot (`bot.py`, not yet implemented) in which every server member is a tradeable "stock" whose price moves based on measured Discord activity (messages, voice time, reactions, VC pings) and direct trade pressure. The full design exists in one 1,660-line Python skeleton document. The architecture mixes Discord event handling, domain logic, price arithmetic, and JSON persistence into the same functions throughout, with no layer separation. Four global in-memory dicts act as the entire database, flushed to JSON after every mutation. Two ephemeral in-memory dicts track live voice sessions and VC ping state and are lost on restart. The spec implies six background tasks, four Discord event handlers, one additional bot event, and fifteen user-facing commands, all operating on shared mutable global state without any concurrency guard.
+Friendex is a single-file Discord bot (`bot.py`, not yet implemented) in which every server member is a tradeable "stock" whose price moves based on measured Discord activity (messages, voice time, reactions, VC pings) and direct trade pressure. The full design exists in one 1,660-line Python skeleton document. The architecture mixes Discord event handling, domain logic, price arithmetic, and JSON persistence into the same functions throughout, with no layer separation. Four global in-memory dicts act as the entire database, flushed to JSON after every mutation. Two ephemeral in-memory dicts track live voice sessions and VC ping state and are lost on restart. The spec implies six background tasks, four Discord event handlers, one additional bot event, and fifteen user-facing commands, all operating on shared mutable global state without any concurrency guard.
 
 ---
 
