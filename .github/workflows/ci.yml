@@ -42,4 +42,4 @@ jobs:
         run: uv run mypy --strict src/
 
       - name: Pytest (with coverage)
-        run: uv run pytest --cov=stockxchange --cov-fail-under=0
+        run: uv run pytest --cov=friendex --cov-fail-under=0

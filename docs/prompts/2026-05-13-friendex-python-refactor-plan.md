@@ -1,4 +1,4 @@
-# StockXchange: Plan Refactor of Single-File Bot into Maintainable Python Application
+# Friendex: Plan Refactor of Single-File Bot into Maintainable Python Application
 
 Turn `bot.py` (a working single-file Discord bot simulating a stock-exchange game on real server activity) into a properly structured, testable Python application. **This task is planning only — no code refactoring yet.** Deliverables are documents that I will review before authorizing implementation in a follow-up session.
 
@@ -33,7 +33,7 @@ Use the `code-architect` (or `architect-reviewer`) agent. Input: Phase 1 report.
 
 Produce `docs/02-target-architecture.md`:
 
-- Proposed package layout (concrete tree: `stockxchange/{config,domain,persistence,discord_io,tasks,commands}` or your justified alternative)
+- Proposed package layout (concrete tree: `friendex/{config,domain,persistence,discord_io,tasks,commands}` or your justified alternative)
 - Module boundaries and dependency direction (domain depends on nothing Discord-specific; Discord layer depends on domain; persistence behind a repository interface)
 - Persistence strategy: evaluate replacing JSON-dict-and-`save_data()` with SQLite + SQLAlchemy (or `sqlite3` + repositories). Recommend one with reasoning and a JSON→SQLite migration sketch. Also consider using redis or other lightweight containers.
 - Config & secrets: move constants out of the `bot.py` header into `pydantic-settings` or `dataclass` config loaded from `.env`/`config.toml`

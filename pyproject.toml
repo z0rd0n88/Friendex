@@ -1,5 +1,5 @@
 [project]
-name = "stockxchange"
+name = "friendex"
 version = "0.1.0"
 description = "Discord bot that simulates a stock exchange game where each server member's stock is tradable."
 readme = "README.md"
@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [project.scripts]
-stockxchange = "stockxchange.main:main"
+friendex = "friendex.main:main"
 
 [project.urls]
 Repository = "https://github.com/z0rd0n88/StockXchange"
@@ -54,7 +54,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/stockxchange"]
+packages = ["src/friendex"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -68,7 +68,7 @@ addopts = [
 
 [tool.coverage.run]
 branch = true
-source = ["src/stockxchange"]
+source = ["src/friendex"]
 
 [tool.coverage.report]
 show_missing = true

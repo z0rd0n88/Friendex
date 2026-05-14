@@ -9,4 +9,4 @@ from __future__ import annotations
 
 
 def test_package_importable() -> None:
-    import stockxchange  # noqa: F401
+    import friendex  # noqa: F401

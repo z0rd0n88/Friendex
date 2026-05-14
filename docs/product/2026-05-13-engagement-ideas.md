@@ -1,4 +1,4 @@
-# StockXchange Engagement Brainstorm
+# Friendex Engagement Brainstorm
 
 **Date:** 2026-05-13
 **Author:** product strategy pass
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-StockXchange already has the rarest thing in a Discord economy bot: **a price engine wired to real human behavior** (messages, voice time, reactions, VC pings, timeouts). The engagement opportunity is not to add features — it is to *expose* the signal the engine already produces back to players as **social leverage**: things they can talk about, bet on, conspire over, and react to in real time. The bot's premise turns every member into a public ticker; today most members never see anyone else's ticker move unless they `$price` it.
+Friendex already has the rarest thing in a Discord economy bot: **a price engine wired to real human behavior** (messages, voice time, reactions, VC pings, timeouts). The engagement opportunity is not to add features — it is to *expose* the signal the engine already produces back to players as **social leverage**: things they can talk about, bet on, conspire over, and react to in real time. The bot's premise turns every member into a public ticker; today most members never see anyone else's ticker move unless they `$price` it.
 
 Optimizing for three principles:
 
