@@ -1,4 +1,4 @@
-"""Tests for ``stockxchange.adapters.config``.
+"""Tests for ``friendex.adapters.config``.
 
 Covers requirements (a)-(e) from `docs/04-migration-plan.md` §Phase 2,
 plus the three Phase 3a corrections from `docs/03-python-review.md`
@@ -19,7 +19,7 @@ import pytest
 import structlog
 from pydantic import ValidationError
 
-from stockxchange.adapters.config import (
+from friendex.adapters.config import (
     Settings,
     configure_logging,
     get_settings,
@@ -230,7 +230,7 @@ def test_defaults_match_target_architecture() -> None:
     settings = Settings(discord_token="tmp", guild_id=1)
 
     assert settings.command_prefix == "$"
-    assert settings.database_url == "sqlite+aiosqlite:///data/stockxchange.db"
+    assert settings.database_url == "sqlite+aiosqlite:///data/friendex.db"
 
     assert settings.market_open == time(6, 30)
     assert settings.market_close == time(4, 30)

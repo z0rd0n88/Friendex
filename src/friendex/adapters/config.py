@@ -11,7 +11,7 @@ caller accidentally binds a Discord token to a log record, it never leaves
 the process.
 
 Phase 2 deliberately keeps this module free of any import from
-``stockxchange.domain`` or ``stockxchange.application`` so that the
+``friendex.domain`` or ``friendex.application`` so that the
 configuration layer can be exercised in isolation.
 """
 
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     command_prefix: str = "$"
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///data/stockxchange.db"
+    database_url: str = "sqlite+aiosqlite:///data/friendex.db"
 
     # Market hours
     market_open: time = time(6, 30)
