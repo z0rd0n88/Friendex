@@ -1,9 +1,9 @@
 """Adapter-layer tests.
 
 Tests in this package exercise modules under
-``src/stockxchange/adapters/`` — configuration, persistence, Discord
+``src/friendex/adapters/`` — configuration, persistence, Discord
 adapters, and background tasks.  Each test must avoid importing from
-``stockxchange.domain`` or ``stockxchange.application`` unless the
+``friendex.domain`` or ``friendex.application`` unless the
 adapter under test legitimately depends on them.
 """
 
