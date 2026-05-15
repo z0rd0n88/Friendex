@@ -35,8 +35,8 @@ dependencies = [
 friendex = "friendex.main:main"
 
 [project.urls]
-Repository = "https://github.com/z0rd0n88/StockXchange"
-Issues = "https://github.com/z0rd0n88/StockXchange/issues"
+Repository = "https://github.com/z0rd0n88/Friendex"
+Issues = "https://github.com/z0rd0n88/Friendex/issues"
 
 [dependency-groups]
 dev = [
