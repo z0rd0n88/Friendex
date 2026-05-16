@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 If you are joining an in-flight effort, **start by reading [`handoff/INDEX.md`](./handoff/INDEX.md)** — it lists the most recent handoff per feature/epic so you can pick up without re-deriving context. Every write to `handoff/` is mediated by the project-scoped `handoff` skill (`.claude/skills/handoff/SKILL.md`); see `handoff/CLAUDE.md` for the directory's hard rules.
 
+## Python Code Style — Mandatory Skill
+
+**Always invoke the `ecc-python-patterns` skill before writing or modifying any Python code in this repository.** Run `/ecc-python-patterns` at the start of any task that touches `.py` files — including bug fixes, refactors, new features, and tests. The skill provides the canonical guidance for PEP 8 compliance, type hints, Pythonic idioms, and project-standard patterns. Do not skip this step even for "small" edits; consistency across the codebase depends on every contribution being checked against the same playbook.
+
 ## Project
 
 Friendex is a Discord bot that simulates a stock exchange game. Each server member has their own "stock" that others can buy, sell, or short. Prices rise/fall based on real Discord activity (messages, voice time, reactions) tracked by the bot.
