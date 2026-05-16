@@ -13,6 +13,7 @@ is safe to show to the user.
 """
 
 from datetime import time
+from decimal import Decimal
 
 import pytest
 
@@ -116,9 +117,9 @@ def test_discord_error_carries_detail() -> None:
 
 
 def test_insufficient_funds_message() -> None:
-    err = InsufficientFunds(need=1234.5, have=10.0)
-    assert err.need == 1234.5
-    assert err.have == 10.0
+    err = InsufficientFunds(need=Decimal("1234.50"), have=Decimal("10.00"))
+    assert err.need == Decimal("1234.50")
+    assert err.have == Decimal("10.00")
     assert err.user_facing_message == (
         "Insufficient funds: need $1,234.50, have $10.00."
     )
@@ -188,9 +189,9 @@ def test_invalid_amount_message() -> None:
 
 
 def test_fund_insufficient_balance_message() -> None:
-    err = FundInsufficientBalance(need=500.0, have=10.5)
-    assert err.need == 500.0
-    assert err.have == 10.5
+    err = FundInsufficientBalance(need=Decimal("500.00"), have=Decimal("10.50"))
+    assert err.need == Decimal("500.00")
+    assert err.have == Decimal("10.50")
     assert err.user_facing_message == (
         "Fund balance too low: need $500.00, have $10.50."
     )
@@ -213,7 +214,7 @@ def test_already_opted_out_message() -> None:
 
 def test_caught_as_domain_error() -> None:
     with pytest.raises(DomainError) as exc_info:
-        raise InsufficientFunds(need=10.0, have=1.0)
+        raise InsufficientFunds(need=Decimal("10.00"), have=Decimal("1.00"))
     assert isinstance(exc_info.value, InsufficientFunds)
 
 
