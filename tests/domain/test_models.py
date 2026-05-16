@@ -10,7 +10,8 @@ Each model gets:
   :class:`ActivityBucket`.
 """
 
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 
@@ -29,7 +30,7 @@ from friendex.domain.models import (
     VoiceSession,
 )
 
-NOW = datetime(2026, 5, 15, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 5, 15, 12, 0, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,7 @@ def test_activity_bucket_defaults() -> None:
     assert bucket.role_ping_joins == 0.0
     assert bucket.role_ping_join_minutes == 0.0
     assert isinstance(bucket.bucket_start, datetime)
+    assert bucket.bucket_start.tzinfo is UTC
 
 
 def test_activity_bucket_normalises_int_channels_to_str() -> None:
@@ -111,34 +113,34 @@ def test_daily_progress_equality() -> None:
 
 
 def test_long_position_happy() -> None:
-    pos = LongPosition(target_user_id="u1", shares=10, avg_entry=100.0)
+    pos = LongPosition(target_user_id="u1", shares=10, avg_entry=Decimal("100.00"))
     assert pos.shares == 10
-    assert pos.avg_entry == 100.0
+    assert pos.avg_entry == Decimal("100.00")
 
 
 def test_long_position_rejects_zero_shares() -> None:
     with pytest.raises(ValueError, match="shares must be positive"):
-        LongPosition(target_user_id="u1", shares=0, avg_entry=100.0)
+        LongPosition(target_user_id="u1", shares=0, avg_entry=Decimal("100.00"))
 
 
 def test_long_position_rejects_negative_shares() -> None:
     with pytest.raises(ValueError, match="shares must be positive"):
-        LongPosition(target_user_id="u1", shares=-1, avg_entry=100.0)
+        LongPosition(target_user_id="u1", shares=-1, avg_entry=Decimal("100.00"))
 
 
 def test_long_position_rejects_zero_entry() -> None:
     with pytest.raises(ValueError, match="avg_entry must be positive"):
-        LongPosition(target_user_id="u1", shares=10, avg_entry=0.0)
+        LongPosition(target_user_id="u1", shares=10, avg_entry=Decimal("0.00"))
 
 
 def test_long_position_rejects_negative_entry() -> None:
     with pytest.raises(ValueError, match="avg_entry must be positive"):
-        LongPosition(target_user_id="u1", shares=10, avg_entry=-5.0)
+        LongPosition(target_user_id="u1", shares=10, avg_entry=Decimal("-5.00"))
 
 
 def test_long_position_equality() -> None:
-    a = LongPosition(target_user_id="u1", shares=10, avg_entry=100.0)
-    b = LongPosition(target_user_id="u1", shares=10, avg_entry=100.0)
+    a = LongPosition(target_user_id="u1", shares=10, avg_entry=Decimal("100.00"))
+    b = LongPosition(target_user_id="u1", shares=10, avg_entry=Decimal("100.00"))
     assert a == b
 
 
@@ -151,9 +153,9 @@ def _short(**overrides: object) -> ShortPosition:
     base: dict[str, object] = {
         "target_user_id": "u1",
         "shares": 5,
-        "entry_price": 100.0,
-        "locked_cash": 250.0,
-        "locked_fund": 250.0,
+        "entry_price": Decimal("100.00"),
+        "locked_cash": Decimal("250.00"),
+        "locked_fund": Decimal("250.00"),
         "created_at": NOW,
     }
     base.update(overrides)
@@ -183,28 +185,28 @@ def test_short_position_rejects_negative_shares() -> None:
 
 def test_short_position_rejects_zero_entry_price() -> None:
     with pytest.raises(ValueError, match="entry_price must be positive"):
-        _short(entry_price=0.0)
+        _short(entry_price=Decimal("0.00"))
 
 
 def test_short_position_rejects_negative_entry_price() -> None:
     with pytest.raises(ValueError, match="entry_price must be positive"):
-        _short(entry_price=-1.0)
+        _short(entry_price=Decimal("-1.00"))
 
 
 def test_short_position_rejects_negative_locked_cash() -> None:
     with pytest.raises(ValueError, match="locked collateral must be non-negative"):
-        _short(locked_cash=-1.0)
+        _short(locked_cash=Decimal("-1.00"))
 
 
 def test_short_position_rejects_negative_locked_fund() -> None:
     with pytest.raises(ValueError, match="locked collateral must be non-negative"):
-        _short(locked_fund=-1.0)
+        _short(locked_fund=Decimal("-1.00"))
 
 
 def test_short_position_zero_collateral_allowed() -> None:
-    pos = _short(locked_cash=0.0, locked_fund=0.0)
-    assert pos.locked_cash == 0.0
-    assert pos.locked_fund == 0.0
+    pos = _short(locked_cash=Decimal("0.00"), locked_fund=Decimal("0.00"))
+    assert pos.locked_cash == Decimal("0.00")
+    assert pos.locked_fund == Decimal("0.00")
 
 
 def test_short_position_equality() -> None:
@@ -219,9 +221,9 @@ def test_short_position_equality() -> None:
 def _account(**overrides: object) -> UserAccount:
     base: dict[str, object] = {
         "user_id": "u1",
-        "cash_balance": 10_000.0,
-        "net_worth": 10_000.0,
-        "month_start_net_worth": 10_000.0,
+        "cash_balance": Decimal("10000.00"),
+        "net_worth": Decimal("10000.00"),
+        "month_start_net_worth": Decimal("10000.00"),
         "long_positions": {},
         "short_positions": {},
         "today": ActivityBucket(),
@@ -235,19 +237,19 @@ def _account(**overrides: object) -> UserAccount:
 
 def test_user_account_happy() -> None:
     account = _account()
-    assert account.cash_balance == 10_000.0
+    assert account.cash_balance == Decimal("10000.00")
     assert account.opt_in is True
     assert account.intro_shown is False
 
 
 def test_user_account_zero_cash_allowed() -> None:
-    account = _account(cash_balance=0.0)
-    assert account.cash_balance == 0.0
+    account = _account(cash_balance=Decimal("0.00"))
+    assert account.cash_balance == Decimal("0.00")
 
 
 def test_user_account_rejects_negative_cash() -> None:
     with pytest.raises(ValueError, match="cash_balance must be non-negative"):
-        _account(cash_balance=-0.01)
+        _account(cash_balance=Decimal("-0.01"))
 
 
 def test_user_account_equality() -> None:
@@ -265,14 +267,14 @@ def test_user_account_equality() -> None:
 
 
 def test_price_point_happy() -> None:
-    point = PricePoint(price=99.5, timestamp=NOW)
-    assert point.price == 99.5
+    point = PricePoint(price=Decimal("99.50"), timestamp=NOW)
+    assert point.price == Decimal("99.50")
     assert point.timestamp == NOW
 
 
 def test_price_point_equality() -> None:
-    a = PricePoint(price=99.5, timestamp=NOW)
-    b = PricePoint(price=99.5, timestamp=NOW)
+    a = PricePoint(price=Decimal("99.50"), timestamp=NOW)
+    b = PricePoint(price=Decimal("99.50"), timestamp=NOW)
     assert a == b
 
 
@@ -284,11 +286,11 @@ def test_price_point_equality() -> None:
 def _stock(**overrides: object) -> Stock:
     base: dict[str, object] = {
         "user_id": "u1",
-        "current": 100.0,
+        "current": Decimal("100.00"),
         "history": [],
-        "high_24h": 100.0,
-        "low_24h": 100.0,
-        "all_time_high": 100.0,
+        "high_24h": Decimal("100.00"),
+        "low_24h": Decimal("100.00"),
+        "all_time_high": Decimal("100.00"),
     }
     base.update(overrides)
     return Stock(**base)  # type: ignore[arg-type]
@@ -296,18 +298,18 @@ def _stock(**overrides: object) -> Stock:
 
 def test_stock_happy() -> None:
     stock = _stock()
-    assert stock.current == 100.0
+    assert stock.current == Decimal("100.00")
     assert stock.history == []
 
 
 def test_stock_zero_price_allowed() -> None:
-    stock = _stock(current=0.0)
-    assert stock.current == 0.0
+    stock = _stock(current=Decimal("0.00"))
+    assert stock.current == Decimal("0.00")
 
 
 def test_stock_rejects_negative_price() -> None:
     with pytest.raises(ValueError, match="price must be non-negative"):
-        _stock(current=-0.01)
+        _stock(current=Decimal("-0.01"))
 
 
 def test_stock_equality() -> None:
@@ -326,7 +328,7 @@ def _fund(**overrides: object) -> HedgeFund:
         "fund_id": "u1",
         "name": "Test Fund",
         "manager_id": "u1",
-        "cash_balance": 1_000.0,
+        "cash_balance": Decimal("1000.00"),
         "investors": {},
     }
     base.update(overrides)
@@ -335,18 +337,23 @@ def _fund(**overrides: object) -> HedgeFund:
 
 def test_hedge_fund_happy() -> None:
     fund = _fund()
-    assert fund.cash_balance == 1_000.0
+    assert fund.cash_balance == Decimal("1000.00")
     assert fund.investors == {}
 
 
 def test_hedge_fund_zero_cash_allowed() -> None:
-    fund = _fund(cash_balance=0.0)
-    assert fund.cash_balance == 0.0
+    fund = _fund(cash_balance=Decimal("0.00"))
+    assert fund.cash_balance == Decimal("0.00")
 
 
 def test_hedge_fund_rejects_negative_cash() -> None:
     with pytest.raises(ValueError, match="fund cash must be non-negative"):
-        _fund(cash_balance=-0.01)
+        _fund(cash_balance=Decimal("-0.01"))
+
+
+def test_hedge_fund_investors_accept_decimal_values() -> None:
+    fund = _fund(investors={"u2": Decimal("500.00"), "u3": Decimal("250.50")})
+    assert fund.investors == {"u2": Decimal("500.00"), "u3": Decimal("250.50")}
 
 
 def test_hedge_fund_equality() -> None:
@@ -361,14 +368,16 @@ def test_hedge_fund_equality() -> None:
 
 
 def test_fund_penalty_happy() -> None:
-    penalty = FundPenalty(user_id="u1", penalty_apr=0.05, penalty_until=NOW)
-    assert penalty.penalty_apr == 0.05
+    penalty = FundPenalty(
+        user_id="u1", penalty_apr=Decimal("0.0500"), penalty_until=NOW
+    )
+    assert penalty.penalty_apr == Decimal("0.0500")
     assert penalty.penalty_until == NOW
 
 
 def test_fund_penalty_equality() -> None:
-    a = FundPenalty(user_id="u1", penalty_apr=0.05, penalty_until=NOW)
-    b = FundPenalty(user_id="u1", penalty_apr=0.05, penalty_until=NOW)
+    a = FundPenalty(user_id="u1", penalty_apr=Decimal("0.0500"), penalty_until=NOW)
+    b = FundPenalty(user_id="u1", penalty_apr=Decimal("0.0500"), penalty_until=NOW)
     assert a == b
 
 
@@ -463,28 +472,28 @@ def test_vc_extra_boost_equality() -> None:
     "constructor",
     [
         lambda: DailyProgress(last_claim=None, streak=-1),
-        lambda: LongPosition(target_user_id="u1", shares=0, avg_entry=1.0),
+        lambda: LongPosition(target_user_id="u1", shares=0, avg_entry=Decimal("1.00")),
         lambda: ShortPosition(
             target_user_id="u1",
             shares=0,
-            entry_price=1.0,
-            locked_cash=0.0,
-            locked_fund=0.0,
+            entry_price=Decimal("1.00"),
+            locked_cash=Decimal("0.00"),
+            locked_fund=Decimal("0.00"),
             created_at=NOW,
         ),
         lambda: Stock(
             user_id="u1",
-            current=-1.0,
+            current=Decimal("-1.00"),
             history=[],
-            high_24h=0.0,
-            low_24h=0.0,
-            all_time_high=0.0,
+            high_24h=Decimal("0.00"),
+            low_24h=Decimal("0.00"),
+            all_time_high=Decimal("0.00"),
         ),
         lambda: HedgeFund(
             fund_id="u1",
             name="x",
             manager_id="u1",
-            cash_balance=-1.0,
+            cash_balance=Decimal("-1.00"),
             investors={},
         ),
     ],
@@ -494,26 +503,3 @@ def test_invariant_violations_raise_valueerror_not_assertion(
 ) -> None:
     with pytest.raises(ValueError):
         constructor()  # type: ignore[operator]
-
-
-def test_invariant_holds_under_python_optimised_mode_semantics() -> None:
-    """`-O` strips ``assert``; the spec amendment requires ``raise ValueError``.
-
-    We cannot easily run a sub-interpreter with ``-O`` from inside a test
-    suite, but we can confirm the catch-class is ``ValueError`` (which is
-    not stripped) rather than ``AssertionError`` (which would be).
-    """
-    with pytest.raises(ValueError):
-        DailyProgress(last_claim=None, streak=-1)
-    # Confirm by negation: AssertionError must NOT be raised.
-    try:
-        DailyProgress(last_claim=None, streak=-1)
-    except AssertionError:  # pragma: no cover - defensive
-        pytest.fail("invariant raised AssertionError; would be stripped under -O")
-    except ValueError:
-        pass
-
-
-# Cover the `time` import even though not used in models — keep an explicit
-# reference so static analysers don't flag the import as unused. (No-op.)
-_TIME_SENTINEL = time(0, 0)
