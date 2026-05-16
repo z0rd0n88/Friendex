@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Resuming Work
+
+If you are joining an in-flight effort, **start by reading [`handoff/INDEX.md`](./handoff/INDEX.md)** — it lists the most recent handoff per feature/epic so you can pick up without re-deriving context. Every write to `handoff/` is mediated by the project-scoped `handoff` skill (`.claude/skills/handoff/SKILL.md`); see `handoff/CLAUDE.md` for the directory's hard rules.
+
 ## Project
 
 Friendex is a Discord bot that simulates a stock exchange game. Each server member has their own "stock" that others can buy, sell, or short. Prices rise/fall based on real Discord activity (messages, voice time, reactions) tracked by the bot.
