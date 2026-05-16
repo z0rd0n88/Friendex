@@ -21,7 +21,7 @@ Requires a `.env` file with `DISCORD_TOKEN=<token>`. The `data/` directory is au
 
 ## Architecture
 
-**Single-file bot** — all logic lives in `bot.py`. The spec/skeleton is in `Slut Stock xXxchange [Overview + Dev Brief + Code Skeleton].md`.
+**Single-file bot** — all logic lives in `bot.py`. The spec/skeleton is in `docs/spec/original-skeleton.md`.
 
 ### Data Layer
 

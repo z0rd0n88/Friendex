@@ -104,7 +104,7 @@ If granular tracking is wanted, open a sub-issue per phase and replace each chec
 - \`docs/01-current-state.md\` — Phase 1 spec analysis
 - \`docs/02-target-architecture.md\` — Phase 2 target architecture
 - \`docs/04-migration-plan.md\` — this file's expanded source
-- \`Slut Stock xXxchange [Overview + Dev Brief + Code Skeleton].md\` — original spec
+- \`docs/spec/original-skeleton.md\` — original spec
 EOF
 )"
 ```
