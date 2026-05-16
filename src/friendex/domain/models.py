@@ -1,0 +1,156 @@
+"""Domain dataclass models for Friendex.
+
+Each model is a plain :class:`dataclass` with construction-time invariant
+checks via ``__post_init__``. Invariants ``raise ValueError`` rather than
+using ``assert`` so they remain enforced when the interpreter runs with
+``-O`` (which strips ``assert`` statements).
+
+Signatures are derived from ``docs/02-target-architecture.md`` §Domain Model.
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+
+
+@dataclass
+class ActivityBucket:
+    text_msgs: int = 0
+    media_msgs: int = 0
+    voice_minutes: float = 0.0
+    voice_unique_channels: list[str] = field(default_factory=list)
+    reaction_count: int = 0
+    reply_count: int = 0
+    role_ping_joins: float = 0.0
+    role_ping_join_minutes: float = 0.0
+    bucket_start: datetime = field(default_factory=datetime.utcnow)
+
+    def __post_init__(self) -> None:
+        self.voice_unique_channels = [str(c) for c in self.voice_unique_channels]
+
+
+@dataclass
+class DailyProgress:
+    last_claim: datetime | None
+    streak: int
+
+    def __post_init__(self) -> None:
+        if self.streak < 0:
+            raise ValueError("streak must be non-negative")
+
+
+@dataclass
+class LongPosition:
+    target_user_id: str
+    shares: int
+    avg_entry: float
+
+    def __post_init__(self) -> None:
+        if self.shares <= 0:
+            raise ValueError("shares must be positive")
+        if self.avg_entry <= 0:
+            raise ValueError("avg_entry must be positive")
+
+
+@dataclass
+class ShortPosition:
+    target_user_id: str
+    shares: int
+    entry_price: float
+    locked_cash: float
+    locked_fund: float
+    created_at: datetime
+    frozen: bool = False
+
+    def __post_init__(self) -> None:
+        if self.shares <= 0:
+            raise ValueError("shares must be positive")
+        if self.entry_price <= 0:
+            raise ValueError("entry_price must be positive")
+        if self.locked_cash < 0 or self.locked_fund < 0:
+            raise ValueError("locked collateral must be non-negative")
+
+
+@dataclass
+class UserAccount:
+    user_id: str
+    cash_balance: float
+    net_worth: float
+    month_start_net_worth: float
+    long_positions: dict[str, LongPosition]
+    short_positions: dict[str, ShortPosition]
+    today: ActivityBucket
+    week: ActivityBucket
+    daily: DailyProgress
+    last_activity: datetime
+    opt_in: bool = True
+    intro_shown: bool = False
+
+    def __post_init__(self) -> None:
+        if self.cash_balance < 0:
+            raise ValueError("cash_balance must be non-negative")
+
+
+@dataclass
+class PricePoint:
+    price: float
+    timestamp: datetime
+
+
+@dataclass
+class Stock:
+    user_id: str
+    current: float
+    history: list[PricePoint]
+    high_24h: float
+    low_24h: float
+    all_time_high: float
+
+    def __post_init__(self) -> None:
+        if self.current < 0:
+            raise ValueError("price must be non-negative")
+
+
+@dataclass
+class HedgeFund:
+    fund_id: str
+    name: str
+    manager_id: str
+    cash_balance: float
+    investors: dict[str, float]
+
+    def __post_init__(self) -> None:
+        if self.cash_balance < 0:
+            raise ValueError("fund cash must be non-negative")
+
+
+@dataclass
+class FundPenalty:
+    user_id: str
+    penalty_apr: float
+    penalty_until: datetime
+
+
+@dataclass
+class VoiceSession:
+    user_id: str
+    channel_id: int
+    start: datetime
+    from_ping_message_ids: set[int]
+
+
+@dataclass
+class VoicePingSession:
+    message_id: int
+    host_id: str
+    channel_id: int
+    timestamp: datetime
+    first_10_joiners: list[str]
+    extra_joiners: list[str]
+
+
+@dataclass
+class VcExtraBoost:
+    user_id: str
+    ping_time: datetime
+    last_boost: datetime
+    end_time: datetime
