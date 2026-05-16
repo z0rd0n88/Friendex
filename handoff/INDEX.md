@@ -4,7 +4,7 @@ Latest entry per scope. Read the linked file for full context. **New sessions sh
 
 | Scope | Latest | Date | Topic |
 |---|---|---|---|
-| phase-3-domain | [000](./phase-3-domain/000-2026-05-15-phase-3-kickoff.md) | 2026-05-15 | Phase 3 kickoff — blocked on PR #7 merge |
+| phase-3-domain | [001](./phase-3-domain/001-2026-05-15-phase-3-pr11-ready.md) | 2026-05-15 | Phase 3 code-complete; PR #11 open, awaiting review |
 
 *Top-level seed: [`000-2026-05-15-start-handoff.md`](./000-2026-05-15-start-handoff.md) (empty placeholder; establishes the sequence head).*
 
