@@ -17,6 +17,7 @@ Derived from ``docs/02-target-architecture.md`` §Error Handling.
 """
 
 from datetime import time
+from decimal import Decimal
 
 
 class DomainError(Exception):
@@ -49,7 +50,7 @@ class DiscordError(FriendexError):
 
 
 class InsufficientFunds(DomainError):
-    def __init__(self, need: float, have: float) -> None:
+    def __init__(self, need: Decimal, have: Decimal) -> None:
         super().__init__(f"Insufficient funds: need ${need:,.2f}, have ${have:,.2f}.")
         self.need = need
         self.have = have
@@ -111,7 +112,7 @@ class InvalidAmount(DomainError):
 
 
 class FundInsufficientBalance(DomainError):
-    def __init__(self, need: float, have: float) -> None:
+    def __init__(self, need: Decimal, have: Decimal) -> None:
         super().__init__(f"Fund balance too low: need ${need:,.2f}, have ${have:,.2f}.")
         self.need = need
         self.have = have
