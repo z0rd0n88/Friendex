@@ -91,8 +91,7 @@ def test_loads_required_fields_from_fixture_env() -> None:
 def test_loads_required_fields_from_temp_env(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "DISCORD_TOKEN=tmp-token\n"
-        "GUILD_ID=987654321098765432\n",
+        "DISCORD_TOKEN=tmp-token\nGUILD_ID=987654321098765432\n",
         encoding="utf-8",
     )
 
@@ -118,8 +117,7 @@ def test_missing_discord_token_raises_validation_error(tmp_path: Path) -> None:
 def test_placeholder_discord_token_raises_validation_error(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "DISCORD_TOKEN=your_bot_token_here\n"
-        "GUILD_ID=123456789012345678\n",
+        "DISCORD_TOKEN=your_bot_token_here\nGUILD_ID=123456789012345678\n",
         encoding="utf-8",
     )
 
@@ -132,8 +130,7 @@ def test_placeholder_discord_token_raises_validation_error(tmp_path: Path) -> No
 def test_empty_discord_token_raises_validation_error(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "DISCORD_TOKEN=\n"
-        "GUILD_ID=123456789012345678\n",
+        "DISCORD_TOKEN=\nGUILD_ID=123456789012345678\n",
         encoding="utf-8",
     )
 
@@ -168,9 +165,7 @@ def test_parses_photo_bonus_channel_ids_from_csv() -> None:
 def test_parse_int_list_handles_whitespace_and_empties(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "DISCORD_TOKEN=tmp-token\n"
-        "GUILD_ID=1\n"
-        "VC_PING_ROLE_IDS= 100 , 200 ,, 300 \n",
+        "DISCORD_TOKEN=tmp-token\nGUILD_ID=1\nVC_PING_ROLE_IDS= 100 , 200 ,, 300 \n",
         encoding="utf-8",
     )
 
@@ -275,9 +270,7 @@ def test_defaults_match_target_architecture() -> None:
 def test_invalid_log_format_raises_validation_error(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "DISCORD_TOKEN=tmp-token\n"
-        "GUILD_ID=1\n"
-        "LOG_FORMAT=text\n",
+        "DISCORD_TOKEN=tmp-token\nGUILD_ID=1\nLOG_FORMAT=text\n",
         encoding="utf-8",
     )
 
@@ -288,9 +281,7 @@ def test_invalid_log_format_raises_validation_error(tmp_path: Path) -> None:
 def test_console_log_format_is_accepted(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "DISCORD_TOKEN=tmp-token\n"
-        "GUILD_ID=1\n"
-        "LOG_FORMAT=console\n",
+        "DISCORD_TOKEN=tmp-token\nGUILD_ID=1\nLOG_FORMAT=console\n",
         encoding="utf-8",
     )
 
