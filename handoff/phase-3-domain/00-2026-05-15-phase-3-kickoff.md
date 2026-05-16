@@ -1,0 +1,99 @@
+# Handoff: Phase 3 domain models — ready to start once Phase 2 merges
+
+**Date:** 2026-05-15
+**Scope:** phase-3-domain
+**Branch:** (not yet created) → `feat/phase-3-domain-models`
+**Worktree:** (not yet created) → `.worktrees/phase-3-domain-models`
+**HEAD:** main @ `7092855 c1` — Phase 3 branches from `main` *after* PR #7 merges.
+
+## Where things stand
+
+Phase 2 (Config & Constants) is **ready for review** as PR #7 on branch
+`feat/phase-2-config` @ `d30f421 style: apply ruff format to test_config.py`.
+All four CI gates pass locally (`ruff format --check`, `ruff check`,
+`mypy src/`, `pytest --cov-fail-under=90`); both matrix jobs on GitHub Actions
+(Python 3.11 + 3.12) are green on run
+[25949363113](https://github.com/z0rd0n88/Friendex/actions/runs/25949363113).
+The PR body has been refreshed to reference the renamed `friendex` package
+(it formerly cited the pre-rename `stockxchange` paths). Coverage of
+`src/friendex/adapters/config.py` is 100% over 78 statements / 14 branches.
+**Phase 3 is blocked only on Phase 2 review/merge** — no other dependencies.
+
+## Next steps
+
+1. **Wait for PR #7 to merge.** Phase 3 branches from `main` *after* the
+   Phase 2 commits land, so the new `Settings` class is importable from
+   `friendex.adapters.config` when domain models or tests need it
+   (Phase 3 itself does not depend on `Settings`, but Phase 4 does, and
+   keeping the branch order linear avoids merge churn).
+
+2. **Create the Phase 3 worktree and branch:**
+   ```bash
+   git worktree add .worktrees/phase-3-domain-models -b feat/phase-3-domain-models main
+   ```
+
+3. **Implement per `docs/04-migration-plan.md` §Phase 3** (lines 247–272):
+   - `src/friendex/domain/models.py` — dataclasses with exact signatures from
+     `docs/02-target-architecture.md` §Domain Model:
+     `ActivityBucket`, `DailyProgress`, `LongPosition`, `ShortPosition`,
+     `UserAccount`, `PricePoint`, `Stock`, `HedgeFund`, `FundPenalty`,
+     `VoiceSession`, `VoicePingSession`, `VcExtraBoost`. Each model must carry
+     `__post_init__` invariant checks that `raise ValueError(...)` per Phase 3a
+     correction.
+   - `src/friendex/domain/errors.py` — `DomainError(user_facing_message: str)`
+     base plus subclasses: `InsufficientFunds`, `MarketClosed`, `PositionFrozen`,
+     `OnCooldown`, `OptedOut`, `NoPosition`, `InsufficientShares`, `SelfTrade`,
+     `InvalidAmount`, `FundInsufficientBalance`, `AlreadyOptedIn`,
+     `AlreadyOptedOut`. Plus infrastructure-error bases: `FriendexError`,
+     `PersistenceError`, `DiscordError`. **`PersistenceError` must NOT inherit
+     from `DomainError`** — Phase 3 tests assert this.
+   - `tests/domain/__init__.py`
+   - `tests/domain/test_models.py` — per-model: happy-path construction;
+     every `__post_init__` invariant fails with `ValueError` on bad input;
+     equality semantics; `voice_unique_channels` int→str normalisation.
+   - `tests/domain/test_errors.py` — each `DomainError` subclass carries its
+     expected user-facing message; `MarketClosed(open_at, close_at)
+     .user_facing_message` is well-formed; `PersistenceError` is not a
+     `DomainError` subclass.
+
+4. **Verification gate** (must pass before opening the PR):
+   ```bash
+   uv run ruff check src/friendex/domain/ tests/domain/
+   uv run mypy src/friendex/domain/
+   uv run pytest tests/domain/ -v --cov=src/friendex/domain --cov-fail-under=95
+   ```
+   Note `--cov-fail-under=95` is higher than Phase 2's `90` — Phase 3 is pure
+   data + invariants, so the bar is tighter.
+
+5. **Commit boundary guidance from the plan:** three commits —
+   (1) `feat(domain): dataclass models with invariants`,
+   (2) `feat(domain): error taxonomy`,
+   (3) `test(domain): models and errors`.
+
+6. **Open PR** referencing `#2` (master tracking issue) and citing
+   `docs/04-migration-plan.md` §Phase 3.
+
+## Open questions / risks
+
+- **`--cov=src/friendex/domain` path form.** Phase 2 hit a `pytest-cov`
+  resolution bug with the literal `--cov=src/friendex/adapters/config` form
+  (matches neither a directory nor a dotted module). The Phase 3 plan uses
+  `--cov=src/friendex/domain`, which IS a valid directory once the package
+  exists — so this should work, but verify before reporting coverage.
+- **Dataclass equality and `voice_unique_channels` normalisation.** The
+  models spec mentions an int→str normalisation step for
+  `voice_unique_channels`. Confirm in `docs/02-target-architecture.md`
+  §Domain Model whether this lives in `__post_init__` or a separate helper.
+- **`DomainError` constructor signature.** Plan reads
+  `DomainError(user_facing_message: str)` — confirm whether subclasses take
+  the same single-arg form or accept additional context fields
+  (`MarketClosed(open_at, close_at)` suggests they do). Cross-check with
+  `docs/02-target-architecture.md` §Errors before writing the base.
+
+## References
+
+- **PR:** [#7 — feat(phase-2): config & constants](https://github.com/z0rd0n88/Friendex/pull/7) (ready for review)
+- **Issue:** [#2 — Refactor: Greenfield build of StockXchange from spec](https://github.com/z0rd0n88/Friendex/issues/2) (master tracking)
+- **Plan:** `docs/04-migration-plan.md` §Phase 3 (lines 247–272)
+- **Target arch:** `docs/02-target-architecture.md` §Domain Model, §Errors
+- **Phase 2 closure commit:** `d30f421` on `feat/phase-2-config`
