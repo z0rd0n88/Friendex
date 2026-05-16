@@ -1,73 +1,133 @@
 ---
 name: handoff
-description: Sole authorized writer to the project's handoff/ directory — creates a new session handoff note under the correct feature/epic subdirectory with the next sequential number, or initializes the handoff architecture on first use.
+description: Write session handoff notes to handoff/ in this repository. Triggers - "hand off the session", "write a handoff", "save state for next session", "handoff for <feature>", or before ending a working block whose context the next session needs to inherit.
 ---
 
 # handoff
 
-This skill owns every write to `handoff/`. It enforces three invariants the
-directory's `CLAUDE.md` codifies as hard rules:
-
-1. **Sequential numbering** — filename prefix `NN` is `max(existing NN) + 1`,
-   zero-padded to at least two digits, per-directory.
-2. **Feature/epic subdirectories** — handoffs about a feature or epic live in
-   `handoff/<kebab-case-name>/`, never at the top level.
-3. **Append-only** — existing handoff files are never edited or renumbered.
-
-## When to invoke
-
-Trigger phrases: "hand off this session", "write a handoff", "create handoff
-notes", "handoff for phase N", "save state for the next session".
-
-Also invoke proactively when the user signals the end of a working block whose
-state the next Claude Code session will need (open PRs in flight, partial
-implementations, blocked work waiting on an external signal).
+Sole authorized writer to `handoff/`. Enforces the directory's three hard
+rules (see `handoff/CLAUDE.md`): three-digit sequential numbering per
+directory, feature/epic subdirectories, append-only.
 
 ## Workflow
 
-1. **Identify scope.** Ask one short question if unclear: is this a
-   feature/epic handoff (→ subdirectory) or a cross-cutting one (→ top level)?
-   For feature handoffs, derive the subdir slug from the branch name or phase
-   identifier (e.g., `feat/phase-3-domain-models` → `phase-3-domain`).
+### 1. Determine scope
 
-2. **Resolve target directory.**
-   - Feature/epic: `handoff/<slug>/`. `mkdir -p` if it does not exist.
-   - Cross-cutting: `handoff/` top level (rare — most handoffs are scoped).
+- **Feature/epic handoff** → goes in `handoff/<slug>/`.
+  - Derive the slug from the branch name or phase identifier (e.g.,
+    `feat/phase-3-domain-models` → `phase-3-domain`).
+  - **List existing subdirectories first:** `ls handoff/ | grep -v '\.md$'`.
+    If a close match already exists (case- or hyphen-insensitive), USE IT.
+    Inventing `phase3-domain` when `phase-3-domain` already exists is the
+    most common drift failure.
+  - Only create a new subdirectory when no existing one matches. Confirm
+    the name with the user if it's not derivable from a branch/phase.
+- **Cross-cutting handoff** → goes at the top level of `handoff/`. Rare;
+  reserved for seed entries, retrospectives spanning multiple features,
+  and the like.
 
-3. **Compute the next number.**
-   ```bash
-   ls handoff/<slug>/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1
-   ```
-   - If no output → `NN = 00`.
-   - Otherwise → `NN = printf '%02d' $((max + 1))`.
-   - Two-digit minimum; widen to three only if `NN ≥ 100` (unlikely).
-   - Never reuse a deleted number. Always `max + 1`, not `count + 1`.
+### 2. Pick a template
 
-4. **Compose filename.** `NN-YYYY-MM-DD-<slug>.md` where:
-   - `YYYY-MM-DD` is today's date.
-   - `<slug>` is a 2–5 word kebab-case topic identifier — *not* the same as
-     the subdirectory slug. Subdir = scope; file slug = what this handoff is
-     about within that scope.
+Three variants — choose by the *kind* of handoff this is, not the project
+phase. See [Templates](#templates) below.
 
-5. **Gather state.** Before writing, collect:
-   - Current branch and worktree path.
-   - HEAD commit SHA + subject.
-   - Open PRs / issues relevant to the scope (`gh pr list`, `gh issue view`).
-   - Verification command results if any gate ran this session.
+| Variant | Use when |
+|---|---|
+| **phase-closure** | A clean unit of work just finished; next session picks up the next phase. Most common. |
+| **mid-investigation** | Paused mid-debug; the next session needs your hypothesis tree, what was ruled out, what to try next. |
+| **blocked-on-external** | Waiting on CI / review / external answer / a human decision. Short; mostly "what we're waiting for and why." |
 
-6. **Write the file** using the template below. Keep it under ~150 lines —
-   handoffs are quick context, not full documentation.
+### 3. Compute the next number
 
-7. **Stop.** Do not stage, commit, or push. The user controls when handoff
-   entries land. Do not edit any existing handoff file.
+```bash
+ls handoff/<scope>/ 2>/dev/null \
+  | grep -oE '^[0-9]+' \
+  | sort -n | tail -1
+```
 
-## Template
+- No output → `NNN = 000`.
+- Otherwise → `NNN = printf '%03d' $((max + 1))`.
+- **Always `max + 1`, never `count + 1`.** Deleted entries leave gaps that
+  stay as gaps.
+- Three-digit minimum; widens naturally past `999` (extremely unlikely).
+
+### 4. Get today's date
+
+```bash
+date +%F
+```
+
+Always run this — never rely on the session's recollection of the date or
+on the model's pretrained "current date." Long sessions go stale.
+
+### 5. Compose the filename
+
+`NNN-YYYY-MM-DD-<slug>.md` where `<slug>` is a 2–5 word kebab-case topic
+identifier. The file slug describes *what this handoff is about*; the
+subdirectory slug is the *scope* — they should not match each other.
+
+### 6. Gather state
+
+Before composing content, collect from the live repo (don't recall from
+memory — verify):
+
+- Current branch: `git branch --show-current`
+- Worktree path: `git rev-parse --show-toplevel`
+- HEAD: `git log -1 --format='%h %s'`
+- Open PRs in scope: `gh pr list --state open --search '<scope>'`
+- Issues referenced: `gh issue view <n>` for each
+- Verification results if any gate ran this session — paste actual output,
+  not a description of what should have happened.
+
+### 7. Write the file
+
+Use the matching template from [Templates](#templates). Keep handoffs under
+~150 lines — they are quick context, not full docs.
+
+### 8. Update `handoff/INDEX.md`
+
+After writing the handoff file, refresh `handoff/INDEX.md` so it points at
+the latest entry per scope. The index is a quick map for the next session:
+each scope has one row pointing at its highest-numbered handoff.
+
+If `INDEX.md` doesn't exist, create it.
+
+### 9. Completeness check
+
+Before reporting "done," verify the handoff has:
+
+- [ ] HEAD short SHA + subject (from `git log -1 --format='%h %s'`)
+- [ ] Branch name (current, even if not yet pushed)
+- [ ] At least one link: PR, issue, or doc path
+- [ ] At least one concrete next step with a file path or command
+- [ ] Absolute date in `YYYY-MM-DD` form — no relative phrases
+- [ ] Filename uses `NNN` (three digits), not `NN`
+- [ ] `INDEX.md` updated
+
+A handoff missing the SHA or PR link is half-useful. The check costs ten
+seconds.
+
+### 10. Stop — do not commit by default
+
+By default the skill **writes only** — it does not stage, commit, or push.
+The user controls when handoff entries land.
+
+**Exception:** if the user explicitly says "commit it", "include in the
+commit", "save and push", or similar, commit (and push if requested) the
+new handoff file + the `INDEX.md` update together as a single commit with
+a message like `docs(handoff): <scope> — <one-line topic>`.
+
+Never edit existing handoff entries — they are append-only.
+
+## Templates
+
+### phase-closure
 
 ```markdown
 # Handoff: <one-line topic>
 
 **Date:** YYYY-MM-DD
-**Scope:** <feature or epic name>
+**Scope:** <scope>
 **Branch:** <branch-name>
 **Worktree:** <path>
 **HEAD:** <short-sha> <commit subject>
@@ -75,8 +135,7 @@ implementations, blocked work waiting on an external signal).
 ## Where things stand
 
 <One paragraph. What was accomplished, what is currently waiting, and on
-whom or what. End with the literal current blocking state, e.g. "PR #7 is
-ready for review; CI green on Python 3.11 + 3.12.">
+whom or what. End with the literal current blocking state.>
 
 ## Next steps
 
@@ -95,17 +154,124 @@ ready for review; CI green on Python 3.11 + 3.12.">
 - Code: `src/<path>:<line>`
 ```
 
+### mid-investigation
+
+```markdown
+# Handoff: <one-line bug or behavior under investigation>
+
+**Date:** YYYY-MM-DD
+**Scope:** <scope>
+**Branch:** <branch-name>
+**Worktree:** <path>
+**HEAD:** <short-sha> <commit subject>
+
+## Symptom
+
+<What is failing or behaving unexpectedly. Paste the actual error / output.>
+
+## Hypothesis tree
+
+- [ ] **H1:** <hypothesis> — <status: ruled out / partially confirmed / untested>
+  - Evidence: <what we observed>
+- [ ] **H2:** ...
+- [ ] **H3:** ...
+
+## What's been ruled out
+
+- <Things that were tried and did not change the symptom.>
+
+## Best next probe
+
+1. <The single most informative experiment to run next, and why.>
+2. <Fallback if the first probe is inconclusive.>
+
+## References
+
+- PRs: #<n>
+- Failing test / repro: `<path>` or `<command>`
+- Related code: `src/<path>:<line>`
+```
+
+### blocked-on-external
+
+```markdown
+# Handoff: Waiting on <what>
+
+**Date:** YYYY-MM-DD
+**Scope:** <scope>
+**Branch:** <branch-name>
+**Worktree:** <path>
+**HEAD:** <short-sha> <commit subject>
+
+## Blocking signal
+
+<What we're waiting for: a CI run, a review, an external answer, a
+decision. Include the URL / PR number / person if applicable.>
+
+## What's done and ready
+
+<One paragraph: the work that's complete and parked, so the next session
+can verify nothing has rotted before unblocking.>
+
+## What to do when unblocked
+
+1. <First action once the block clears.>
+2. <...>
+
+## Fallback if the block doesn't clear
+
+- <Acceptable degraded path, if any.>
+
+## References
+
+- PRs: #<n>
+- Issues: #<n>
+- External: <URL / channel / person>
+```
+
+## Index format
+
+`handoff/INDEX.md` structure — overwritten on every skill invocation:
+
+```markdown
+# Handoff Index
+
+Latest entry per scope. Read the linked file for full context. New sessions
+should start here.
+
+| Scope | Latest | Date | Topic |
+|---|---|---|---|
+| phase-2-config | [001](./phase-2-config/001-2026-05-15-pr7-ready.md) | 2026-05-15 | PR #7 ready for review |
+| phase-3-domain | [000](./phase-3-domain/000-2026-05-15-phase-3-kickoff.md) | 2026-05-15 | Phase 3 kickoff |
+
+*(top-level seed: [000-2026-05-15-start-handoff.md](./000-2026-05-15-start-handoff.md))*
+```
+
+One row per scope, pointing at the *highest-numbered* file in that
+subdirectory. Older handoffs in the same scope are not listed in the index
+(they remain on disk and are reachable by reading the latest one and
+following its `## References` upward).
+
 ## Gotchas
 
-- **Date stays absolute.** Use today's actual `YYYY-MM-DD`. Never write
-  "today", "yesterday", or a weekday name — handoff entries are read out of
-  context, possibly weeks later.
-- **Scope ≠ branch.** The subdir slug is the *feature/epic* identifier, which
-  may outlive a single branch. Phase 3 work might span `feat/phase-3-domain-models`
-  → `fix/phase-3-followup`; both belong in `handoff/phase-3-domain/`.
-- **No skill self-reference.** Handoff content is for the next *engineering*
-  session — it should not mention this skill, the handoff directory's rules,
-  or meta-architecture concerns. Those live in `handoff/CLAUDE.md`.
-- **Numbering is per-directory.** `handoff/phase-2-config/00-...` and
-  `handoff/phase-3-domain/00-...` are both valid sequence heads; the `00` is
-  not globally unique.
+- **Scope ≠ branch.** Subdirectory slug is the *feature/epic* identifier,
+  which may outlive a single branch. `phase-3-domain` covers both
+  `feat/phase-3-domain-models` and any later `fix/phase-3-followup`.
+- **No skill self-reference in handoff content.** Handoffs are for the
+  next *engineering* session — never mention this skill, the `handoff/`
+  directory rules, or meta-architecture. Those belong in
+  `handoff/CLAUDE.md`.
+- **Numbering is per-directory.** `handoff/phase-2-config/000-...` and
+  `handoff/phase-3-domain/000-...` both validly start at `000`.
+- **`max + 1`, not `count + 1`.** Deleted entries leave gaps that stay
+  as gaps. The sequence is an append-only audit trail; the gap itself is
+  information ("an entry used to live here").
+
+## Future enhancement (not implemented)
+
+A `SessionStart` hook in `.claude/settings.json` could automatically print
+the latest handoff per scope into the next session's context, removing
+the need for the user to point at `handoff/INDEX.md` manually. Held off
+because `settings.json` has a known clobber issue when `claude.exe` is
+running (see global `CLAUDE.md` → "Settings.json edits are clobbered").
+Revisit once that's resolved.
