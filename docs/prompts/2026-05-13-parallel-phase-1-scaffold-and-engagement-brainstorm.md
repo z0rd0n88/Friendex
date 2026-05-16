@@ -48,7 +48,7 @@ Hard constraint: if Phase 1 verification fails, fix and re-run — do not advanc
 Invoke `/product-management:product-brainstorming` to ideate ways to make Friendex more engaging for Discord players. Pure ideation — touches no code.
 
 Inputs to ground the agent:
-- Game premise: `CLAUDE.md` §Project and `Slut Stock xXxchange [Overview + Dev Brief + Code Skeleton].md`.
+- Game premise: `CLAUDE.md` §Project and `docs/spec/original-skeleton.md`.
 - Current command surface and mechanics: `docs/01-current-state.md` §Bot Commands and §Data Model.
 
 Deliverable: write `docs/product/2026-05-13-engagement-ideas.md` containing:

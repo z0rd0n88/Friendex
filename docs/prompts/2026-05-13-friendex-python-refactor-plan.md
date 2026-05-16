@@ -16,7 +16,7 @@ All planning docs land in `docs/`. Do not modify `bot.py` or any runtime code.
 
 ## Phase 1 — Explore Current State
 
-Use the `feature-dev:code-explorer` agent. Read `bot.py` in full plus `Slut Stock xXxchange [Overview + Dev Brief + Code Skeleton].md`.
+Use the `feature-dev:code-explorer` agent. Read `bot.py` in full plus `docs/spec/original-skeleton.md`.
 
 Produce `docs/01-current-state.md`:
 
