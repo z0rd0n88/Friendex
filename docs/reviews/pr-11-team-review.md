@@ -1,6 +1,6 @@
 # PR #11 Team Review — Phase 3 Domain Models & Error Taxonomy
 
-**Status:** Findings captured. Implementation deferred to a future session.
+**Status:** Findings captured. Phase 3.1 (A1+A2+A7) **implemented** on this same branch and PR (`docs/pr-11-team-review` / #13). Phase 3.2 (A3–A6) remains open.
 
 **Subject PR:** [#11 — feat(phase-3): domain models & error taxonomy](https://github.com/z0rd0n88/Friendex/pull/11) (merged)
 
@@ -46,23 +46,23 @@ Both are materially cheaper to fix *before* Phase 4 commits to column types and 
 
 Tracked as a single ordered list so a future session can implement them in one or two PRs. Severity is the manager-escalated value (multi-reviewer consensus may exceed any single reviewer's rating).
 
-### Phase 3.1 — blocking PR (before Phase 4 starts)
+### Phase 3.1 — blocking PR (before Phase 4 starts) — ✅ implemented in this PR
 
-- [ ] **A1 (HIGH, effort M)** — Migrate money/price fields from `float` to `decimal.Decimal`
-  - Fields: `UserAccount.cash_balance`, `UserAccount.net_worth`, `UserAccount.month_start_net_worth`, `LongPosition.avg_entry`, `ShortPosition.entry_price`, `ShortPosition.locked_cash`, `ShortPosition.locked_fund`, `PricePoint.price`, `Stock.current`, `Stock.high_24h`, `Stock.low_24h`, `Stock.all_time_high`, `HedgeFund.cash_balance`, `HedgeFund.investors` (values), `FundPenalty.penalty_apr`.
-  - Also update exception signatures: `InsufficientFunds(need, have)` and `FundInsufficientBalance(need, have)` to accept `Decimal`. `Decimal` supports `:,.2f` formatting, so the user-facing message templates do not need to change.
-  - Update tests in `tests/domain/test_models.py` and `tests/domain/test_errors.py` to construct with `Decimal("…")` literals.
-  - Decide quantisation policy (recommend `Decimal('0.01')` for currency, `Decimal('0.0001')` for rates) and document in the module docstring.
-  - `voice_minutes`, `role_ping_joins`, `role_ping_join_minutes` stay as `float` — these are duration/count measurements, not money.
+- [x] **A1 (HIGH, effort M)** — Migrate money/price fields from `float` to `decimal.Decimal`
+  - Fields migrated: `UserAccount.cash_balance`, `UserAccount.net_worth`, `UserAccount.month_start_net_worth`, `LongPosition.avg_entry`, `ShortPosition.entry_price`, `ShortPosition.locked_cash`, `ShortPosition.locked_fund`, `PricePoint.price`, `Stock.current`, `Stock.high_24h`, `Stock.low_24h`, `Stock.all_time_high`, `HedgeFund.cash_balance`, `HedgeFund.investors` (values), `FundPenalty.penalty_apr`.
+  - Exception signatures updated: `InsufficientFunds(need: Decimal, have: Decimal)` and `FundInsufficientBalance(need: Decimal, have: Decimal)`. `Decimal` supports `:,.2f`, so user-facing message templates are unchanged.
+  - Tests in `tests/domain/test_models.py` and `tests/domain/test_errors.py` now construct with `Decimal("…")` literals.
+  - Quantisation policy documented in `src/friendex/domain/models.py` module docstring: currency → `Decimal('0.01')`, rates → `Decimal('0.0001')`. Invariants do not auto-quantise; callers supply quantised values.
+  - `voice_minutes`, `role_ping_joins`, `role_ping_join_minutes` left as `float` (duration/count, not money).
 
-- [ ] **A2 (HIGH, effort S)** — Replace `datetime.utcnow` with `datetime.now(tz=UTC)`
+- [x] **A2 (HIGH, effort S)** — Replace `datetime.utcnow` with `datetime.now(tz=UTC)`
   - `models.py`: `ActivityBucket.bucket_start = field(default_factory=lambda: datetime.now(tz=UTC))`.
-  - Add `UTC` to the imports: `from datetime import UTC, datetime`.
-  - Tests: `tests/domain/test_models.py` line 32 — change `NOW = datetime(2026, 5, 15, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)` to `NOW = datetime(2026, 5, 15, 12, 0, 0, tzinfo=UTC)`.
+  - Imports updated to `from datetime import UTC, datetime`.
+  - Tests: `NOW` constant is now `datetime(2026, 5, 15, 12, 0, 0, tzinfo=UTC)` (no `.replace(tzinfo=None)` workaround). Defaults test asserts `bucket.bucket_start.tzinfo is UTC`.
 
-- [ ] **A7 (LOW, effort S)** — Bundle with A2: delete the `-O`-mode test cruft
-  - `tests/domain/test_models.py` lines 499–514: remove the redundant second `try/except AssertionError` block. `pytest.raises(ValueError)` on line 506 already proves `AssertionError` was not raised.
-  - Lines 517–519: remove the `_TIME_SENTINEL = time(0, 0)` workaround and remove `time` from `from datetime import UTC, datetime, time` — neither is actually needed.
+- [x] **A7 (LOW, effort S)** — Bundled with A2: deleted the `-O`-mode test cruft
+  - `tests/domain/test_models.py`: redundant second `try/except AssertionError` block removed (`pytest.raises(ValueError)` already proves `AssertionError` was not raised). The dedicated `test_invariant_holds_under_python_optimised_mode_semantics` function went with it.
+  - `_TIME_SENTINEL = time(0, 0)` workaround removed and `time` dropped from the test imports.
 
 ### Phase 3.2 — polish PR (in parallel with Phase 4)
 
