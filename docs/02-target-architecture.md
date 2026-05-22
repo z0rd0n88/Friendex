@@ -98,18 +98,18 @@ src/
         │   └── penalty_repo.py         # JsonPenaltyRepository implements IPenaltyRepo
         ├── discord_bot/
         │   ├── __init__.py
-        │   ├── bot.py                  # Bot factory: intents, prefix, on_ready hook
+        │   ├── bot.py                  # Bot factory: intents, slash-command tree sync, setup_hook
         │   ├── error_handler.py        # Top-level on_command_error and domain-error-to-embed mapper
         │   ├── embeds.py               # All discord.Embed builders (pure functions, no Discord state)
         │   ├── cogs/
         │   │   ├── __init__.py
-        │   │   ├── trading_cog.py      # $buy, $sell, $short, $cover
-        │   │   ├── portfolio_cog.py    # $portfolio / $pf / $mp
-        │   │   ├── fund_cog.py         # $fund create/info/withdraw/send_events/invest
-        │   │   ├── daily_cog.py        # $daily
-        │   │   ├── stats_cog.py        # $trending, $mystats, $price / $ticker / $my_stock
-        │   │   ├── account_cog.py      # $balance / $mb, $optin, $optout
-        │   │   └── admin_cog.py        # $game_intro, $help (manage_guild check)
+        │   │   ├── trading_cog.py      # /buy, /sell, /short, /cover
+        │   │   ├── portfolio_cog.py    # /portfolio
+        │   │   ├── fund_cog.py         # /fund create/info/withdraw/send_events/invest (Group)
+        │   │   ├── daily_cog.py        # /daily
+        │   │   ├── stats_cog.py        # /trending, /mystats, /price, /mystock
+        │   │   ├── account_cog.py      # /balance, /optin, /optout
+        │   │   └── admin_cog.py        # /game_intro, /help (manage_guild check)
         │   └── listeners/
         │       ├── __init__.py
         │       ├── message_listener.py # on_message → activity_service + voice_ping_service
@@ -548,9 +548,9 @@ class Settings(BaseSettings):
     )
 
     # Discord
+    # Slash commands sync to ``guild_id`` — there is no message-content prefix.
     discord_token: str
     guild_id: int
-    command_prefix: str = "$"
 
     # Database
     database_url: str = "sqlite+aiosqlite:///data/friendex.db"
@@ -605,8 +605,8 @@ DISCORD_TOKEN=your_bot_token_here
 GUILD_ID=123456789012345678
 
 # Optional — override defaults
+# (Commands are slash commands synced to GUILD_ID — there is no command prefix.)
 DATABASE_URL=sqlite+aiosqlite:///data/friendex.db
-COMMAND_PREFIX=$
 MARKET_OPEN=06:30
 MARKET_CLOSE=04:30
 TIMEZONE_OFFSET_HOURS=0
@@ -738,8 +738,8 @@ FriendexError (base)
 ### Error Flow
 
 ```
-Discord command invocation
-    → cog method
+Discord slash-command interaction
+    → cog app_command callback
         → application service
             → raises DomainError            ← game rule violated
         OR → raises PersistenceError        ← DB write failed
@@ -789,7 +789,7 @@ class LockManager:
 
 ### Serialisation Strategy
 
-**Trade commands (`$buy`, `$sell`, `$short`, `$cover`):** Acquire locks for both the **buyer/seller** and the **target** (the stock being traded). Lock acquisition is sorted by ID to prevent deadlock.
+**Trade commands (`/buy`, `/sell`, `/short`, `/cover`):** Acquire locks for both the **buyer/seller** and the **target** (the stock being traded). Lock acquisition is sorted by ID to prevent deadlock.
 
 **Activity events (`on_message`, `on_reaction_add`):** Acquire lock for the **author** only.
 
@@ -800,7 +800,7 @@ class LockManager:
 **Ordering:** No command or event handler holds a user lock for more than one `await` that involves I/O outside the repository layer. The repository `session.commit()` is the only I/O inside a lock.
 
 **This resolves the following Phase 1 risks:**
-- Concurrent `$buy`/`$sell`/`$short` race on same target price: resolved — both buyer and target are locked before any read.
+- Concurrent `/buy`/`/sell`/`/short` race on same target price: resolved — both buyer and target are locked before any read.
 - `save_data()` concurrent file writes: resolved — SQLite WAL serialises writers natively; aiosqlite's single connection also serialises writes at the Python level.
 - `calculate_net_worth` side-effect write during read: resolved — `ensure_*` functions no longer call `save_data()`; the portfolio service reads without acquiring any lock (reads are always consistent because writes are serialised).
 
@@ -868,7 +868,9 @@ class LiquidationTask:
 
 ### Cog Pattern
 
-Each cog is a `commands.Cog` subclass. Constructor receives only the application service(s) it needs, injected by `container.py`. Cogs do not import repository classes. Cogs call service methods and then call embed builder functions from `adapters/discord_bot/embeds.py` to construct responses.
+Each cog is a `commands.Cog` subclass holding **slash commands** (`discord.app_commands`). The constructor receives only the application service(s) it needs, injected by `container.py`. Cogs do not import repository classes. Cogs call service methods and then call embed builder functions from `adapters/discord_bot/embeds.py` to construct responses.
+
+Commands are declared with `@app_commands.command` and receive a `discord.Interaction` (not a `commands.Context`). Parameter types (`discord.Member`, `int`) are validated by Discord *before* the callback runs, so hand-rolled mention/int parsing disappears. Replies go through the interaction: the `ephemeral` flag replaces the old `delete_after=15` cleanup — `True` for personal/read commands, `False` for action commands so trades stay visible in-channel. Commands that do async work `defer()` first, then `followup.send(...)` (the slash equivalent of the old `async with ctx.typing()`).
 
 ```python
 # adapters/discord_bot/cogs/trading_cog.py
@@ -877,29 +879,37 @@ class TradingCog(commands.Cog):
         self._trading = trading_service
         self._settings = settings
 
-    @commands.command(name="buy")
-    async def buy(self, ctx: commands.Context, member: discord.Member, shares: int):
-        async with ctx.typing():
-            result = await self._trading.buy(
-                buyer_id=str(ctx.author.id),
-                target_id=str(member.id),
-                shares=shares,
-            )
+    @app_commands.command(name="buy", description="Buy shares of a member's stock")
+    @app_commands.describe(user="Whose stock to buy", shares="How many shares")
+    async def buy(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        shares: app_commands.Range[int, 1],  # Discord enforces shares >= 1
+    ) -> None:
+        await interaction.response.defer()  # actions are public (not ephemeral)
+        result = await self._trading.buy(
+            buyer_id=str(interaction.user.id),
+            target_id=str(user.id),
+            shares=shares,
+        )
         embed = build_buy_confirmation_embed(result)
-        await ctx.send(embed=embed, delete_after=15)
+        await interaction.followup.send(embed=embed)
 ```
 
 ### Cog Inventory
 
-| Cog | Commands | Application Services |
-|---|---|---|
-| `TradingCog` | `$buy`, `$sell`, `$short`, `$cover` | `TradingService` |
-| `PortfolioCog` | `$portfolio` / `$pf` / `$mp` | `PortfolioService` |
-| `FundCog` | `$fund create/info/withdraw/send_events/invest` | `FundService` |
-| `DailyCog` | `$daily` | `DailyService` |
-| `StatsCog` | `$trending`, `$mystats`, `$price` / `$ticker` / `$my_stock` | `StatsService`, `PortfolioService` |
-| `AccountCog` | `$balance` / `$mb`, `$optin`, `$optout` | `PortfolioService`, `ActivityService` |
-| `AdminCog` | `$game_intro`, `$help` | None (static embeds) |
+| Cog | Commands | Reply visibility | Application Services |
+|---|---|---|---|
+| `TradingCog` | `/buy`, `/sell`, `/short`, `/cover` | public | `TradingService` |
+| `PortfolioCog` | `/portfolio` | ephemeral | `PortfolioService` |
+| `FundCog` | `/fund create/info/withdraw/send_events/invest` | info ephemeral; mutations public | `FundService` |
+| `DailyCog` | `/daily` | public | `DailyService` |
+| `StatsCog` | `/trending`, `/mystats`, `/price`, `/mystock` | `/trending` public; rest ephemeral | `StatsService`, `PortfolioService` |
+| `AccountCog` | `/balance`, `/optin`, `/optout` | ephemeral | `PortfolioService`, `ActivityService` |
+| `AdminCog` | `/game_intro`, `/help` | `/game_intro` public; `/help` ephemeral | None (static embeds) |
+
+`/fund` is a `discord.app_commands.Group`: its subcommands surface as `/fund create`, `/fund info`, `/fund withdraw`, `/fund send_events`, and `/fund invest`. Slash commands have no aliases, so the original `$mb` / `$pf` / `$mp` / `$ticker` aliases are dropped — Discord's command autocomplete replaces them, and `$my_stock` becomes the standalone `/mystock`.
 
 ### Listener Inventory
 
@@ -914,7 +924,7 @@ Each listener is a `commands.Cog` subclass registered with `bot.add_cog()`. List
 
 ### Command/Listener Independence
 
-Listeners do not call cog methods and cogs do not call listener methods. Both delegate to the same application services. This means the activity recording for a `$buy` (if any) goes through `ActivityService` called from `MessageListener`, not from `TradingCog`. The separation is clean.
+Listeners do not call cog methods and cogs do not call listener methods. Both delegate to the same application services. This means the activity recording for a `/buy` (if any) goes through `ActivityService` called from `MessageListener`, not from `TradingCog`. The separation is clean.
 
 ---
 
@@ -923,15 +933,15 @@ Listeners do not call cog methods and cogs do not call listener methods. Both de
 | # | Question | Decision |
 |---|---|---|
 | 1 | `MARKET_CLOSE` is `time(6, 25)` but spec says `04:30`. | **Architectural decision: use `04:30`.** The constant is moved to `Settings.market_close` with default `time(4, 30)`. The skeleton value is a typo. The `is_market_open` overnight-window branch requires `MARKET_OPEN > MARKET_CLOSE`, which is satisfied by `06:30 > 04:30`. |
-| 2 | Sunday buy-only: is `$buy` intentionally exempt from Sunday closed? | **Deferred to implementation phase.** The architecture makes market-hours enforcement a single call to `market_hours.is_market_open(dt, command_type)` with an optional `allow_sunday_buy: bool` parameter. The business rule is encoded in `Settings.sunday_buy_allowed: bool = True` so it can be toggled without code changes. |
+| 2 | Sunday buy-only: is `/buy` intentionally exempt from Sunday closed? | **Deferred to implementation phase.** The architecture makes market-hours enforcement a single call to `market_hours.is_market_open(dt, command_type)` with an optional `allow_sunday_buy: bool` parameter. The business rule is encoded in `Settings.sunday_buy_allowed: bool = True` so it can be toggled without code changes. |
 | 3 | `opt_in` flag: does opt-out make a user untradeable? | **Architectural decision: enforce the flag.** `TradingService.buy/sell/short` checks `target.opt_in` and raises `OptedOut` if False. The spec's CLAUDE.md says "Consent to be a tradeable stock." The confirmation text saying "still tradable" is treated as incorrect copy. A `settings.opt_out_blocks_trading: bool = True` toggle is provided for the implementation team to override if the game-design decision reverses. |
 | 4 | Activity bucket reset schedule. | **Architectural decision: UTC midnight for `today`; Monday 00:00 UTC for `week`.** `DailyResetTask` and `WeeklyResetTask` are added (see Background Tasks). The reset time is configurable via `Settings.daily_reset_hour_utc: int = 0`. |
-| 5 | Hedge fund: personal savings or multi-investor? | **Deferred to implementation phase.** The domain model supports both: `HedgeFund.investors` dict is present. `FundService` has an `invest(investor_id, fund_id, amount)` method stubbed out. The `$fund invest` command is scaffolded in `FundCog` with a `raise NotImplementedError` body. The APY accrual in `MonthlyRolloverTask` is implemented for the manager's balance (single-user case) and documented to extend to investors when the invest command is built. |
+| 5 | Hedge fund: personal savings or multi-investor? | **Deferred to implementation phase.** The domain model supports both: `HedgeFund.investors` dict is present. `FundService` has an `invest(investor_id, fund_id, amount)` method stubbed out. The `/fund invest` command is scaffolded in `FundCog` with a `raise NotImplementedError` body. The APY accrual in `MonthlyRolloverTask` is implemented for the manager's balance (single-user case) and documented to extend to investors when the invest command is built. |
 | 6 | 50% VC leave boost: 60-minute stay or ping-join condition? | **Deferred to implementation phase.** `VoiceSession.from_ping_message_ids` carries the data needed for either condition. `ActivityService.handle_voice_leave` receives both `stay_minutes` and `joined_from_ping: bool`. The business rule is a single `if` in the service — whichever condition the implementation team picks is a one-line change. |
 | 7 | `short_liquidation_check` stub: implement or defer? | **Architectural decision: implement.** `LiquidationTask` and `LiquidationService` are full first-class components in this architecture. The stub is the highest-risk item in the Phase 1 risk register. |
 | 8 | `HEDGE_FUND_BASE_APY = 0.15`: 15% monthly or annual? | **Deferred to implementation phase.** `Settings.hedge_fund_base_apy_period: str = "monthly"` provides a toggle. `fund_math.py` has a function `compute_apy_accrual(balance, apy, period)` that handles both cases. The game-design intent must be confirmed by the project owner. |
 | 9 | `high_24h` / `low_24h` never reset: task or dynamic query? | **Architectural decision: dynamic query from history.** `StatsService.get_price_stats(user_id)` computes `high_24h` and `low_24h` at read time by scanning `Stock.history` for records within the last 24 hours. Stored `high_24h` / `low_24h` fields are removed from the `Stock` model. `all_time_high` is retained as a stored field. `DailyResetTask` no longer needs to reset these fields. |
-| 10 | `intro_shown` / `$game_intro` distribution. | **Deferred to implementation phase.** Architecture is neutral: `$optin` calls `ActivityService.mark_intro_shown(user_id)`. `$game_intro` posts the embed to the current channel. No auto-post logic is added unless explicitly requested. |
+| 10 | `intro_shown` / `/game_intro` distribution. | **Deferred to implementation phase.** Architecture is neutral: `/optin` calls `ActivityService.mark_intro_shown(user_id)`. `/game_intro` posts the embed to the current channel. No auto-post logic is added unless explicitly requested. |
 | 11 | `voice_ping_sessions` stores `set()` of message IDs — not JSON-serializable. | **Architectural decision: store as `list[int]` in the domain model, deduplicate in the service layer.** `VoiceSession.from_ping_message_ids` is typed `set[int]` in memory. The repository serialises it as a JSON array on write and deserialises back to a `set` on read. The service never exposes the raw set to persistence. |
 | 12 | Multi-guild isolation: in scope? | **Architectural decision: single-guild only for this refactor.** `Settings.guild_id: int` is a required field. All repository queries implicitly scope to this guild. If multi-guild support is needed later, adding a `guild_id` column to every table is a single Alembic migration — the repository interface already isolates callers from storage details, so the application layer requires no changes. |
 
@@ -1034,4 +1044,4 @@ Implement cogs, listeners, embed builders, error handler, and the dependency con
 Run migration script against production `data/*.json`. Run bot in shadow mode (no writes to Discord) to verify data integrity. Smoke test each command. Switch over.
 
 **Phase 7 — Hardening**
-Address any post-cutover issues. Implement remaining deferred items: `$fund invest`, APY accrual to investors, Sunday-buy rule confirmation, hedge fund APY period confirmation.
+Address any post-cutover issues. Implement remaining deferred items: `/fund invest`, APY accrual to investors, Sunday-buy rule confirmation, hedge fund APY period confirmation.

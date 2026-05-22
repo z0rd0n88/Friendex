@@ -93,7 +93,7 @@ Build Friendex from the Phase 2 target architecture. The repository currently co
 - [ ] Phase 14 — Bot factory & entry point
 - [ ] Phase 15 — JSON-to-SQLite migration verification with synthetic fixtures
 - [ ] Phase 16 — Production smoke test (cutover)
-- [ ] Phase 17 — Hardening: \$fund invest, APY accrual, deferred open questions
+- [ ] Phase 17 — Hardening: /fund invest, APY accrual, deferred open questions
 
 ## Sub-issue Convention (Optional)
 
@@ -469,7 +469,7 @@ uv run pytest tests/application/test_price_tick_service.py -v
 
 ## Phase 8c — Trading Service
 
-**Goal:** `$buy`, `$sell`, `$short`, `$cover` use cases. The single most complex service. Acquires locks for both author and target; enforces market hours, opt-in, collateral, cooldown, freeze.
+**Goal:** `/buy`, `/sell`, `/short`, `/cover` use cases. The single most complex service. Acquires locks for both author and target; enforces market hours, opt-in, collateral, cooldown, freeze.
 
 **Branch name:** `feat/phase-8c-trading`
 
@@ -496,7 +496,7 @@ uv run pytest tests/application/test_trading_service.py -v --cov=src/friendex/ap
 
 ## Phase 8d — Portfolio & Stats Services
 
-**Goal:** Read-only services for `$portfolio`, `$balance`, `$trending`, `$mystats`, `$price`. No mutations, no locks.
+**Goal:** Read-only services for `/portfolio`, `/balance`, `/trending`, `/mystats`, `/price`. No mutations, no locks.
 
 **Branch name:** `feat/phase-8d-portfolio`
 
@@ -660,13 +660,13 @@ uv run pytest tests/adapters/discord_bot/test_embeds.py -v --cov=src/friendex/ad
 
 **Files created:**
 
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/trading_cog.py` — `$buy`, `$sell`, `$short`, `$cover`.
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/portfolio_cog.py` — `$portfolio` / `$pf` / `$mp`.
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/fund_cog.py` — `$fund create/info/withdraw/send_events/invest` (last raises `NotImplementedError` → caught by error handler).
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/daily_cog.py` — `$daily`.
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/stats_cog.py` — `$trending`, `$mystats`, `$price`, `$ticker`, `$my_stock`.
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/account_cog.py` — `$balance` / `$mb`, `$optin`, `$optout`.
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/admin_cog.py` — `$game_intro` (manage_guild check), `$help`.
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/trading_cog.py` — `/buy`, `/sell`, `/short`, `/cover` (public replies).
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/portfolio_cog.py` — `/portfolio` (ephemeral).
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/fund_cog.py` — `/fund create/info/withdraw/send_events/invest` as an `app_commands.Group` (`invest` raises `NotImplementedError` → caught by error handler).
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/daily_cog.py` — `/daily` (public).
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/stats_cog.py` — `/trending` (public); `/mystats`, `/price`, `/mystock` (ephemeral). Aliases `$ticker`/`$my_stock` collapse into `/price` and `/mystock`.
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/account_cog.py` — `/balance`, `/optin`, `/optout` (ephemeral).
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/admin_cog.py` — `/game_intro` (manage_guild check), `/help`.
 - `/home/alex/Friendex/tests/adapters/discord_bot/cogs/__init__.py`
 - `/home/alex/Friendex/tests/adapters/discord_bot/cogs/test_trading_cog.py`
 - `/home/alex/Friendex/tests/adapters/discord_bot/cogs/test_portfolio_cog.py`
@@ -675,7 +675,7 @@ uv run pytest tests/adapters/discord_bot/test_embeds.py -v --cov=src/friendex/ad
 - `/home/alex/Friendex/tests/adapters/discord_bot/cogs/test_stats_cog.py`
 - `/home/alex/Friendex/tests/adapters/discord_bot/cogs/test_account_cog.py`
 - `/home/alex/Friendex/tests/adapters/discord_bot/cogs/test_admin_cog.py`
-- `/home/alex/Friendex/tests/adapters/discord_bot/cogs/conftest.py` — `dpytest` bot fixture wired to mock application services from `tests/application/fakes/`.
+- `/home/alex/Friendex/tests/adapters/discord_bot/cogs/conftest.py` — fixtures providing a fake `discord.Interaction` (`AsyncMock`, with `response`/`followup` mocked) and mock application services from `tests/application/fakes/`. Slash-command tests invoke each cog's callback directly (e.g. `await TradingCog.buy.callback(cog, interaction, user=..., shares=...)`) and assert on `interaction.response`/`interaction.followup`. `dpytest` is **not** used for cogs because it simulates message events, not slash interactions.
 
 **Files modified:** none.
 
@@ -700,7 +700,7 @@ uv run pytest tests/adapters/discord_bot/cogs/ -v --cov=src/friendex/adapters/di
 
 **Files created:**
 
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/listeners/message_listener.py` — `MessageListener(commands.Cog)`; `on_message` calls `ActivityService.record_message` and `VoicePingService.register_ping_message` if the message is a VC ping; then `bot.process_commands`.
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/listeners/message_listener.py` — `MessageListener(commands.Cog)`; `on_message` calls `ActivityService.record_message` and `VoicePingService.register_ping_message` if the message is a VC ping. No `bot.process_commands` call — commands are slash commands dispatched by the command tree, so `on_message` only records activity.
 - `/home/alex/Friendex/src/friendex/adapters/discord_bot/listeners/voice_listener.py` — `VoiceListener`; `on_voice_state_update` calls `ActivityService.handle_voice_join` / `handle_voice_leave` and `VoicePingService.reward_voice_ping_response`.
 - `/home/alex/Friendex/src/friendex/adapters/discord_bot/listeners/reaction_listener.py` — `ReactionListener`; `on_reaction_add`.
 - `/home/alex/Friendex/src/friendex/adapters/discord_bot/listeners/member_listener.py` — `MemberListener`; `on_member_update` (timeout detection), `on_member_ban`.
@@ -757,16 +757,16 @@ uv run pytest tests/adapters/discord_bot/test_error_handler.py tests/adapters/te
 
 ## Phase 14 — Bot Factory & Entry Point
 
-**Goal:** The `discord.Bot` instance with intents, prefix, and `setup_hook` that starts all background tasks. Smoke test the full bot launches against `dpytest`. (Per Phase 3a correction 1, tasks start in `setup_hook`, not `on_ready`.)
+**Goal:** The `discord.Bot` instance with intents and a `setup_hook` that starts all background tasks **and syncs the slash-command tree to the home guild**. Smoke test the full bot launches against `dpytest`. (Per Phase 3a correction 1, tasks start in `setup_hook`, not `on_ready`.)
 
 **Branch name:** `feat/phase-14-bot-factory`
 
 **Files created:**
 
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/bot.py` — `build_bot(settings, container)` constructs `commands.Bot(command_prefix=settings.command_prefix, intents=discord.Intents.all())`. Registers `setup_hook` that starts every task class on the container.
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/bot.py` — `build_bot(settings, container)` constructs `commands.Bot(command_prefix=commands.when_mentioned, intents=discord.Intents.all())` (no prefix commands — `command_prefix` is required by the API but inert). Registers a `setup_hook` that starts every task class on the container, then syncs the slash-command tree to the home guild for instant availability (`bot.tree.copy_global_to(guild=discord.Object(settings.guild_id))` followed by `await bot.tree.sync(guild=discord.Object(settings.guild_id))`).
 - `/home/alex/Friendex/tests/adapters/discord_bot/test_bot_factory.py` — `dpytest`-based smoke test: build bot, run `setup_hook`, assert every task's `is_running()` is `True`, assert every cog is in `bot.cogs`, assert every listener is registered, then `await bot.close()`.
 - `/home/alex/Friendex/tests/integration/__init__.py`
-- `/home/alex/Friendex/tests/integration/test_full_command_flow.py` — end-to-end: build the bot against an in-memory SQLite + fake Discord environment; send `$daily` and observe the embed; send `$buy @target 1` and observe the embed; send `$portfolio` and confirm the position appears.
+- `/home/alex/Friendex/tests/integration/test_full_command_flow.py` — end-to-end: build the bot against an in-memory SQLite + fake Discord environment; invoke `/daily` and observe the embed; invoke `/buy` with `user=target, shares=1` and observe the embed; invoke `/portfolio` and confirm the position appears.
 
 **Files modified:** none.
 
@@ -850,7 +850,7 @@ All earlier gates must continue to pass. Operator signs off on the runbook check
 
 ## Phase 17 — Hardening & Deferred Items
 
-**Goal:** Implement everything the target architecture deferred: `$fund invest` (Open-Q5), full APY accrual to investors (Open-Q5/Q8), Sunday-buy confirmation (Open-Q2), hedge fund APY period confirmation (Open-Q8), intro distribution mechanism (Open-Q10), and any post-cutover bugs surfaced in Phase 16.
+**Goal:** Implement everything the target architecture deferred: `/fund invest` (Open-Q5), full APY accrual to investors (Open-Q5/Q8), Sunday-buy confirmation (Open-Q2), hedge fund APY period confirmation (Open-Q8), intro distribution mechanism (Open-Q10), and any post-cutover bugs surfaced in Phase 16.
 
 **Branch name:** `feat/phase-17-hardening`
 
@@ -862,8 +862,8 @@ All earlier gates must continue to pass. Operator signs off on the runbook check
 **Files modified:**
 
 - `/home/alex/Friendex/src/friendex/application/fund_service.py` — fill in `invest()`; extend `accrue_apy()` to distribute to investors in proportion to `invested_amount`; honor `settings.hedge_fund_base_apy_period`.
-- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/fund_cog.py` — `$fund invest @manager <amount>` now functional.
-- `/home/alex/Friendex/src/friendex/application/trading_service.py` — pass `sunday_buy_allowed=settings.sunday_buy_allowed` to `market_hours.is_market_open` only for `$buy`; confirm rule with product owner before merge.
+- `/home/alex/Friendex/src/friendex/adapters/discord_bot/cogs/fund_cog.py` — `/fund invest manager:<member> amount:<float>` now functional.
+- `/home/alex/Friendex/src/friendex/application/trading_service.py` — pass `sunday_buy_allowed=settings.sunday_buy_allowed` to `market_hours.is_market_open` only for `/buy`; confirm rule with product owner before merge.
 - `/home/alex/Friendex/src/friendex/adapters/config.py` — add `sunday_buy_allowed: bool = True`, `hedge_fund_base_apy_period: Literal["monthly", "annual"] = "monthly"`, `opt_out_blocks_trading: bool = True` (already covered in Phase 2 if foresight applied).
 - `/home/alex/Friendex/.env.example` — document the three new toggles.
 - `/home/alex/Friendex/docs/runbook-smoke-test.md` — append the new invest test cases.
@@ -873,10 +873,10 @@ All earlier gates must continue to pass. Operator signs off on the runbook check
 uv run ruff check src/ tests/
 uv run mypy src/
 uv run pytest -v --cov=src --cov-fail-under=80
-# manual: operator validates new $fund invest flow in staging
+# manual: operator validates new /fund invest flow in staging
 ```
 
-**Commit boundary guidance:** Five commits — (1) `feat(application): $fund invest`, (2) `feat(application): APY accrual to investors`, (3) `feat(config): sunday buy + APY period toggles`, (4) `docs: smoke runbook updates for invest`, (5) `test: invest coverage`.
+**Commit boundary guidance:** Five commits — (1) `feat(application): /fund invest`, (2) `feat(application): APY accrual to investors`, (3) `feat(config): sunday buy + APY period toggles`, (4) `docs: smoke runbook updates for invest`, (5) `test: invest coverage`.
 
 **Closing keyword:** PR body uses `Closes #<master-id>` so merge auto-closes the master issue.
 
