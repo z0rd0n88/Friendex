@@ -37,6 +37,9 @@ dist/
 # Worktrees (local dev convenience; not the canonical work area)
 .worktrees/
 
+# mgrep search-index cache (build artifact)
+.memsearch/
+
 # IDE / OS
 .idea/
 .vscode/
