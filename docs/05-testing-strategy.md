@@ -175,12 +175,12 @@ tests/
 │   │
 │   ├── discord_bot/
 │   │   ├── test_embeds.py               # Pure embed builder functions — given data, assert fields
-│   │   ├── test_trading_cog.py          # $buy, $sell, $short, $cover via dpytest
-│   │   ├── test_portfolio_cog.py        # $portfolio command via dpytest
-│   │   ├── test_fund_cog.py             # $fund subcommands via dpytest
-│   │   ├── test_daily_cog.py            # $daily command via dpytest
-│   │   ├── test_stats_cog.py            # $trending, $mystats, $price via dpytest
-│   │   ├── test_account_cog.py          # $balance, $optin, $optout via dpytest
+│   │   ├── test_trading_cog.py          # /buy, /sell, /short, /cover via mock Interaction
+│   │   ├── test_portfolio_cog.py        # /portfolio command via mock Interaction
+│   │   ├── test_fund_cog.py             # /fund subcommands via mock Interaction
+│   │   ├── test_daily_cog.py            # /daily command via mock Interaction
+│   │   ├── test_stats_cog.py            # /trending, /mystats, /price via mock Interaction
+│   │   ├── test_account_cog.py          # /balance, /optin, /optout via mock Interaction
 │   │   ├── test_message_listener.py     # on_message dispatches correct service calls
 │   │   ├── test_voice_listener.py       # on_voice_state_update join/leave/switch dispatch
 │   │   ├── test_reaction_listener.py    # on_reaction_add dispatches correct service call
@@ -196,7 +196,7 @@ tests/
 │       └── test_weekly_reset_task.py   # WeeklyResetTask fires on Monday only (freezegun)
 │
 └── e2e/
-    └── test_smoke.py                    # Bot starts, $balance and $buy against mock guild
+    └── test_smoke.py                    # Bot starts, /balance and /buy against real DB via callbacks
 ```
 
 ---
@@ -765,21 +765,34 @@ test_build_error_embed_does_not_leak_stack_trace
 
 ### Cog tests
 
-Cog tests use `dpytest`. Each test creates a minimal bot with the cog loaded, the application service replaced with an `AsyncMock`, and dispatches a command via `dpytest.message`. The test then asserts on the reply embed or message content.
+Cog tests invoke the slash-command callback directly with a **mocked `discord.Interaction`** — `dpytest` simulates message events, not slash interactions, so it is not used for cogs. Each test replaces the application service with an `AsyncMock`, calls the command's underlying callback, and asserts on `interaction.response` / `interaction.followup` and the embed passed to them.
 
 ```python
-# Example: tests/adapters/discord_bot/test_trading_cog.py
+# Example: tests/adapters/discord_bot/cogs/test_trading_cog.py
 
 @pytest.fixture
-async def trading_service_mock():
+def trading_service_mock():
     return AsyncMock(spec=TradingService)
 
 @pytest.fixture
-async def bot_with_trading_cog(trading_service_mock):
-    bot = commands.Bot(command_prefix="$", intents=discord.Intents.default())
-    await bot.add_cog(TradingCog(trading_service_mock, make_settings()))
-    dpytest.configure(bot)
-    return bot
+def interaction():
+    interaction = AsyncMock(spec=discord.Interaction)
+    interaction.user = make_member(id=1)   # the invoker
+    interaction.response = AsyncMock()      # .defer(), .send_message()
+    interaction.followup = AsyncMock()      # .send()
+    return interaction
+
+async def test_buy_calls_service_and_sends_embed(trading_service_mock, interaction):
+    cog = TradingCog(trading_service_mock, make_settings())
+    target = make_member(id=2)
+
+    # @app_commands.command wraps the function; call the underlying callback.
+    await cog.buy.callback(cog, interaction, user=target, shares=5)
+
+    trading_service_mock.buy.assert_awaited_once_with(
+        buyer_id="1", target_id="2", shares=5
+    )
+    interaction.followup.send.assert_awaited_once()
 ```
 
 **TradingCog tests:**
@@ -827,7 +840,7 @@ test_on_message_calls_activity_service_for_normal_message
 test_on_message_calls_activity_service_with_media_flag_for_attachment
 test_on_message_calls_voice_ping_service_for_vc_ping_message
 test_on_message_ignores_bot_messages
-test_on_message_calls_process_commands_after_activity_recording
+test_on_message_records_activity_without_dispatching_commands
 
 # test_voice_listener.py
 test_on_voice_state_update_join_calls_record_voice_join
@@ -914,29 +927,37 @@ async def test_daily_reset_fires_after_midnight():
 
 E2E tests are in `tests/e2e/test_smoke.py` and are marked `@pytest.mark.e2e`. They are not run on every commit — only on PRs (see CI section).
 
-The smoke test starts a real bot instance against a `dpytest` mock guild, backed by a real `aiosqlite` in-memory database. It verifies that a sequence of commands mutates the database state correctly end-to-end.
+The smoke test builds the real bot and container against a real `aiosqlite` in-memory database, then invokes slash-command callbacks with a mocked `discord.Interaction` (slash interactions can't be dispatched via `dpytest.message`). It verifies that a sequence of commands mutates the database state correctly end-to-end.
 
 ```python
 @pytest.mark.e2e
-async def test_balance_command_returns_initial_cash_for_new_user():
-    # Arrange: bot started by e2e fixture, guild has two members
+async def test_balance_command_returns_initial_cash_for_new_user(e2e_bot):
+    # Arrange: real container + in-memory DB from the e2e fixture
+    cog = e2e_bot.get_cog("AccountCog")
+    interaction = make_interaction(user=make_member(id=1))
+
     # Act
-    await dpytest.message("$balance")
+    await cog.balance.callback(cog, interaction)
+
     # Assert
-    embed = dpytest.get_message().embeds[0]
+    embed = interaction.response.send_message.call_args.kwargs["embed"]
     assert "$10,000" in embed.description
 
 
 @pytest.mark.e2e
-async def test_buy_and_balance_reflect_deducted_cash():
+async def test_buy_deducts_cash_in_database(e2e_bot, user_repo):
     # Arrange
-    buyer = dpytest.get_config().members[0]
-    target = dpytest.get_config().members[1]
-    await dpytest.message("$optin", member=target)
+    buyer = make_member(id=1)
+    target = make_member(id=2)
+    account_cog = e2e_bot.get_cog("AccountCog")
+    trading_cog = e2e_bot.get_cog("TradingCog")
+    await account_cog.optin.callback(account_cog, make_interaction(user=target))
     initial_price = 100.0
 
     # Act
-    await dpytest.message(f"$buy {target.mention} 5", member=buyer)
+    await trading_cog.buy.callback(
+        trading_cog, make_interaction(user=buyer), user=target, shares=5
+    )
 
     # Assert — database state
     async with test_session() as session:
@@ -1111,7 +1132,7 @@ Only after the domain function is fully covered, write the service test. Example
 Implement `TradingService.buy` using the domain functions already verified in steps 1–3. The service test passes; domain tests remain green.
 
 **Step 6 — Write the cog test last (RED, then GREEN).**
-Only after the service is verified, write the cog test via `dpytest`. The cog test should be thin: it mocks the service and asserts that the cog passes the right arguments and sends the right embed. It does not re-test business logic.
+Only after the service is verified, write the cog test by invoking the slash-command callback with a mocked `discord.Interaction`. The cog test should be thin: it mocks the service and asserts that the cog passes the right arguments and sends the right embed (via `interaction.response` / `interaction.followup`). It does not re-test business logic.
 
 **Do not start from the cog.** Starting from the cog means every test failure could be caused by the embed, the cog wiring, the service logic, or the domain calculation. There are too many variables to isolate quickly. The pyramid ensures each layer is verified in isolation before the layer above it is tested.
 

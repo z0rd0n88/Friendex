@@ -57,7 +57,6 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in (
         "DISCORD_TOKEN",
         "GUILD_ID",
-        "COMMAND_PREFIX",
         "DATABASE_URL",
         "MARKET_OPEN",
         "MARKET_CLOSE",
@@ -224,7 +223,6 @@ def test_defaults_match_target_architecture() -> None:
     """Spot-check defaults from `docs/02-target-architecture.md`."""
     settings = Settings(discord_token="tmp", guild_id=1)
 
-    assert settings.command_prefix == "$"
     assert settings.database_url == "sqlite+aiosqlite:///data/friendex.db"
 
     assert settings.market_open == time(6, 30)

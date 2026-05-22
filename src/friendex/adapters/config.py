@@ -49,9 +49,13 @@ class Settings(BaseSettings):
     )
 
     # Discord
+    #
+    # Commands are slash commands (``app_commands``), registered with Discord
+    # and synced to ``guild_id`` for instant availability — so there is no
+    # message-content command prefix.  ``guild_id`` doubles as the home guild
+    # whose command tree the bot syncs in ``setup_hook``.
     discord_token: str
     guild_id: int
-    command_prefix: str = "$"
 
     # Database
     database_url: str = "sqlite+aiosqlite:///data/friendex.db"

@@ -70,23 +70,25 @@ VC ping roles are hardcoded in `VC_PING_ROLES`. Photo bonus channels in `PHOTO_B
 `on_voice_state_update` — join/leave tracking, VC ping response timing.
 `on_member_update` — timeout/ban discipline penalty (17% price drop).
 
-### Bot Commands (prefix `$`)
+### Bot Commands (slash `/`)
 
-| Command | Purpose |
-|---------|---------|
-| `$balance` / `$mb` | Cash + portfolio summary |
-| `$daily` | Claim daily $500 reward (streak bonus on day 7) |
-| `$price <@user>` / `$ticker` | Look up a stock price |
-| `$my_stock` | View your own stock stats |
-| `$buy <@user> <shares>` | Long position |
-| `$sell <@user> <shares>` | Close long position |
-| `$short <@user> <shares>` | Open short (15-min cooldown, 30-min freeze) |
-| `$cover <@user> <shares>` | Close short |
-| `$portfolio` / `$pf` / `$mp` | Full portfolio view |
-| `$fund <subcommand>` | Hedge fund management (create/invest/withdraw/info) |
-| `$trending` | Top movers leaderboard |
-| `$mystats` | Personal activity stats |
-| `$optin` / `$optout` | Consent to be a tradeable stock |
+Commands are Discord **slash commands** (`discord.app_commands`), registered with Discord and synced to the home guild (`GUILD_ID`). Slash commands have no aliases, so the original `$mb` / `$pf` / `$mp` / `$ticker` aliases are dropped in favour of canonical names plus Discord's built-in autocomplete. Reply visibility replaces the old `delete_after=15` cleanup: personal/read commands reply **ephemerally** (only the invoker sees them); action commands reply **publicly** so trades stay visible in-channel.
+
+| Command | Visibility | Purpose |
+|---------|------------|---------|
+| `/balance` | ephemeral | Cash + portfolio summary |
+| `/daily` | public | Claim daily $500 reward (streak bonus on day 7) |
+| `/price [user]` | ephemeral | Look up a stock price |
+| `/mystock` | ephemeral | View your own stock stats |
+| `/buy <user> <shares>` | public | Long position |
+| `/sell <user> <shares>` | public | Close long position |
+| `/short <user> <shares>` | public | Open short (15-min cooldown, 30-min freeze) |
+| `/cover <user> <shares>` | public | Close short |
+| `/portfolio [user]` | ephemeral | Full portfolio view |
+| `/fund <subcommand>` | info ephemeral, mutations public | Hedge fund management (create/invest/withdraw/info) |
+| `/trending` | public | Top movers leaderboard |
+| `/mystats` | ephemeral | Personal activity stats |
+| `/optin` · `/optout` | ephemeral | Consent to be a tradeable stock |
 
 ### Key Constants (all in `bot.py` header)
 
