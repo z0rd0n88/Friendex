@@ -57,6 +57,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in (
         "DISCORD_TOKEN",
         "GUILD_ID",
+        "DEV_GUILD_ID",
         "DATABASE_URL",
         "MARKET_OPEN",
         "MARKET_CLOSE",
@@ -76,28 +77,53 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (a) Loads required fields from a temp .env
+# (a) Loads the required token; the dev-sync guild is optional
 # ---------------------------------------------------------------------------
 
 
-def test_loads_required_fields_from_fixture_env() -> None:
+def test_loads_token_and_dev_guild_from_fixture_env() -> None:
     settings = _load_from_env_file(SAMPLE_ENV)
 
     assert settings.discord_token == "test-token-abc-123"
-    assert settings.guild_id == 111111111111111111
+    # The fixture's legacy ``GUILD_ID`` is accepted as a backward-compatible
+    # alias for the now-optional dev-sync guild.
+    assert settings.dev_guild_id == 111111111111111111
 
 
-def test_loads_required_fields_from_temp_env(tmp_path: Path) -> None:
+def test_loads_dev_guild_id_from_temp_env(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "DISCORD_TOKEN=tmp-token\nGUILD_ID=987654321098765432\n",
+        "DISCORD_TOKEN=tmp-token\nDEV_GUILD_ID=987654321098765432\n",
         encoding="utf-8",
     )
 
     settings = _load_from_env_file(env_path)
 
     assert settings.discord_token == "tmp-token"
-    assert settings.guild_id == 987654321098765432
+    assert settings.dev_guild_id == 987654321098765432
+
+
+def test_dev_guild_id_defaults_to_none_when_absent(tmp_path: Path) -> None:
+    """A multi-tenant bot must not require a guild at startup."""
+    env_path = tmp_path / ".env"
+    env_path.write_text("DISCORD_TOKEN=tmp-token\n", encoding="utf-8")
+
+    settings = _load_from_env_file(env_path)
+
+    assert settings.dev_guild_id is None
+
+
+def test_legacy_guild_id_env_aliases_dev_guild_id(tmp_path: Path) -> None:
+    """The pre-multi-guild ``GUILD_ID`` env name still populates the field."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nGUILD_ID=424242424242424242\n",
+        encoding="utf-8",
+    )
+
+    settings = _load_from_env_file(env_path)
+
+    assert settings.dev_guild_id == 424242424242424242
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +202,6 @@ def test_parse_int_list_passthrough_list_input() -> None:
     """Validator must accept already-parsed list[int]/list[str] inputs."""
     settings = Settings(
         discord_token="tmp",
-        guild_id=1,
         vc_ping_role_ids=["10", "20", 30],  # type: ignore[arg-type]
     )
     assert settings.vc_ping_role_ids == [10, 20, 30]
@@ -185,7 +210,6 @@ def test_parse_int_list_passthrough_list_input() -> None:
 def test_parse_int_list_none_input_defaults_to_empty() -> None:
     settings = Settings(
         discord_token="tmp",
-        guild_id=1,
         vc_ping_role_ids=None,  # type: ignore[arg-type]
     )
     assert settings.vc_ping_role_ids == []
@@ -195,7 +219,6 @@ def test_parse_int_list_rejects_invalid_type() -> None:
     with pytest.raises(ValidationError):
         Settings(
             discord_token="tmp",
-            guild_id=1,
             vc_ping_role_ids=42,  # type: ignore[arg-type]
         )
 
@@ -221,7 +244,7 @@ def test_parses_market_hours_as_time() -> None:
 
 def test_defaults_match_target_architecture() -> None:
     """Spot-check defaults from `docs/02-target-architecture.md`."""
-    settings = Settings(discord_token="tmp", guild_id=1)
+    settings = Settings(discord_token="tmp")
 
     assert settings.database_url == "sqlite+aiosqlite:///data/friendex.db"
 
@@ -322,7 +345,6 @@ def test_configure_logging_sets_up_structlog_json(
 ) -> None:
     settings = Settings(
         discord_token="tmp",
-        guild_id=1,
         log_format="json",
         log_level="INFO",
     )
@@ -343,7 +365,6 @@ def test_configure_logging_console_format(
 ) -> None:
     settings = Settings(
         discord_token="tmp",
-        guild_id=1,
         log_format="console",
         log_level="DEBUG",
     )
@@ -365,7 +386,7 @@ def test_configure_logging_clears_stdlib_handlers() -> None:
     discord_logger.addHandler(sentinel)
     assert sentinel in discord_logger.handlers
 
-    settings = Settings(discord_token="tmp", guild_id=1)
+    settings = Settings(discord_token="tmp")
     configure_logging(settings)
 
     assert sentinel not in discord_logger.handlers
@@ -378,7 +399,6 @@ def test_configure_logging_clears_stdlib_handlers() -> None:
 
 def test_get_settings_is_memoised(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DISCORD_TOKEN", "memo-token")
-    monkeypatch.setenv("GUILD_ID", "1")
 
     first = get_settings()
     second = get_settings()
@@ -391,7 +411,6 @@ def test_get_settings_cache_clear_returns_fresh_instance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DISCORD_TOKEN", "memo-token")
-    monkeypatch.setenv("GUILD_ID", "1")
 
     first = get_settings()
     get_settings.cache_clear()

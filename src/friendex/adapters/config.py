@@ -23,7 +23,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import structlog
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 if TYPE_CHECKING:
@@ -50,12 +50,21 @@ class Settings(BaseSettings):
 
     # Discord
     #
-    # Commands are slash commands (``app_commands``), registered with Discord
-    # and synced to ``guild_id`` for instant availability — so there is no
-    # message-content command prefix.  ``guild_id`` doubles as the home guild
-    # whose command tree the bot syncs in ``setup_hook``.
+    # Commands are slash commands (``app_commands``) synced **globally**
+    # (``bot.tree.sync()`` with no guild argument), so the bot works in every
+    # server it is installed in — there is no message-content command prefix.
+    #
+    # ``dev_guild_id`` is optional and used **only** in development: when set,
+    # ``setup_hook`` additionally copies the global command tree to that one
+    # guild and syncs it there for instant availability (global command
+    # propagation can take up to ~1 hour).  Production leaves it unset.  The
+    # legacy ``GUILD_ID`` environment name is still accepted as an alias.  See
+    # ADR-0001 (per-guild markets) for why a home guild is no longer required.
     discord_token: str
-    guild_id: int
+    dev_guild_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("dev_guild_id", "guild_id"),
+    )
 
     # Database
     database_url: str = "sqlite+aiosqlite:///data/friendex.db"
