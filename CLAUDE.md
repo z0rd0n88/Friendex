@@ -26,7 +26,7 @@ uv run mypy src/friendex
 uv run friendex                                   # run the bot — only works once Phase 14 lands
 ```
 
-A `.env` with `DISCORD_TOKEN` and `GUILD_ID` is required (see `.env.example`). Commands are slash commands synced to `GUILD_ID`; there is no command prefix.
+A `.env` with `DISCORD_TOKEN` is required (see `.env.example`). Slash commands sync **globally**, so the bot works in any server it is added to — there is no command prefix and no required home guild. `DEV_GUILD_ID` is optional: when set it also syncs commands instantly to that one guild for development. Each server is an isolated economy keyed by `(guild_id, user_id)` — see [ADR-0001](./docs/adr/0001-per-guild-markets.md).
 
 ## Architecture
 
@@ -72,7 +72,7 @@ Events are handled by listeners in `adapters/discord_bot/listeners/` (Phase 12):
 
 ### Bot Commands (slash `/`)
 
-Commands are Discord **slash commands** (`discord.app_commands`), registered with Discord and synced to the home guild (`GUILD_ID`). Slash commands have no aliases, so the original `$mb` / `$pf` / `$mp` / `$ticker` aliases are dropped in favour of canonical names plus Discord's built-in autocomplete. Reply visibility replaces the old `delete_after=15` cleanup: personal/read commands reply **ephemerally** (only the invoker sees them); action commands reply **publicly** so trades stay visible in-channel.
+Commands are Discord **slash commands** (`discord.app_commands`), registered with Discord and synced **globally** (available in every server the bot is in; `DEV_GUILD_ID` adds an instant sync to one guild for development). Slash commands have no aliases, so the original `$mb` / `$pf` / `$mp` / `$ticker` aliases are dropped in favour of canonical names plus Discord's built-in autocomplete. Reply visibility replaces the old `delete_after=15` cleanup: personal/read commands reply **ephemerally** (only the invoker sees them); action commands reply **publicly** so trades stay visible in-channel.
 
 | Command | Visibility | Purpose |
 |---------|------------|---------|
