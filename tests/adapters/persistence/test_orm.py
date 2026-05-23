@@ -84,6 +84,21 @@ def _utc(year: int, month: int, day: int, hour: int = 12) -> datetime:
     return datetime(year, month, day, hour, 30, 15, tzinfo=UTC)
 
 
+def _same_scale(actual: Decimal, expected: Decimal) -> bool:
+    """True when ``actual`` carries the same decimal exponent (quantisation
+    scale) as ``expected``.
+
+    Value-equality alone does not guard quantisation —
+    ``Decimal('100.0') == Decimal('100.00')`` is ``True`` — so a storage backend
+    that keeps the numeric value but drops the scale (SQLite's float-backed
+    ``NUMERIC`` affinity, which ``DecimalText`` exists to avoid) would satisfy
+    every ``==`` assertion while silently breaking the Phase 3.1 Decimal
+    invariant. Comparing the exponent against the original makes that regression
+    fail — for currency (exponent ``-2``) and rate (e.g. ``-4``) fields alike.
+    """
+    return actual.as_tuple().exponent == expected.as_tuple().exponent
+
+
 async def test_create_all_runs_against_in_memory_sqlite(engine: AsyncEngine) -> None:
     """Acceptance #1 — every table is created without error."""
     # Arrange / Act — table creation happened in the fixture.
@@ -136,8 +151,11 @@ async def test_user_account_round_trip(session: AsyncSession) -> None:
 
     assert result.cash_balance == Decimal("9876.54")
     assert isinstance(result.cash_balance, Decimal)
+    assert _same_scale(result.cash_balance, Decimal("9876.54"))
     assert result.net_worth == Decimal("10000.00")
+    assert _same_scale(result.net_worth, Decimal("10000.00"))
     assert result.month_start_net_worth == Decimal("9500.00")
+    assert _same_scale(result.month_start_net_worth, Decimal("9500.00"))
     assert result.last_activity == _utc(2026, 5, 23, 11)
     assert result.last_activity.tzinfo is not None
     assert result.daily.last_claim == _utc(2026, 5, 22, 6)
@@ -201,6 +219,7 @@ async def test_long_position_round_trip(session: AsyncSession) -> None:
     assert result == position
     assert result.avg_entry == Decimal("123.45")
     assert isinstance(result.avg_entry, Decimal)
+    assert _same_scale(result.avg_entry, Decimal("123.45"))
     assert result.shares == 42
 
 
@@ -232,8 +251,11 @@ async def test_short_position_round_trip(session: AsyncSession) -> None:
     assert result == position
     assert result.entry_price == Decimal("200.00")
     assert isinstance(result.entry_price, Decimal)
+    assert _same_scale(result.entry_price, Decimal("200.00"))
     assert result.locked_cash == Decimal("1500.00")
+    assert _same_scale(result.locked_cash, Decimal("1500.00"))
     assert result.locked_fund == Decimal("500.00")
+    assert _same_scale(result.locked_fund, Decimal("500.00"))
     assert result.created_at == _utc(2026, 5, 23, 9)
     assert result.created_at.tzinfo is not None
     assert result.frozen is True
@@ -409,10 +431,14 @@ async def test_stock_round_trip(session: AsyncSession) -> None:
     assert result == stock
     assert result.current == Decimal("104.00")
     assert isinstance(result.current, Decimal)
+    assert _same_scale(result.current, Decimal("104.00"))
     assert result.high_24h == Decimal("110.00")
+    assert _same_scale(result.high_24h, Decimal("110.00"))
     assert result.all_time_high == Decimal("150.00")
+    assert _same_scale(result.all_time_high, Decimal("150.00"))
     assert result.history[0].price == Decimal("100.00")
     assert isinstance(result.history[0].price, Decimal)
+    assert _same_scale(result.history[0].price, Decimal("100.00"))
     assert result.history[0].timestamp == _utc(2026, 5, 23, 6)
     assert result.history[0].timestamp.tzinfo is not None
 
@@ -462,9 +488,12 @@ async def test_hedge_fund_round_trip(session: AsyncSession) -> None:
     assert result == fund
     assert result.cash_balance == Decimal("25000.00")
     assert isinstance(result.cash_balance, Decimal)
+    assert _same_scale(result.cash_balance, Decimal("25000.00"))
     assert result.investors["666"] == Decimal("10000.00")
     assert isinstance(result.investors["666"], Decimal)
+    assert _same_scale(result.investors["666"], Decimal("10000.00"))
     assert result.investors["777"] == Decimal("15000.00")
+    assert _same_scale(result.investors["777"], Decimal("15000.00"))
 
 
 async def test_fund_penalty_round_trip(session: AsyncSession) -> None:
@@ -489,6 +518,7 @@ async def test_fund_penalty_round_trip(session: AsyncSession) -> None:
     assert result == penalty
     assert result.penalty_apr == Decimal("0.0500")
     assert isinstance(result.penalty_apr, Decimal)
+    assert _same_scale(result.penalty_apr, Decimal("0.0500"))
     assert result.penalty_until == _utc(2026, 6, 6, 0)
     assert result.penalty_until.tzinfo is not None
 
