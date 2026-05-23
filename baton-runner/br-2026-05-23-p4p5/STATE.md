@@ -2,9 +2,9 @@
 
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-23-p4p5
-phase: 1 of 2  unit: WORK  review_iter: 0 of 3
-current_baton: -
-units_used: 0
+phase: 1 of 2  unit: WORK (4b next)  review_iter: 0 of 3
+current_baton: pass-baton/phase-4-domain-funcs/001-2026-05-23-price-engine-activity-done.md
+units_used: 1
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -24,9 +24,9 @@ budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 
     work_agent: general-purpose
     branch: feat/br-2026-05-23-p4p5/phase-4   pr: -   digest: baton-runner/br-2026-05-23-p4p5/digest-phase-4.md
     sub_units:
-      - 4a: price_engine.py + activity.py (+ tests/domain/test_price_engine.py, test_activity.py, conftest.py)  state: PENDING  baton: -
+      - 4a: price_engine.py + activity.py (+ tests/domain/test_price_engine.py, test_activity.py, conftest.py)  state: DONE  baton: pass-baton/phase-4-domain-funcs/001-2026-05-23-price-engine-activity-done.md
       - 4b: market_hours.py + fund_math.py (+ tests/domain/test_market_hours.py, test_fund_math.py)  state: PENDING  baton: -
-    units: 0  state: PENDING
+    units: 1  state: RUNNING
 - id: phase-5  spec: docs/04-migration-plan.md §"Phase 5 — Persistence: ORM & Alembic Baseline" + docs/02-target-architecture.md §Persistence Option B + Refs #2  readiness: READY
     work_agent: general-purpose
     branch: feat/br-2026-05-23-p4p5/phase-5 (off phase-4 tip)   pr: -   digest: baton-runner/br-2026-05-23-p4p5/digest-phase-5.md
