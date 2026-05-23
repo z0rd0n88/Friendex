@@ -12,3 +12,5 @@
 - 2026-05-23T12:05Z  WORK 5b  spawned general-purpose/opus -> COMPLETE; baton phase-5-orm/001; alembic baseline + 3 reversibility tests, full suite 261 pass; units 5/75
 - 2026-05-23T12:05Z  GATE  scripts/gate.sh ruff scope -> `src tests alembic`; validated GATE: PASS
 - 2026-05-23T12:20Z  REVIEW phase-5 iter1  spawned general-purpose/opus -> VERDICT CLEAN; gate PASS (261); baton 002; digest-phase-5.md; 1 MEDIUM/1 LOW non-blocking; units 6/75
+- 2026-05-23T12:30Z  PR phase-5  pushed; draft PR #32 (base phase-4); phase-5 DONE
+- 2026-05-23T12:30Z  DONE  run complete; 6 units; both phases CLEAN iter1; PRs #31<-#32
