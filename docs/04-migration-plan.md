@@ -275,16 +275,16 @@ uv run pytest tests/domain/ -v --cov=src/friendex/domain --cov-fail-under=95
 
 ## Phase 4 — Domain Pure Functions
 
-**Goal:** Implement every piece of pure game math as a plain function that takes `Settings` (or relevant fields) as an argument. No globals, no I/O.
+**Goal:** Implement every piece of pure game math as a plain function that takes `Settings` (or relevant fields) as an argument. No globals, no I/O. Money and price parameters/returns are `Decimal` (Phase 3.1 invariant — Decimal at the boundary); rate and factor tunables (`k`, `decay`, `apy`) and dimensionless engagement scores stay `float`.
 
 **Branch name:** `feat/phase-4-domain-funcs`
 
 **Files created:**
 
-- `/home/alex/Friendex/src/friendex/domain/price_engine.py` — `apply_trade_impact(current: float, shares: int, is_buy: bool, k: float, min_price: float) -> float`; `apply_floor_stall(current: float, proposed: float, min_price: float) -> float`; `compute_activity_return(activity: ActivityBucket) -> float`; `apply_inactivity_decay(current: float, decay: float, min_price: float) -> float`.
+- `/home/alex/Friendex/src/friendex/domain/price_engine.py` — `apply_trade_impact(current: Decimal, shares: int, is_buy: bool, k: float, min_price: Decimal) -> Decimal`; `apply_floor_stall(current: Decimal, proposed: Decimal, min_price: Decimal) -> Decimal`; `compute_activity_return(activity: ActivityBucket) -> Decimal`; `apply_inactivity_decay(current: Decimal, decay: float, min_price: Decimal) -> Decimal`.
 - `/home/alex/Friendex/src/friendex/domain/activity.py` — `calculate_trending_score(bucket: ActivityBucket) -> float`; `get_engagement_tier(score: float, all_scores: list[float]) -> str`; `reset_activity_bucket(bucket: ActivityBucket, now: datetime) -> ActivityBucket` (returns new bucket — no mutation).
 - `/home/alex/Friendex/src/friendex/domain/market_hours.py` — `is_trading_day(dt: datetime) -> bool`; `is_sunday(dt: datetime) -> bool`; `is_market_open(dt: datetime, market_open: time, market_close: time, sunday_buy_allowed: bool = False) -> bool`. The function signature takes the times from `Settings`; no module-level constants.
-- `/home/alex/Friendex/src/friendex/domain/fund_math.py` — `compute_apy_accrual(balance: float, apy: float, period: Literal["monthly", "annual"]) -> float`; `compute_effective_apy(base_apy: float, penalty: FundPenalty | None, now: datetime) -> float`; `compute_net_worth(account: UserAccount, prices: dict[str, Stock], fund: HedgeFund | None) -> float`.
+- `/home/alex/Friendex/src/friendex/domain/fund_math.py` — `compute_apy_accrual(balance: Decimal, apy: float, period: Literal["monthly", "annual"]) -> Decimal`; `compute_effective_apy(base_apy: float, penalty: FundPenalty | None, now: datetime) -> float`; `compute_net_worth(account: UserAccount, prices: dict[str, Stock], fund: HedgeFund | None) -> Decimal`.
 - `/home/alex/Friendex/tests/domain/test_price_engine.py` — parametrised tests covering buy/sell impact directions, min-price floor clamp, decay arithmetic, activity return formula edges (zero, max).
 - `/home/alex/Friendex/tests/domain/test_activity.py` — score is monotonic in each input, tier boundaries, reset returns new instance.
 - `/home/alex/Friendex/tests/domain/test_market_hours.py` — Sunday closed, Saturday open during window, Monday open during window, overnight wrap (close=04:30 next day), sunday_buy_allowed branch, edge cases at exact open/close minute.
