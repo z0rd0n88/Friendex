@@ -200,6 +200,29 @@ def test_floor_stall_attenuates_down_move_near_floor() -> None:
     assert far_drop > near_drop
 
 
+@pytest.mark.parametrize(
+    ("current", "proposed", "expected"),
+    [
+        # Partial attenuation: distance-to-floor 8 < window 10, so the realised
+        # drop scales by 8/10 = 0.8 → (78 - 70) * 0.8 = 6.40 → 78.00 - 6.40.
+        (Decimal("78.00"), Decimal("70.00"), Decimal("71.60")),
+        # distance 5 → factor 5/10 = 0.5 → (75 - 70) * 0.5 = 2.50 → 75.00 - 2.50.
+        (Decimal("75.00"), Decimal("70.00"), Decimal("72.50")),
+        # distance 20 >= window 10 → factor caps at 1.0 → full nominal drop of 10.
+        (Decimal("90.00"), Decimal("80.00"), Decimal("80.00")),
+    ],
+)
+def test_floor_stall_down_move_attenuation_magnitude(
+    current: Decimal, proposed: Decimal, expected: Decimal
+) -> None:
+    # Pins the EXACT attenuated price, not merely ``far_drop > near_drop`` — so a
+    # change to the attenuation window (``_ATTENUATION_DISTANCE``) or the formula
+    # is caught. All cases sit well above the floor, so the result is the
+    # attenuated price, never the ``min_price`` clamp.
+    result = apply_floor_stall(current=current, proposed=proposed, min_price=MIN_PRICE)
+    assert result == expected
+
+
 def test_floor_stall_down_move_never_below_floor() -> None:
     result = apply_floor_stall(
         current=Decimal("71.00"),
