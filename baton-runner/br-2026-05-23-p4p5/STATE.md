@@ -2,9 +2,9 @@
 
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-23-p4p5
-phase: 2 of 2  unit: REVIEW  review_iter: 0 of 3
-current_baton: pass-baton/phase-5-orm/001-2026-05-23-alembic-baseline-done.md
-units_used: 5
+phase: 2 of 2  unit: REVIEW-DONE (PR next)  review_iter: 1 of 3 -> CLEAN
+current_baton: pass-baton/phase-5-orm/002-2026-05-23-phase-5-review.md
+units_used: 6
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -35,11 +35,9 @@ budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 
     sub_units:
       - 5a: db.py + types.py + orm.py (+ tests/adapters/persistence/test_orm.py round-trip)  state: DONE  baton: pass-baton/phase-5-orm/000-2026-05-23-orm-roundtrip-done.md
       - 5b: alembic.ini + alembic/env.py + script.py.mako + versions/0001_baseline.py (+ test_migrations.py reversibility)  state: DONE  baton: pass-baton/phase-5-orm/001-2026-05-23-alembic-baseline-done.md
-    units: 2  state: WORK-DONE (review next)
+    units: 6  state: REVIEW-CLEAN (digest written; PR pending)
     gate_update: scripts/gate.sh ruff scope extended to `src tests alembic` for phase-5; validated GATE: PASS.
-    review_notes:
-      - 5a added unplanned types.py (DecimalText/UtcDateTime TypeDecorators) — review the extraction.
-      - 5b no-diff check asserts table+column-name set equality (compare_metadata too noisy for SQLite TypeDecorator columns) — verify this is adequate.
+    review_verdict: CLEAN (iter 1). Gate green (261 pass). Both flagged decisions accepted (types.py extraction sound; name-set no-drift check fine — baseline is metadata-driven). Findings (non-blocking): 1 MEDIUM (Decimal quantisation scale not asserted — a Numeric-impl mutation stays green; test-strength gap, not a bug), 1 LOW (no-drift column check tautological by design). Carried to PR body.
 
 ## Deferred follow-ups (user: "make sure we come back to those") — resurface in final summary
 1. docs/04-migration-plan.md Phase 4 signatures still say float → correct to Decimal.
