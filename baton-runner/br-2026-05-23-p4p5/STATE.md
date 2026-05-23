@@ -2,9 +2,9 @@
 
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-23-p4p5
-phase: 1 of 2  unit: REVIEW  review_iter: 0 of 3
-current_baton: pass-baton/phase-4-domain-funcs/002-2026-05-23-market-hours-fund-math-done.md
-units_used: 2
+phase: 1 of 2  unit: REVIEW-DONE (PR next)  review_iter: 1 of 3 -> CLEAN
+current_baton: pass-baton/phase-4-domain-funcs/003-2026-05-23-phase-4-review.md
+units_used: 3
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -26,8 +26,8 @@ budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 
     sub_units:
       - 4a: price_engine.py + activity.py (+ tests/domain/test_price_engine.py, test_activity.py, conftest.py)  state: DONE  baton: pass-baton/phase-4-domain-funcs/001-2026-05-23-price-engine-activity-done.md
       - 4b: market_hours.py + fund_math.py (+ tests/domain/test_market_hours.py, test_fund_math.py)  state: DONE  baton: pass-baton/phase-4-domain-funcs/002-2026-05-23-market-hours-fund-math-done.md
-    units: 2  state: WORK-DONE (review next)
-    review_note: verify net-worth contract assumption (shorts = locked collateral - current buy-back cost; spec calculate_net_worth undefined)
+    units: 3  state: REVIEW-CLEAN (digest written; PR pending)
+    review_verdict: CLEAN (iter 1). Findings (non-blocking): 2 MEDIUM (fund_math docstring wrongly says spec leaves calculate_net_worth undefined — it is at spec:320, formula is numerically equivalent so math correct; apply_floor_stall attenuation magnitude unpinned by tests), 2 LOW. Carried into PR body as follow-ups.
 - id: phase-5  spec: docs/04-migration-plan.md §"Phase 5 — Persistence: ORM & Alembic Baseline" + docs/02-target-architecture.md §Persistence Option B + Refs #2  readiness: READY
     work_agent: general-purpose
     branch: feat/br-2026-05-23-p4p5/phase-5 (off phase-4 tip)   pr: -   digest: baton-runner/br-2026-05-23-p4p5/digest-phase-5.md
