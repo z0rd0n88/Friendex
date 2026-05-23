@@ -184,6 +184,14 @@ def test_baseline_matches_orm_metadata(
     assert migrated_tables == created_tables
     assert migrated_tables == set(_EXPECTED_TABLES)
 
-    # Assert — identical columns per table (catches a column added to the ORM
-    # but forgotten in the baseline, or vice versa).
+    # Assert — identical columns per table. NOTE: this column-level check is
+    # *tautological by design* for the current baseline. ``upgrade()`` is
+    # ``Base.metadata.create_all`` (see ``0001_baseline``) and the "created" DB
+    # is also ``create_all``, so both sides derive from the same
+    # ``Base.metadata`` — adding/removing an ORM column moves both sides together
+    # and this assertion can never go RED for an ORM<->baseline mismatch today.
+    # It only becomes load-bearing in Phase 6+, when the first hand-authored
+    # incremental migration emits DDL independent of ``create_all``. The
+    # table-set assertions above ARE real (renaming a table fails them); they are
+    # the baseline's actual drift guard.
     assert _columns_by_table(migrated_url) == _columns_by_table(created_url)
