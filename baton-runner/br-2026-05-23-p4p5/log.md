@@ -9,3 +9,5 @@
 - 2026-05-23T11:35Z  PR phase-4  pushed; draft PR #31 (base main); phase-4 DONE
 - 2026-05-23T11:35Z  BRANCH phase-5  git switch -c feat/br-2026-05-23-p4p5/phase-5 off phase-4 tip
 - 2026-05-23T11:50Z  WORK 5a  spawned general-purpose/opus -> COMPLETE; baton phase-5-orm/000; 12 ORM classes, 14 round-trip tests, 258 full pass; +types.py (flagged); units 4/75
+- 2026-05-23T12:05Z  WORK 5b  spawned general-purpose/opus -> COMPLETE; baton phase-5-orm/001; alembic baseline + 3 reversibility tests, full suite 261 pass; units 5/75
+- 2026-05-23T12:05Z  GATE  scripts/gate.sh ruff scope -> `src tests alembic`; validated GATE: PASS
