@@ -5,7 +5,7 @@ Latest entry per scope. Read the linked file for full context. **New sessions sh
 | Scope | Latest | Date | Topic |
 |---|---|---|---|
 | phase-3-domain | [001](./phase-3-domain/001-2026-05-15-phase-3-pr11-ready.md) | 2026-05-15 | Phase 3 code-complete; PR #11 open, awaiting review |
-| phase-4-domain-funcs | [002](./phase-4-domain-funcs/002-2026-05-23-market-hours-fund-math-done.md) | 2026-05-23 | Sub-unit 4b done (market_hours + fund_math, 100% cov, all gates green); all 4 Phase 4 domain modules code-complete |
+| phase-4-domain-funcs | [003](./phase-4-domain-funcs/003-2026-05-23-phase-4-review.md) | 2026-05-23 | Independent review — VERDICT CLEAN (gate green, mutation-verified); 2 MEDIUM + 2 LOW non-blocking findings; digest written |
 
 *Top-level seed: [`000-2026-05-15-start-pass-baton.md`](./000-2026-05-15-start-pass-baton.md) (empty placeholder; establishes the sequence head).*
 

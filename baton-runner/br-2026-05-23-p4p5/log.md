@@ -5,3 +5,4 @@
 - 2026-05-23T11:00Z  INIT  STATE.md written; 2 phases, each split into 2 work sub-units; budgets default
 - 2026-05-23T11:10Z  WORK 4a  spawned general-purpose/opus -> COMPLETE; baton phase-4-domain-funcs/001; 100% module cov, 73 tests; units 1/75
 - 2026-05-23T11:20Z  WORK 4b  spawned general-purpose/opus -> COMPLETE; baton phase-4-domain-funcs/002; 100% module cov, domain suite 217 pass; units 2/75
+- 2026-05-23T11:30Z  REVIEW phase-4 iter1  spawned general-purpose/opus -> VERDICT CLEAN; gate PASS; baton 003; digest-phase-4.md written; 2 MEDIUM/2 LOW non-blocking; units 3/75
