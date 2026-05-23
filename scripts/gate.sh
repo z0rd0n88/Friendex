@@ -33,10 +33,10 @@ run() {
 }
 
 fail=0
-run pytest      uv run pytest                          || fail=1
-run ruff-check  uv run ruff check src tests            || fail=1
-run ruff-format uv run ruff format --check src tests   || fail=1
-run mypy        uv run mypy src/friendex               || fail=1
+run pytest      uv run pytest                                  || fail=1
+run ruff-check  uv run ruff check src tests alembic            || fail=1
+run ruff-format uv run ruff format --check src tests alembic   || fail=1
+run mypy        uv run mypy src/friendex                       || fail=1
 
 echo "----"
 if [ "${fail}" -eq 0 ]; then
