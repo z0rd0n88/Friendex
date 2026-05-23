@@ -25,6 +25,16 @@ A short's contribution is the collateral that was locked when it opened (and is
 released on cover) minus the cost to buy the shares back at the current price,
 i.e. collateral plus unrealised short PnL. The current price for a position is
 read from ``prices[target_user_id].current``.
+
+This is an equivalent collateral-based decomposition of the original spec's
+short term ``entry_value - current_value`` (``shares * entry_price -
+shares * current_price``; the spec *does* define this — see
+``docs/spec/original-skeleton.md`` line 320, ``calculate_net_worth``). The two
+forms coincide exactly **only while** the invariant
+``locked_cash + locked_fund == shares * entry_price`` holds — collateral locked
+at open equals the short's notional, and partial covers release it
+proportionally. The Phase-7/8 short service MUST preserve this invariant, or
+``compute_net_worth`` will diverge from the spec's valuation.
 """
 
 from __future__ import annotations
