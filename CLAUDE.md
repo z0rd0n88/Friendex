@@ -28,6 +28,13 @@ uv run friendex                                   # run the bot — only works o
 
 A `.env` with `DISCORD_TOKEN` is required (see `.env.example`). Slash commands sync **globally**, so the bot works in any server it is added to — there is no command prefix and no required home guild. `DEV_GUILD_ID` is optional: when set it also syncs commands instantly to that one guild for development. Each server is an isolated economy keyed by `(guild_id, user_id)` — see [ADR-0001](./docs/adr/0001-per-guild-markets.md).
 
+## Repo workflow & PRs
+
+- **`.claude/` is git-tracked here** (skills in `.claude/skills/`, agents in `.claude/agents/`) — edits to them go through a worktree + PR like any code; the global `~/.claude/` commit-to-`main` carve-out does NOT apply. Create worktrees under `.claude/worktrees/<name>` (repo convention; not gitignored — relies on git auto-excluding registered worktrees).
+- **Phase status lives in GitHub issue #2, never in-repo.** PRs follow `.github/pull_request_template.md` and reference it (`Refs #2`). For docs/tooling PRs with no Python change, mark the Verification gates **N/A** and note "not a phase PR" in Tracking.
+- **Merges auto-delete the head branch** (`deleteBranchOnMerge`), so `git push origin --delete <branch>` errors harmlessly — clean up with `git worktree remove` → `git branch -D` → `git fetch --prune`.
+- **Multi-phase builds:** the user-invoked `baton-runner` skill orchestrates implement→review→fix subagent units (see `.claude/skills/baton-runner/`).
+
 ## Architecture
 
 Friendex is a **greenfield rebuild** of an original single-file `bot.py` into a **hexagonal (ports-and-adapters)** package under `src/friendex/`. The original monolith no longer exists in the tree — it survives only as the spec at [`docs/spec/original-skeleton.md`](./docs/spec/original-skeleton.md).
