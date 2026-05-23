@@ -96,3 +96,7 @@ Commands are Discord **slash commands** (`discord.app_commands`), registered wit
 | `/trending` | public | Top movers leaderboard |
 | `/mystats` | ephemeral | Personal activity stats |
 | `/optin` · `/optout` | ephemeral | Consent to be a tradeable stock |
+
+## Project Architecture
+
+See [`ARCH.md`](./ARCH.md) for the full, auto-maintained file-tree map and component overview — the primary entry point for orienting in this repo. The tree refreshes automatically on every commit via `.githooks/pre-commit`; refresh manually with `python3 .githooks/gen_arch.py`. After cloning, activate the hook once with `git config core.hooksPath .githooks`. Use the `code-explorer` agent for deeper tracing.
