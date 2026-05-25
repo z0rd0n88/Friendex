@@ -344,7 +344,7 @@ Last two prove the baseline migration is reversible.
 
 ## Phase 6 — Persistence: Repositories & JSON Migrator
 
-**Goal:** Implement the `IUserRepo` / `IPriceRepo` / `IFundRepo` / `IPenaltyRepo` interfaces and their SQLAlchemy-backed implementations; provide the one-shot JSON-to-SQLite migration script with tests against synthetic fixtures.
+**Goal:** Implement the `IUserRepo` / `IPriceRepo` / `IFundRepo` / `IPenaltyRepo` interfaces and their SQLAlchemy-backed implementations; provide the one-shot JSON-to-SQLite migration script with tests against synthetic fixtures. Also activates SQLite FK enforcement (decided in [ADR-0002](./adr/0002-sqlite-fk-enforcement.md)) and carries forward two non-blocking findings from the Phase 5 review (Decimal quantisation assertions + first real migration drift test).
 
 **Branch name:** `feat/phase-6-repos`
 
@@ -367,6 +367,7 @@ Last two prove the baseline migration is reversible.
 - `/home/alex/Friendex/tests/fixtures/json/{users,prices,funds,fund_penalties}.json` — small (5–10 record) test fixtures.
 
 **Files modified:**
+- `/home/alex/Friendex/src/friendex/adapters/persistence/db.py` — add `@event.listens_for(engine.sync_engine, "connect")` listener that runs `PRAGMA foreign_keys=ON` on every connection (see [ADR-0002](./adr/0002-sqlite-fk-enforcement.md)).
 - `/home/alex/Friendex/src/friendex/adapters/persistence/__init__.py` — re-export repo classes.
 
 **Verification gate:**
@@ -376,7 +377,13 @@ uv run mypy src/friendex/application/interfaces.py src/friendex/adapters/persist
 uv run pytest tests/adapters/persistence/ -v --cov=src/friendex/adapters/persistence --cov-fail-under=85
 ```
 
-**Commit boundary guidance:** Six commits — (1) `feat(application): repository protocol interfaces`, (2-5) `feat(persistence): <X>Repository`, one per repo, (6) `feat(persistence): json-to-sqlite migrator + fixtures`.
+**Alembic migration (Phase 6):** add `ON DELETE CASCADE` to all child FK columns so the DB-level enforcement from the PRAGMA listener fires correctly on parent deletes.
+
+**Carry-forward from Phase 5 review (both non-blocking, resolve here):**
+- MEDIUM: add Decimal quantisation assertions to ORM tests — at minimum one `assert result.<field>.as_tuple().exponent == Decimal('…').as_tuple().exponent` per `DecimalText` column, plus one fixture value SQLite-float cannot represent exactly so a `Numeric`-type regression goes RED.
+- LOW: once this phase introduces the first hand-authored incremental migration, add a `compare_metadata`-based (or explicit-DDL) drift test so the column-level check is no longer tautological.
+
+**Commit boundary guidance:** Seven commits — (1) `feat(persistence): PRAGMA foreign_keys=ON + ON DELETE CASCADE migration`, (2) `feat(application): repository protocol interfaces`, (3-6) `feat(persistence): <X>Repository`, one per repo, (7) `feat(persistence): json-to-sqlite migrator + fixtures`.
 
 **References:** `Refs #<master-id>`.
 

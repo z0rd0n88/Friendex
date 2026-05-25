@@ -12,6 +12,7 @@ audit trail is the point.
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](./0001-per-guild-markets.md) | Per-guild market isolation (multi-tenancy) | Accepted |
+| [0002](./0002-sqlite-fk-enforcement.md) | SQLite foreign-key enforcement via PRAGMA | Accepted |
 
 Decisions made before this directory existed live inline in
 [`docs/02-target-architecture.md`](../02-target-architecture.md) as the "Open Questions
