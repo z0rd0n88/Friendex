@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 1 of 6  unit: WORK  review_iter: 0 of 3
-current_baton: -
-units_used: 0
+phase: 1 of 6  unit: REVIEW  review_iter: 1 of 3
+current_baton: pass-baton/phase-6-repos/001-2026-05-24-6a-fk-migration-complete.md
+units_used: 1
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -27,7 +27,7 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
     ON DELETE CASCADE to all child FKs (render_as_batch for SQLite); + 2 Phase 5
     carry-forwards (Decimal-quantisation assertions MEDIUM; real drift test LOW).
   branch: feat/phase-6-repos  pr: -  digest: -
-  units: 0  state: PENDING
+  units: 1  state: WORK_DONE -> REVIEW pending
 - id: 6b-interfaces  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: application/interfaces.py - 6 Protocols (IUserRepo, IPriceRepo,
@@ -52,5 +52,5 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 
 ## Resume point
 
-Pre-flight complete; loose phase-5 FK baton (003) preserved into this branch.
-Next action: spawn WORK unit for sub-unit 6a-fk-migration.
+6a WORK returned COMPLETE (baton 001); committed. Next action: spawn REVIEW
+unit for 6a (gate + code-review + ecc-security-review), review_iter 1 of 3.

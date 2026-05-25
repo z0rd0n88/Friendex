@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -26,6 +27,8 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine.interfaces import DBAPIConnection
+
     from friendex.adapters.config import Settings
 
 
@@ -45,8 +48,37 @@ def build_engine(url: str, *, echo: bool = False) -> AsyncEngine:
         ``sqlite+aiosqlite:///data/friendex.db`` or
         ``sqlite+aiosqlite:///:memory:`` for tests.
     :param echo: When ``True``, SQLAlchemy logs every emitted statement.
+
+    The engine carries a ``connect`` event listener that issues
+    ``PRAGMA foreign_keys=ON`` on every new SQLite DBAPI connection (ADR-0002).
+    SQLite defaults this PRAGMA to ``OFF`` and applies it per-connection, so
+    without the listener the schema's ``FOREIGN KEY`` / ``ON DELETE CASCADE``
+    declarations would be silently inert.
     """
-    return create_async_engine(url, echo=echo)
+    engine = create_async_engine(url, echo=echo)
+    _enable_sqlite_foreign_keys(engine)
+    return engine
+
+
+def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
+    """Register a ``connect`` listener that turns on SQLite FK enforcement.
+
+    Guarded to the SQLite dialect so the listener is a no-op on any other
+    backend (PostgreSQL enforces foreign keys by default), keeping the wiring
+    correct if the database is ever swapped.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragma(
+        dbapi_connection: DBAPIConnection, _connection_record: object
+    ) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
 
 
 def build_engine_from_settings(

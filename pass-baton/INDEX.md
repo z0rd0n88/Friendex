@@ -7,6 +7,7 @@ Latest entry per scope. Read the linked file for full context. **New sessions sh
 | phase-3-domain | [001](./phase-3-domain/001-2026-05-15-phase-3-pr11-ready.md) | 2026-05-15 | Phase 3 code-complete; PR #11 open, awaiting review |
 | phase-4-domain-funcs | [003](./phase-4-domain-funcs/003-2026-05-23-phase-4-review.md) | 2026-05-23 | Independent review — VERDICT CLEAN (gate green, mutation-verified); 2 MEDIUM + 2 LOW non-blocking findings; digest written |
 | phase-5-orm | [003](./phase-5-orm/003-2026-05-24-fk-decision-closed.md) | 2026-05-24 | FK enforcement decision closed — PRAGMA foreign_keys=ON chosen (ADR-0002); PR #36 open |
+| phase-6-repos | [001](./phase-6-repos/001-2026-05-24-6a-fk-migration-complete.md) | 2026-05-24 | Sub-unit 6a COMPLETE — PRAGMA FK listener + 0002 cascade migration + Decimal/drift carry-forwards; GATE: PASS |
 
 *Top-level seed: [`000-2026-05-15-start-pass-baton.md`](./000-2026-05-15-start-pass-baton.md) (empty placeholder; establishes the sequence head).*
 
