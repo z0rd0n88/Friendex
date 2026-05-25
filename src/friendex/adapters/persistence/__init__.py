@@ -7,6 +7,8 @@ repositories are added here as their Phase 6 sub-units land.
 
 from __future__ import annotations
 
+from friendex.adapters.persistence.fund_repo import SqlFundRepository
+from friendex.adapters.persistence.price_repo import SqlPriceRepository
 from friendex.adapters.persistence.user_repo import SqlUserRepository
 
-__all__ = ["SqlUserRepository"]
+__all__ = ["SqlFundRepository", "SqlPriceRepository", "SqlUserRepository"]

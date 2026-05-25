@@ -20,3 +20,6 @@
 2026-05-24T00:00Z  COMMIT 6c  e0a73c8 feat(phase-6): SqlUserRepository.
 2026-05-24T00:00Z  SPAWN 6c   REVIEW unit (general-purpose, opus) iter 1.
 2026-05-24T00:00Z  RETURN 6c  VERDICT CLEAN. review baton 006. Gate green. 4 ACs met; AC3 cascade re-proven non-vacuous (FK off -> orphan). __init__ benign re-export. 1 MEDIUM (N+1 list_all) + 2 LOW. Digest digest-phase-6c.md. units 6/75.
+2026-05-24T00:00Z  COMMIT 6c  29fe857 chore(phase-6): 6c review CLEAN + phase-exit digest.
+2026-05-24T00:00Z  SPAWN 6d   WORK unit (general-purpose, opus) for 6d-price-fund-repos.
+2026-05-24T00:00Z  RETURN 6d  STATUS COMPLETE. baton 007. SqlPriceRepository + SqlFundRepository TDD RED->GREEN; GATE PASS (322); 100% cov both files; no N+1 (grouped queries). No new deps. units 7/75.
