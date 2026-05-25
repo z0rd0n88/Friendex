@@ -1,0 +1,361 @@
+"""Tests for :class:`SqlUserRepository` — the user-aggregate persistence port.
+
+These exercise the SQLAlchemy-backed adapter end-to-end against an in-memory
+SQLite engine that has FK enforcement ON (ADR-0002), proving three things the
+unit promises:
+
+* **Structural conformance** — ``SqlUserRepository`` satisfies the
+  :class:`~friendex.application.interfaces.IUserRepo` Protocol *by shape*, not by
+  inheritance (mypy gates the typed assignment in
+  :func:`test_satisfies_iuserrepo_protocol`).
+* **Full-aggregate round trip** — a ``UserAccount`` carrying long positions,
+  short positions, *both* activity buckets, and voice channels persists and
+  rebuilds with exact Decimal quantisation (checked via ``as_tuple().exponent``
+  on the money fields, per the 6a convention) and tz-aware UTC datetimes.
+* **Deletion cascade (the keystone)** — ``delete`` removes the user *and* every
+  child row via the DB-level ``ON DELETE CASCADE``, leaving no orphans. This
+  genuinely exercises the PRAGMA + CASCADE wiring: with FK enforcement off it
+  would leave dangling children.
+
+The fixture pattern (shared in-memory engine, ``AsyncSession``) mirrors
+``test_orm.py`` so the two read coherently.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from typing import TYPE_CHECKING
+
+import pytest_asyncio
+from sqlalchemy import func, select
+
+from friendex.adapters.persistence.db import Base, build_engine, build_sessionmaker
+from friendex.adapters.persistence.orm import (
+    ActivityBucketORM,
+    LongPositionORM,
+    ShortPositionORM,
+    UserORM,
+    VoiceUniqueChannelORM,
+)
+from friendex.adapters.persistence.user_repo import SqlUserRepository
+from friendex.domain.models import (
+    ActivityBucket,
+    DailyProgress,
+    LongPosition,
+    ShortPosition,
+    UserAccount,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+    from friendex.application.interfaces import IUserRepo
+
+GUILD_ID = "555000111222333444"
+
+
+@pytest_asyncio.fixture
+async def engine() -> AsyncIterator[AsyncEngine]:
+    """A fresh in-memory SQLite engine (FK enforcement ON) with tables created."""
+    eng = build_engine("sqlite+aiosqlite:///:memory:")
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        yield eng
+    finally:
+        await eng.dispose()
+
+
+@pytest_asyncio.fixture
+async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    """An ``AsyncSession`` bound to the in-memory engine."""
+    maker = build_sessionmaker(engine)
+    async with maker() as sess:
+        yield sess
+
+
+@pytest_asyncio.fixture
+async def repo(engine: AsyncEngine) -> SqlUserRepository:
+    """A repository bound to the in-memory engine's sessionmaker."""
+    return SqlUserRepository(build_sessionmaker(engine))
+
+
+def _utc(year: int, month: int, day: int, hour: int = 12) -> datetime:
+    return datetime(year, month, day, hour, 30, 15, tzinfo=UTC)
+
+
+def _same_scale(actual: Decimal, expected: Decimal) -> bool:
+    """True when ``actual`` has the same quantisation exponent as ``expected``."""
+    return actual.as_tuple().exponent == expected.as_tuple().exponent
+
+
+def _rich_account(user_id: str = "111") -> UserAccount:
+    """A user aggregate populated across every child table."""
+    return UserAccount(
+        user_id=user_id,
+        cash_balance=Decimal("9876.54"),
+        net_worth=Decimal("12500.00"),
+        month_start_net_worth=Decimal("9500.00"),
+        long_positions={
+            "aaa": LongPosition("aaa", 5, Decimal("80.00")),
+            "bbb": LongPosition("bbb", 3, Decimal("150.50")),
+        },
+        short_positions={
+            "ccc": ShortPosition(
+                target_user_id="ccc",
+                shares=2,
+                entry_price=Decimal("90.00"),
+                locked_cash=Decimal("180.00"),
+                locked_fund=Decimal("0.00"),
+                created_at=_utc(2026, 5, 23, 8),
+                frozen=True,
+            ),
+        },
+        today=ActivityBucket(
+            text_msgs=12,
+            media_msgs=4,
+            voice_minutes=37.5,
+            voice_unique_channels=["c1", "c2"],
+            reaction_count=8,
+            reply_count=2,
+            role_ping_joins=1.0,
+            role_ping_join_minutes=20.0,
+            bucket_start=_utc(2026, 5, 23, 0),
+        ),
+        week=ActivityBucket(
+            text_msgs=80,
+            media_msgs=20,
+            voice_minutes=300.0,
+            voice_unique_channels=["c3"],
+            reaction_count=40,
+            reply_count=15,
+            role_ping_joins=4.0,
+            role_ping_join_minutes=120.0,
+            bucket_start=_utc(2026, 5, 18, 0),
+        ),
+        daily=DailyProgress(last_claim=_utc(2026, 5, 22, 6), streak=3),
+        last_activity=_utc(2026, 5, 23, 11),
+        opt_in=True,
+        intro_shown=False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# AC1 — structural conformance to the IUserRepo Protocol
+# ---------------------------------------------------------------------------
+
+
+def test_satisfies_iuserrepo_protocol(repo: SqlUserRepository) -> None:
+    """AC1 — ``SqlUserRepository`` conforms to ``IUserRepo`` by shape (no ABC).
+
+    The typed assignment is what mypy checks; the runtime ``hasattr`` sweep keeps
+    the test meaningful even when run without the type checker.
+    """
+    conforming: IUserRepo = repo
+    assert conforming is repo
+    for method in ("get", "upsert", "delete", "list_all", "list_active_in_last"):
+        assert callable(getattr(repo, method))
+
+
+# ---------------------------------------------------------------------------
+# AC2 — full-aggregate round trip
+# ---------------------------------------------------------------------------
+
+
+async def test_upsert_then_get_round_trips_full_aggregate(
+    repo: SqlUserRepository,
+) -> None:
+    """AC2 — persist a fully-populated aggregate and read it back equal."""
+    account = _rich_account("111")
+
+    await repo.upsert(GUILD_ID, account)
+    result = await repo.get(GUILD_ID, "111")
+
+    assert result is not None
+    # Whole-aggregate equality covers scalars, both position dicts, and both
+    # buckets (with their voice-channel lists).
+    assert result == account
+
+    # Decimal exactness + quantisation on the money fields (6a convention).
+    assert result.cash_balance == Decimal("9876.54")
+    assert isinstance(result.cash_balance, Decimal)
+    assert _same_scale(result.cash_balance, Decimal("9876.54"))
+    assert _same_scale(result.net_worth, Decimal("12500.00"))
+    assert _same_scale(result.month_start_net_worth, Decimal("9500.00"))
+    assert _same_scale(result.long_positions["aaa"].avg_entry, Decimal("80.00"))
+    assert _same_scale(result.long_positions["bbb"].avg_entry, Decimal("150.50"))
+    short = result.short_positions["ccc"]
+    assert _same_scale(short.entry_price, Decimal("90.00"))
+    assert _same_scale(short.locked_cash, Decimal("180.00"))
+    assert _same_scale(short.locked_fund, Decimal("0.00"))
+
+    # Datetimes survive as tz-aware UTC.
+    assert result.last_activity == _utc(2026, 5, 23, 11)
+    assert result.last_activity.tzinfo is not None
+    assert result.daily.last_claim is not None
+    assert result.daily.last_claim.tzinfo is not None
+    assert short.created_at.tzinfo is not None
+    assert result.today.bucket_start.tzinfo is not None
+    assert result.week.bucket_start.tzinfo is not None
+
+    # Both buckets, including voice channels, came back intact.
+    assert result.today.voice_unique_channels == ["c1", "c2"]
+    assert result.week.voice_unique_channels == ["c3"]
+    assert result.today.text_msgs == 12
+    assert result.week.text_msgs == 80
+
+
+async def test_get_missing_returns_none(repo: SqlUserRepository) -> None:
+    """AC2 — a missing ``(guild_id, user_id)`` maps to ``None``."""
+    assert await repo.get(GUILD_ID, "nope") is None
+
+
+async def test_upsert_replaces_existing_aggregate(repo: SqlUserRepository) -> None:
+    """AC2 — re-``upsert`` overwrites scalars and replaces children wholesale."""
+    await repo.upsert(GUILD_ID, _rich_account("111"))
+
+    replacement = UserAccount(
+        user_id="111",
+        cash_balance=Decimal("100.00"),
+        net_worth=Decimal("100.00"),
+        month_start_net_worth=Decimal("100.00"),
+        long_positions={"zzz": LongPosition("zzz", 1, Decimal("70.00"))},
+        short_positions={},
+        today=ActivityBucket(bucket_start=_utc(2026, 5, 24, 0)),
+        week=ActivityBucket(bucket_start=_utc(2026, 5, 18, 0)),
+        daily=DailyProgress(last_claim=None, streak=0),
+        last_activity=_utc(2026, 5, 24, 9),
+    )
+    await repo.upsert(GUILD_ID, replacement)
+
+    result = await repo.get(GUILD_ID, "111")
+    assert result == replacement
+    # Stale children from the first aggregate are gone.
+    assert list(result.long_positions) == ["zzz"]  # type: ignore[union-attr]
+    assert result.short_positions == {}  # type: ignore[union-attr]
+    assert result.today.voice_unique_channels == []  # type: ignore[union-attr]
+
+
+async def test_list_all_returns_every_account_in_guild(repo: SqlUserRepository) -> None:
+    """AC2 — ``list_all`` scopes to one guild and rebuilds each aggregate."""
+    await repo.upsert(GUILD_ID, _rich_account("111"))
+    await repo.upsert(GUILD_ID, _rich_account("222"))
+    await repo.upsert("other-guild", _rich_account("111"))
+
+    accounts = await repo.list_all(GUILD_ID)
+
+    assert {a.user_id for a in accounts} == {"111", "222"}
+    # Children rebuilt for a listed account, not just scalars.
+    listed = next(a for a in accounts if a.user_id == "111")
+    assert listed.long_positions == _rich_account("111").long_positions
+
+
+async def test_list_active_in_last_filters_by_recency(repo: SqlUserRepository) -> None:
+    """AC2 — ``list_active_in_last`` returns only recently-active accounts."""
+    now = datetime.now(tz=UTC)
+    recent = _rich_account("recent")
+    recent.last_activity = now - timedelta(minutes=5)
+    stale = _rich_account("stale")
+    stale.last_activity = now - timedelta(hours=10)
+
+    await repo.upsert(GUILD_ID, recent)
+    await repo.upsert(GUILD_ID, stale)
+
+    active = await repo.list_active_in_last(GUILD_ID, seconds=3600)
+
+    assert {a.user_id for a in active} == {"recent"}
+
+
+# ---------------------------------------------------------------------------
+# AC3 — deletion cascade (the keystone)
+# ---------------------------------------------------------------------------
+
+
+async def _child_counts(session: AsyncSession, user_id: str) -> dict[str, int]:
+    """Count remaining child rows for ``user_id`` across every child table."""
+
+    async def _count(model: type, *wheres: object) -> int:
+        stmt = select(func.count()).select_from(model).where(*wheres)
+        return int((await session.execute(stmt)).scalar_one())
+
+    return {
+        "users": await _count(
+            UserORM, UserORM.guild_id == GUILD_ID, UserORM.user_id == user_id
+        ),
+        "long_positions": await _count(
+            LongPositionORM,
+            LongPositionORM.guild_id == GUILD_ID,
+            LongPositionORM.owner_id == user_id,
+        ),
+        "short_positions": await _count(
+            ShortPositionORM,
+            ShortPositionORM.guild_id == GUILD_ID,
+            ShortPositionORM.owner_id == user_id,
+        ),
+        "activity_buckets": await _count(
+            ActivityBucketORM,
+            ActivityBucketORM.guild_id == GUILD_ID,
+            ActivityBucketORM.user_id == user_id,
+        ),
+        "voice_unique_channels": await _count(
+            VoiceUniqueChannelORM,
+            VoiceUniqueChannelORM.guild_id == GUILD_ID,
+            VoiceUniqueChannelORM.user_id == user_id,
+        ),
+    }
+
+
+async def test_delete_cascades_to_all_children(
+    repo: SqlUserRepository, session: AsyncSession
+) -> None:
+    """AC3 — ``delete`` removes the user and cascades to every child table.
+
+    With FK enforcement off this would leave orphaned position / bucket / voice
+    rows; asserting zero across all five tables proves the PRAGMA + ON DELETE
+    CASCADE wiring fires through the repository.
+    """
+    account = _rich_account("victim")
+    await repo.upsert(GUILD_ID, account)
+
+    # Sanity — children genuinely exist before the delete (else the test is
+    # vacuously green).
+    before = await _child_counts(session, "victim")
+    assert before["users"] == 1
+    assert before["long_positions"] == 2
+    assert before["short_positions"] == 1
+    assert before["activity_buckets"] == 2
+    assert before["voice_unique_channels"] == 3  # c1, c2 (today) + c3 (week)
+
+    await repo.delete(GUILD_ID, "victim")
+
+    after = await _child_counts(session, "victim")
+    assert after == {
+        "users": 0,
+        "long_positions": 0,
+        "short_positions": 0,
+        "activity_buckets": 0,
+        "voice_unique_channels": 0,
+    }
+    assert await repo.get(GUILD_ID, "victim") is None
+
+
+async def test_delete_only_affects_target_user(repo: SqlUserRepository) -> None:
+    """AC3 — deleting one user leaves another user's aggregate untouched."""
+    await repo.upsert(GUILD_ID, _rich_account("keep"))
+    await repo.upsert(GUILD_ID, _rich_account("drop"))
+
+    await repo.delete(GUILD_ID, "drop")
+
+    survivor = await repo.get(GUILD_ID, "keep")
+    assert survivor is not None
+    assert survivor == _rich_account("keep")
+    assert await repo.get(GUILD_ID, "drop") is None
+
+
+async def test_delete_missing_user_is_noop(repo: SqlUserRepository) -> None:
+    """AC3 — deleting an absent user does not raise."""
+    await repo.delete(GUILD_ID, "ghost")
+    assert await repo.get(GUILD_ID, "ghost") is None

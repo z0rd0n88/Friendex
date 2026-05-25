@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 3 of 6  unit: WORK  review_iter: 0 of 3
-current_baton: pass-baton/phase-6-repos/004-2026-05-24-6b-interfaces-review.md
-units_used: 4
+phase: 3 of 6  unit: REVIEW  review_iter: 1 of 3
+current_baton: pass-baton/phase-6-repos/005-2026-05-24-6c-user-repo.md
+units_used: 5
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -37,7 +37,7 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 - id: 6c-user-repo  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: SqlUserRepository + test; deletion-cascade test proves 6a FK wiring.
-  digest: -  units: 0  state: PENDING
+  digest: -  units: 1  state: WORK_DONE -> REVIEW pending
 - id: 6d-price-fund-repos  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: SqlPriceRepository + SqlFundRepository + tests.
@@ -53,5 +53,5 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 
 ## Resume point
 
-6a, 6b DONE (both VERDICT CLEAN, digests written). Next action: spawn WORK unit
-for sub-unit 6c-user-repo (SqlUserRepository + test; deletion-cascade test).
+6a, 6b DONE; 6c WORK COMPLETE (baton 005), committed. Next action: spawn REVIEW
+unit for 6c-user-repo, review_iter 1 of 3.
