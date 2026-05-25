@@ -26,3 +26,6 @@
 2026-05-24T00:00Z  COMMIT 6d  c6610b2 feat(phase-6): SqlPriceRepository + SqlFundRepository.
 2026-05-24T00:00Z  SPAWN 6d   REVIEW unit (general-purpose, opus) iter 1.
 2026-05-24T00:00Z  RETURN 6d  VERDICT CLEAN. review baton 008. Gate green (322). 4 ACs met; bulk-DELETE prune non-tautological; events-wallet idempotent (merge on PK); no N+1; no new deps; no findings. Digest digest-phase-6d.md. units 8/75.
+2026-05-24T00:00Z  COMMIT 6d  f4aabd5 chore(phase-6): 6d review CLEAN + phase-exit digest.
+2026-05-24T00:00Z  SPAWN 6e   WORK unit (general-purpose, opus) for 6e-penalty-cooldown-state-repos.
+2026-05-24T00:00Z  RETURN 6e  STATUS COMPLETE. baton 009. 3 repos (penalty/cooldown/system-state) + 28 TDD tests RED->GREEN; GATE PASS (350); mypy conformance; cooldown TTL boundary non-tautological. No new deps. units 9/75.
