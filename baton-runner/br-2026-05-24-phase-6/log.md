@@ -8,3 +8,6 @@
 2026-05-24T00:00Z  COMMIT 6a  b1692b6 feat(phase-6): PRAGMA foreign_keys=ON + ON DELETE CASCADE migration.
 2026-05-24T00:00Z  SPAWN 6a   REVIEW unit (general-purpose, opus) iter 1.
 2026-05-24T00:00Z  RETURN 6a  VERDICT CLEAN. review baton 002. Gate GREEN. All 4 ACs real/RED-able. No deps, no prod logic weakened. 1 MEDIUM (0002 no-op on fresh DB; ADR narrative drift) + 2 LOW, non-blocking. Digest digest-phase-6a.md written. units 2/75.
+2026-05-24T00:00Z  COMMIT 6a  8394a0d chore(phase-6): 6a review CLEAN + phase-exit digest.
+2026-05-24T00:00Z  SPAWN 6b   WORK unit (general-purpose, opus) for 6b-interfaces.
+2026-05-24T00:00Z  RETURN 6b  STATUS COMPLETE. baton 003. 6 Protocols + 2 app DTOs (SystemState, TradeCooldown). RED captured; 18 conformance tests GREEN; GATE PASS (289). No new deps. units 3/75.

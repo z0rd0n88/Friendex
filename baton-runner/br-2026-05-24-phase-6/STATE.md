@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 2 of 6  unit: WORK  review_iter: 0 of 3
-current_baton: pass-baton/phase-6-repos/002-2026-05-24-6a-fk-migration-review.md
-units_used: 2
+phase: 2 of 6  unit: REVIEW  review_iter: 1 of 3
+current_baton: pass-baton/phase-6-repos/003-2026-05-24-6b-repo-interfaces.md
+units_used: 3
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -32,7 +32,9 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
   work_agent: general-purpose
   scope: application/interfaces.py - 6 Protocols (IUserRepo, IPriceRepo,
     IFundRepo, IPenaltyRepo, ITradeCooldownRepo, ISystemStateRepo); no adapters imports.
-  digest: -  units: 0  state: PENDING
+  digest: -  units: 1  state: WORK_DONE -> REVIEW pending
+  note: unit added 2 app-layer DTOs (SystemState, TradeCooldown) in interfaces.py
+    (ORM tables w/o domain mirror; adapters import forbidden) -> review must vet placement.
 - id: 6c-user-repo  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: SqlUserRepository + test; deletion-cascade test proves 6a FK wiring.
