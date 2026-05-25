@@ -1,0 +1,56 @@
+# baton-runner run br-2026-05-24-phase-6
+status: RUNNING
+worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
+phase: 1 of 6  unit: WORK  review_iter: 0 of 3
+current_baton: -
+units_used: 0
+pause_reason: -
+budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
+
+## Run shape
+
+Phase 6 of the Friendex migration plan ("Persistence: Repositories & JSON
+Migrator") is split into 6 ordered sub-units, all committed to a single branch
+`feat/phase-6-repos`; ONE draft PR opens at the end (matches the plan's
+single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
+(gate + code-review + ecc-security-review) -> FIX (<=3) -> phase-exit digest.
+
+- Work agent: general-purpose (has Skill tool for tdd/pass-baton).
+- Spec: docs/04-migration-plan.md Section "Phase 6"; ADR-0002 (FK enforcement).
+- Maps to GitHub issue #2 (Phase 6 box) -> PR body carries `Refs #2`.
+
+## Sub-units (treated as phases in the loop)
+
+- id: 6a-fk-migration  spec: plan Phase 6 + ADR-0002  readiness: READY
+  work_agent: general-purpose
+  scope: PRAGMA foreign_keys=ON listener in db.py; Alembic 0002 migration adding
+    ON DELETE CASCADE to all child FKs (render_as_batch for SQLite); + 2 Phase 5
+    carry-forwards (Decimal-quantisation assertions MEDIUM; real drift test LOW).
+  branch: feat/phase-6-repos  pr: -  digest: -
+  units: 0  state: PENDING
+- id: 6b-interfaces  spec: plan Phase 6  readiness: READY
+  work_agent: general-purpose
+  scope: application/interfaces.py - 6 Protocols (IUserRepo, IPriceRepo,
+    IFundRepo, IPenaltyRepo, ITradeCooldownRepo, ISystemStateRepo); no adapters imports.
+  digest: -  units: 0  state: PENDING
+- id: 6c-user-repo  spec: plan Phase 6  readiness: READY
+  work_agent: general-purpose
+  scope: SqlUserRepository + test; deletion-cascade test proves 6a FK wiring.
+  digest: -  units: 0  state: PENDING
+- id: 6d-price-fund-repos  spec: plan Phase 6  readiness: READY
+  work_agent: general-purpose
+  scope: SqlPriceRepository + SqlFundRepository + tests.
+  digest: -  units: 0  state: PENDING
+- id: 6e-penalty-cooldown-state-repos  spec: plan Phase 6  readiness: READY
+  work_agent: general-purpose
+  scope: SqlPenaltyRepository + SqlTradeCooldownRepository + SqlSystemStateRepository + tests.
+  digest: -  units: 0  state: PENDING
+- id: 6f-migrator  spec: plan Phase 6  readiness: READY
+  work_agent: general-purpose
+  scope: migrate_json_to_sqlite.py + json fixtures + idempotency test + __init__ re-exports.
+  digest: -  units: 0  state: PENDING
+
+## Resume point
+
+Pre-flight complete; loose phase-5 FK baton (003) preserved into this branch.
+Next action: spawn WORK unit for sub-unit 6a-fk-migration.
