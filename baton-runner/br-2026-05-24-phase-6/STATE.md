@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 4 of 6  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-6-repos/007-2026-05-24-6d-price-fund-repos.md
-units_used: 7
+phase: 5 of 6  unit: WORK  review_iter: 0 of 3
+current_baton: pass-baton/phase-6-repos/008-2026-05-24-6d-price-fund-repos-review.md
+units_used: 8
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -42,7 +42,8 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 - id: 6d-price-fund-repos  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: SqlPriceRepository + SqlFundRepository + tests.
-  digest: -  units: 1  state: WORK_DONE -> REVIEW pending
+  digest: baton-runner/br-2026-05-24-phase-6/digest-phase-6d.md
+  units: 2  state: DONE (VERDICT CLEAN; no findings)
 - id: 6e-penalty-cooldown-state-repos  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: SqlPenaltyRepository + SqlTradeCooldownRepository + SqlSystemStateRepository + tests.
@@ -54,5 +55,5 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 
 ## Resume point
 
-6a, 6b, 6c DONE; 6d WORK COMPLETE (baton 007), committed. N+1 lesson applied in
-6d. Next action: spawn REVIEW unit for 6d-price-fund-repos, review_iter 1 of 3.
+6a, 6b, 6c, 6d DONE (all VERDICT CLEAN, digests written). Next action: spawn
+WORK unit for 6e-penalty-cooldown-state-repos (the last repo set).
