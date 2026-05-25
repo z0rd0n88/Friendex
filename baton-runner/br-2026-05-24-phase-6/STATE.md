@@ -59,8 +59,8 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 ## Resume point
 
 ALL 6 sub-units DONE (every VERDICT CLEAN; 0 fix iterations; 12/75 units). Run
-status DONE. Remaining manager action: push feat/phase-6-repos + open the single
-Phase 6 draft PR (base main, Refs #2). Non-blocking findings for the human
+status DONE. Draft PR opened: https://github.com/z0rd0n88/Friendex/pull/37
+(base main, Refs #2). Non-blocking findings for the human
 reviewer/follow-up: 6a 0002-no-op-on-fresh-DB (ADR narrative); 6c user_repo
 list_all N+1 (not retrofitted; 6d/6e avoid it); 6f main() narrow except on
 corrupt JSON; assorted LOWs.
