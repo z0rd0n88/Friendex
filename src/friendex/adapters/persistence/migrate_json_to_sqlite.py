@@ -54,6 +54,7 @@ import asyncio
 import json
 import logging
 import sys
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -79,12 +80,25 @@ from friendex.domain.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterator, Mapping
     from pathlib import Path
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 logger = logging.getLogger(__name__)
+
+
+class MigrationError(Exception):
+    """A source data file could not be migrated because it is corrupt.
+
+    Raised at the load / record-mapping boundary when a source file is
+    structurally wrong (top level is not an object) or a record carries a
+    missing required field or an un-parseable money / timestamp value. The
+    message names the offending file (and, where known, the record key and
+    field) so an operator can fix the JSON; the original exception is chained
+    via ``raise ... from`` so the technical cause is preserved in the log.
+    """
+
 
 # Source file names, fixed by the original bot (``docs/spec/original-skeleton.md``).
 _USERS_FILE = "users.json"
@@ -109,27 +123,49 @@ def _load_json_object(path: Path) -> dict[str, Any]:
     files lazily, so a fresh deployment may lack some of them). Numbers are
     decoded straight to :class:`~decimal.Decimal` via ``parse_float`` so money
     never round-trips through ``float``.
+
+    :raises MigrationError: if the file is not valid JSON, or its top level is
+        not a JSON object (the migrator expects an ``{id: record}`` mapping).
     """
     if not path.is_file():
         return {}
     with path.open(encoding="utf-8") as handle:
-        data: dict[str, Any] = json.load(handle, parse_float=Decimal)
+        try:
+            data: Any = json.load(handle, parse_float=Decimal)
+        except json.JSONDecodeError as exc:
+            raise MigrationError(
+                f"{path.name}: file is not valid JSON ({exc})"
+            ) from exc
+    if not isinstance(data, dict):
+        raise MigrationError(
+            f"{path.name}: expected a JSON object mapping id -> record, "
+            f"got a top-level {type(data).__name__}"
+        )
     return data
 
 
-def _to_decimal(value: Any) -> Decimal:
+def _to_decimal(value: Any, field: str | None = None) -> Decimal:
     """Coerce a decoded JSON number to :class:`~decimal.Decimal` exactly.
 
     Floats are already decoded to ``Decimal`` by ``parse_float``; an integer
     literal arrives as ``int`` and is converted via its ``str`` form so the
     value stays exact.
+
+    :param field: optional source field name; when supplied, a non-numeric
+        value is reported as a :class:`MigrationError` naming the field and the
+        offending value instead of leaking a raw ``decimal.InvalidOperation``.
     """
     if isinstance(value, Decimal):
         return value
     if isinstance(value, int):
         return Decimal(value)
     # A bare ``str`` (or anything else) is converted via its text form.
-    return Decimal(str(value))
+    try:
+        return Decimal(str(value))
+    except ArithmeticError as exc:
+        if field is None:
+            raise
+        raise MigrationError(f"field {field!r} is not a number: {value!r}") from exc
 
 
 def _to_utc(value: str | None) -> datetime | None:
@@ -153,6 +189,35 @@ def _require_utc(value: str | None) -> datetime:
     if parsed is None:
         raise ValueError("expected a timestamp, got null")
     return parsed
+
+
+@contextmanager
+def _record_context(filename: str, record_id: str) -> Iterator[None]:
+    """Map a record-mapping failure into a :class:`MigrationError` with context.
+
+    Wraps the mapping of one source record so the anticipated corrupt-data
+    failures — a missing required key (:class:`KeyError`), an un-parseable money
+    value (:class:`decimal.InvalidOperation`, an :class:`ArithmeticError`), or a
+    bad timestamp / wrong type (:class:`ValueError`, :class:`TypeError`) — become
+    a single, actionable error naming the file, the record id, and the offending
+    field. Programmer errors are *not* mapped; they propagate unchanged.
+    """
+    try:
+        yield
+    except MigrationError as exc:
+        # A mapper already produced a field-level message (e.g. _to_decimal);
+        # prepend the file + record so the operator can locate it.
+        raise MigrationError(f"{filename}: record {record_id!r}: {exc}") from exc
+    except KeyError as exc:
+        # ``KeyError.args[0]`` is the missing field name.
+        field = exc.args[0] if exc.args else "<unknown>"
+        raise MigrationError(
+            f"{filename}: record {record_id!r} is missing required field {field!r}"
+        ) from exc
+    except (ArithmeticError, ValueError, TypeError) as exc:
+        raise MigrationError(
+            f"{filename}: record {record_id!r} has an invalid value: {exc}"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -205,10 +270,13 @@ def _build_user_account(user_id: str, raw: Mapping[str, Any]) -> UserAccount:
 
     return UserAccount(
         user_id=user_id,
-        cash_balance=_to_decimal(raw["cash_balance"]),
-        net_worth=_to_decimal(raw.get("net_worth", raw["cash_balance"])),
+        cash_balance=_to_decimal(raw["cash_balance"], field="cash_balance"),
+        net_worth=_to_decimal(
+            raw.get("net_worth", raw["cash_balance"]), field="net_worth"
+        ),
         month_start_net_worth=_to_decimal(
-            raw.get("month_start_net_worth", raw["cash_balance"])
+            raw.get("month_start_net_worth", raw["cash_balance"]),
+            field="month_start_net_worth",
         ),
         long_positions={
             tid: _build_long_position(tid, pos) for tid, pos in long_raw.items()
@@ -288,7 +356,8 @@ async def _migrate_users(
     records = _load_json_object(source / _USERS_FILE)
     users = longs = shorts = 0
     for user_id, raw in records.items():
-        account = _build_user_account(user_id, raw)
+        with _record_context(_USERS_FILE, user_id):
+            account = _build_user_account(user_id, raw)
         await repo.upsert(guild_id, account)
         users += 1
         longs += len(account.long_positions)
@@ -310,11 +379,13 @@ async def _migrate_prices(
     records = _load_json_object(source / _PRICES_FILE)
     stocks = history_points = 0
     for user_id, raw in records.items():
-        stock = _build_stock(user_id, raw)
+        with _record_context(_PRICES_FILE, user_id):
+            stock = _build_stock(user_id, raw)
+            points = _build_price_points(raw)
         await repo.upsert(guild_id, stock)
         stocks += 1
         await _clear_price_history(maker, guild_id, user_id)
-        for point in _build_price_points(raw):
+        for point in points:
             await repo.append_history(guild_id, user_id, point)
             history_points += 1
     return stocks, history_points
@@ -346,7 +417,8 @@ async def _migrate_funds(
     records = _load_json_object(source / _FUNDS_FILE)
     funds = investors = 0
     for fund_id, raw in records.items():
-        fund = _build_fund(fund_id, raw)
+        with _record_context(_FUNDS_FILE, fund_id):
+            fund = _build_fund(fund_id, raw)
         await repo.upsert(guild_id, fund)
         funds += 1
         investors += len(fund.investors)
@@ -360,7 +432,8 @@ async def _migrate_penalties(
     records = _load_json_object(source / _PENALTIES_FILE)
     count = 0
     for user_id, raw in records.items():
-        penalty = _build_penalty(user_id, raw)
+        with _record_context(_PENALTIES_FILE, user_id):
+            penalty = _build_penalty(user_id, raw)
         await repo.upsert(guild_id, penalty)
         count += 1
     return count
@@ -476,8 +549,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         counts = asyncio.run(_run(source, args.target, args.guild_id))
-    except (OSError, ValueError) as exc:
-        logger.error("migration failed: %s", exc)
+    except MigrationError as exc:
+        # Corrupt-but-parseable source data: the message already names the file,
+        # record, and field, so report it plainly without a raw traceback.
+        logger.error("migration failed — corrupt source data: %s", exc)
+        return 1
+    except OSError as exc:
+        # File / IO problems (unreadable source file, target path issues).
+        logger.error("migration failed — I/O error: %s", exc)
         return 1
 
     total = sum(counts.values())

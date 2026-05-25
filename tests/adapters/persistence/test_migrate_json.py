@@ -358,3 +358,83 @@ def test_cli_requires_source_and_target(required: str) -> None:
         # Missing one required flag -> argparse exits with code 2.
         parser.parse_args(["--guild-id", GUILD_ID])
     assert required  # the parametrization documents both required flags
+
+
+# ---------------------------------------------------------------------------
+# Corrupt / malformed source data — clean non-zero exit, no raw traceback
+# ---------------------------------------------------------------------------
+
+
+def _write_source(tmp_path: Path, filename: str, content: str) -> Path:
+    """Write a single source JSON file into a fresh source directory."""
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / filename).write_text(content, encoding="utf-8")
+    return source
+
+
+def _run_main(source: Path, tmp_path: Path) -> int:
+    """Invoke the migrator CLI against ``source`` with a throwaway target."""
+    from friendex.adapters.persistence.migrate_json_to_sqlite import main
+
+    target = f"sqlite+aiosqlite:///{tmp_path / 'out.db'}"
+    return main(["--source", str(source), "--target", target, "--guild-id", GUILD_ID])
+
+
+def test_cli_non_numeric_money_value_exits_one(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A non-numeric money value exits 1 (no traceback) naming the file/field."""
+    source = _write_source(
+        tmp_path,
+        "users.json",
+        '{"111": {"cash_balance": "not-a-number", '
+        '"last_activity": "2026-05-23T08:30:15"}}',
+    )
+
+    with caplog.at_level("ERROR"):
+        exit_code = _run_main(source, tmp_path)
+
+    assert exit_code == 1
+    message = caplog.text.lower()
+    assert "users.json" in message
+    assert "cash_balance" in message
+
+
+def test_cli_missing_required_field_exits_one(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A record missing a required key exits 1 with a clear message."""
+    # ``cash_balance`` is required by the user mapper; omit it entirely.
+    source = _write_source(
+        tmp_path,
+        "users.json",
+        '{"111": {"last_activity": "2026-05-23T08:30:15"}}',
+    )
+
+    with caplog.at_level("ERROR"):
+        exit_code = _run_main(source, tmp_path)
+
+    assert exit_code == 1
+    message = caplog.text.lower()
+    assert "users.json" in message
+    assert "cash_balance" in message
+
+
+def test_cli_top_level_not_an_object_exits_one(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A source file whose top level is a list/scalar exits 1 with a shape message."""
+    source = _write_source(tmp_path, "users.json", "[1, 2, 3]")
+
+    with caplog.at_level("ERROR"):
+        exit_code = _run_main(source, tmp_path)
+
+    assert exit_code == 1
+    message = caplog.text.lower()
+    assert "users.json" in message
+    # The message should explain the shape problem, not surface a stray AttributeError.
+    assert "object" in message or "mapping" in message or "dict" in message

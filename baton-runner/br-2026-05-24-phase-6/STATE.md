@@ -2,8 +2,8 @@
 status: RUNNING (post-run hardening — user-requested, pre-merge)
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
 phase: hardening  unit: FIX  review_iter: -
-current_baton: pass-baton/phase-6-repos/013-2026-05-25-user-repo-n1-fix.md
-units_used: 13
+current_baton: pass-baton/phase-6-repos/014-2026-05-25-migrator-error-handling.md
+units_used: 14
 
 ## Post-run hardening (user-requested 2026-05-25, before merging PR #37)
 

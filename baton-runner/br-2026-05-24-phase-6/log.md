@@ -43,3 +43,6 @@
 2026-05-25T00:00Z  HARDEN     User requested pre-merge fixes for 6c N+1 (H1) + 6f error handling (H2).
 2026-05-25T00:00Z  SPAWN H1   FIX unit (general-purpose, opus) for 6c N+1.
 2026-05-25T00:00Z  RETURN H1  STATUS COMPLETE. baton 013. Batched IN-query child loads (constant query count); RED 5N+1=21->6; voice ORDER BY; get unchanged, output byte-identical; 13 tests; GATE PASS. No new deps. units 13/75.
+2026-05-25T00:00Z  COMMIT H1  0a54d61 perf(phase-6): batch SqlUserRepository child loads (fix N+1).
+2026-05-25T00:00Z  SPAWN H2   FIX unit (general-purpose, opus) for 6f migrator error handling.
+2026-05-25T00:00Z  RETURN H2  STATUS COMPLETE. baton 014. MigrationError at boundary; main() -> friendly msg + exit 1 (OSError too); unexpected errors still propagate; shape validation. 3 RED tests; 12 prior pass; GATE PASS (369). No new deps. units 14/75.
