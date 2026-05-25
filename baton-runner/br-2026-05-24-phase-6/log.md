@@ -29,3 +29,6 @@
 2026-05-24T00:00Z  COMMIT 6d  f4aabd5 chore(phase-6): 6d review CLEAN + phase-exit digest.
 2026-05-24T00:00Z  SPAWN 6e   WORK unit (general-purpose, opus) for 6e-penalty-cooldown-state-repos.
 2026-05-24T00:00Z  RETURN 6e  STATUS COMPLETE. baton 009. 3 repos (penalty/cooldown/system-state) + 28 TDD tests RED->GREEN; GATE PASS (350); mypy conformance; cooldown TTL boundary non-tautological. No new deps. units 9/75.
+2026-05-24T00:00Z  COMMIT 6e  9387225 feat(phase-6): SqlPenaltyRepository + SqlTradeCooldownRepository + SqlSystemStateRepository.
+2026-05-24T00:00Z  SPAWN 6e   REVIEW unit (general-purpose, opus) iter 1.
+2026-05-24T00:00Z  RETURN 6e  VERDICT CLEAN. review baton 010. Gate PASS (350). 4 ACs met; TTL boundary + single-row idempotency mutation-verified; mypy conformance. No CRIT/HIGH/MEDIUM, no new deps; 2 NOTE-only. Digest digest-phase-6e.md. units 10/75.

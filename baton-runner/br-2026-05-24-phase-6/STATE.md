@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 5 of 6  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-6-repos/009-2026-05-24-6e-penalty-cooldown-state-repos.md
-units_used: 9
+phase: 6 of 6  unit: WORK  review_iter: 0 of 3
+current_baton: pass-baton/phase-6-repos/010-2026-05-24-6e-penalty-cooldown-state-repos-review.md
+units_used: 10
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -47,7 +47,8 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 - id: 6e-penalty-cooldown-state-repos  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: SqlPenaltyRepository + SqlTradeCooldownRepository + SqlSystemStateRepository + tests.
-  digest: -  units: 1  state: WORK_DONE -> REVIEW pending
+  digest: baton-runner/br-2026-05-24-phase-6/digest-phase-6e.md
+  units: 2  state: DONE (VERDICT CLEAN; no findings, 2 NOTE-only)
 - id: 6f-migrator  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: migrate_json_to_sqlite.py + json fixtures + idempotency test + __init__ re-exports.
@@ -55,5 +56,6 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 
 ## Resume point
 
-6a-6d DONE; 6e WORK COMPLETE (baton 009), committed. Next action: spawn REVIEW
-unit for 6e-penalty-cooldown-state-repos, review_iter 1 of 3.
+6a-6e DONE (all VERDICT CLEAN, digests written). Next action: spawn WORK unit
+for 6f-migrator (JSON->SQLite migrator + fixtures + idempotency test). After 6f
+CLEAN: open the single Phase 6 draft PR (base main), then STATE=DONE.
