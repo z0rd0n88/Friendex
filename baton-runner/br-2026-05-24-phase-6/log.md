@@ -46,3 +46,7 @@
 2026-05-25T00:00Z  COMMIT H1  0a54d61 perf(phase-6): batch SqlUserRepository child loads (fix N+1).
 2026-05-25T00:00Z  SPAWN H2   FIX unit (general-purpose, opus) for 6f migrator error handling.
 2026-05-25T00:00Z  RETURN H2  STATUS COMPLETE. baton 014. MigrationError at boundary; main() -> friendly msg + exit 1 (OSError too); unexpected errors still propagate; shape validation. 3 RED tests; 12 prior pass; GATE PASS (369). No new deps. units 14/75.
+2026-05-25T00:00Z  COMMIT H2  ddadffb fix(phase-6): harden JSON migrator error handling.
+2026-05-25T00:00Z  SPAWN HR   REVIEW unit (general-purpose, opus) over H1+H2 (diff d093266..HEAD).
+2026-05-25T00:00Z  RETURN HR  VERDICT CLEAN. review baton 015. Gate green. Both fixes RED-by-reversion verified; H1 no cross-user leakage/byte-equiv; H2 specific mapping, no over-broad except. No CRIT/HIGH/MEDIUM; 1 LOW + 1 INFO. digest-hardening.md. units 15/75.
+2026-05-25T00:00Z  DONE       Hardening complete. status=DONE. Pushing to PR #37.

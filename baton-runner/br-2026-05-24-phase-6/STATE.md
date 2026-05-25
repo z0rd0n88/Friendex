@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
-status: RUNNING (post-run hardening — user-requested, pre-merge)
+status: DONE (incl. post-run hardening)
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: hardening  unit: FIX  review_iter: -
-current_baton: pass-baton/phase-6-repos/014-2026-05-25-migrator-error-handling.md
-units_used: 14
+phase: hardening  unit: -  review_iter: -
+current_baton: pass-baton/phase-6-repos/015-2026-05-25-hardening-h1-h2-review.md
+units_used: 15
 
 ## Post-run hardening (user-requested 2026-05-25, before merging PR #37)
 
@@ -14,8 +14,10 @@ Two non-blocking review findings to fix on this branch:
 - H2: 6f migrator main() narrow except (misses ArithmeticError/KeyError on
   corrupt data) -> MigrationError + clean exit 1 + dict-shape validation.
   Source finding: review baton 012 MEDIUM + LOW.
-Plan: fix-unit H1 -> commit; fix-unit H2 -> commit; one combined independent
-review -> commit; push (PR #37 updates automatically).
+DONE: H1 (0a54d61) + H2 (ddadffb) both fixed TDD; combined review (baton 015)
+VERDICT CLEAN — both verified RED-by-reversion, no cross-user leakage, no
+over-broad except. 1 LOW (voice-order test non-RED) + 1 INFO, non-blocking.
+Pushed to PR #37. Run fully complete: 15/75 units, 0 unresolved findings.
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
