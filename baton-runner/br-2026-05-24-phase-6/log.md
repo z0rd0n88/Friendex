@@ -32,3 +32,6 @@
 2026-05-24T00:00Z  COMMIT 6e  9387225 feat(phase-6): SqlPenaltyRepository + SqlTradeCooldownRepository + SqlSystemStateRepository.
 2026-05-24T00:00Z  SPAWN 6e   REVIEW unit (general-purpose, opus) iter 1.
 2026-05-24T00:00Z  RETURN 6e  VERDICT CLEAN. review baton 010. Gate PASS (350). 4 ACs met; TTL boundary + single-row idempotency mutation-verified; mypy conformance. No CRIT/HIGH/MEDIUM, no new deps; 2 NOTE-only. Digest digest-phase-6e.md. units 10/75.
+2026-05-24T00:00Z  COMMIT 6e  843cf2d chore(phase-6): 6e review CLEAN + phase-exit digest.
+2026-05-24T00:00Z  SPAWN 6f   WORK unit (general-purpose, opus) for 6f-migrator.
+2026-05-24T00:00Z  RETURN 6f  STATUS COMPLETE. baton 011. JSON->SQLite migrator TDD; 12 tests RED->GREEN; GATE PASS; idempotency non-vacuous; Decimal-not-float; FK-safe order. DECLARED added --guild-id arg (ADR-0001). No new deps. units 11/75.

@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 6 of 6  unit: WORK  review_iter: 0 of 3
-current_baton: pass-baton/phase-6-repos/010-2026-05-24-6e-penalty-cooldown-state-repos-review.md
-units_used: 10
+phase: 6 of 6  unit: REVIEW  review_iter: 1 of 3
+current_baton: pass-baton/phase-6-repos/011-2026-05-24-6f-json-sqlite-migrator.md
+units_used: 11
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -52,10 +52,12 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 - id: 6f-migrator  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: migrate_json_to_sqlite.py + json fixtures + idempotency test + __init__ re-exports.
-  digest: -  units: 0  state: PENDING
+  digest: -  units: 1  state: WORK_DONE -> REVIEW pending
+  note: unit DECLARED an added required --guild-id CLI arg (original JSON is guild-less;
+    ADR-0001 keys rows by (guild_id,user_id)) -> review must validate this deviation.
 
 ## Resume point
 
-6a-6e DONE (all VERDICT CLEAN, digests written). Next action: spawn WORK unit
-for 6f-migrator (JSON->SQLite migrator + fixtures + idempotency test). After 6f
+6a-6e DONE; 6f WORK COMPLETE (baton 011), committed. Next action: spawn REVIEW
+unit for 6f-migrator (validate the declared --guild-id deviation). After 6f
 CLEAN: open the single Phase 6 draft PR (base main), then STATE=DONE.

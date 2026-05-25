@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from friendex.adapters.persistence.cooldown_repo import SqlTradeCooldownRepository
 from friendex.adapters.persistence.fund_repo import SqlFundRepository
+from friendex.adapters.persistence.migrate_json_to_sqlite import migrate
 from friendex.adapters.persistence.penalty_repo import SqlPenaltyRepository
 from friendex.adapters.persistence.price_repo import SqlPriceRepository
 from friendex.adapters.persistence.system_state_repo import SqlSystemStateRepository
@@ -21,4 +22,5 @@ __all__ = [
     "SqlSystemStateRepository",
     "SqlTradeCooldownRepository",
     "SqlUserRepository",
+    "migrate",
 ]
