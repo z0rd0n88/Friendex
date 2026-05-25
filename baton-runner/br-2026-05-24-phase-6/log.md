@@ -17,3 +17,6 @@
 2026-05-24T00:00Z  COMMIT 6b  fbb66a1 chore(phase-6): 6b review CLEAN + phase-exit digest.
 2026-05-24T00:00Z  SPAWN 6c   WORK unit (general-purpose, opus) for 6c-user-repo.
 2026-05-24T00:00Z  RETURN 6c  STATUS COMPLETE. baton 005. SqlUserRepository (5 methods, mypy conformance); 9 TDD tests RED->GREEN; cascade keystone non-vacuous; GATE PASS, user_repo 98% cov. No new deps. units 5/75.
+2026-05-24T00:00Z  COMMIT 6c  e0a73c8 feat(phase-6): SqlUserRepository.
+2026-05-24T00:00Z  SPAWN 6c   REVIEW unit (general-purpose, opus) iter 1.
+2026-05-24T00:00Z  RETURN 6c  VERDICT CLEAN. review baton 006. Gate green. 4 ACs met; AC3 cascade re-proven non-vacuous (FK off -> orphan). __init__ benign re-export. 1 MEDIUM (N+1 list_all) + 2 LOW. Digest digest-phase-6c.md. units 6/75.

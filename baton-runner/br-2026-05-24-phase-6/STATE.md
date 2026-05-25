@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 3 of 6  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-6-repos/005-2026-05-24-6c-user-repo.md
-units_used: 5
+phase: 4 of 6  unit: WORK  review_iter: 0 of 3
+current_baton: pass-baton/phase-6-repos/006-2026-05-24-6c-user-repo-review.md
+units_used: 6
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -37,7 +37,8 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 - id: 6c-user-repo  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: SqlUserRepository + test; deletion-cascade test proves 6a FK wiring.
-  digest: -  units: 1  state: WORK_DONE -> REVIEW pending
+  digest: baton-runner/br-2026-05-24-phase-6/digest-phase-6c.md
+  units: 2  state: DONE (VERDICT CLEAN; 1 MEDIUM N+1 in list_all + 2 LOW, non-blocking)
 - id: 6d-price-fund-repos  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: SqlPriceRepository + SqlFundRepository + tests.
@@ -53,5 +54,6 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 
 ## Resume point
 
-6a, 6b DONE; 6c WORK COMPLETE (baton 005), committed. Next action: spawn REVIEW
-unit for 6c-user-repo, review_iter 1 of 3.
+6a, 6b, 6c DONE (all VERDICT CLEAN, digests written). Carry-forward lesson:
+6c flagged MEDIUM N+1 in list_all -> instruct 6d/6e to use eager loading
+(selectinload). Next action: spawn WORK unit for 6d-price-fund-repos.
