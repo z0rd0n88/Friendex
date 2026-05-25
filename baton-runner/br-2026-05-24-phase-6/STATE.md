@@ -1,9 +1,21 @@
 # baton-runner run br-2026-05-24-phase-6
-status: DONE
+status: RUNNING (post-run hardening — user-requested, pre-merge)
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 6 of 6  unit: -  review_iter: -
-current_baton: pass-baton/phase-6-repos/012-2026-05-24-6f-migrator-review.md
-units_used: 12
+phase: hardening  unit: FIX  review_iter: -
+current_baton: pass-baton/phase-6-repos/013-2026-05-25-user-repo-n1-fix.md
+units_used: 13
+
+## Post-run hardening (user-requested 2026-05-25, before merging PR #37)
+
+Two non-blocking review findings to fix on this branch:
+- H1: 6c N+1 in SqlUserRepository.list_all/list_active_in_last -> batch child
+  loads (one IN-query per child table, group in memory) + deterministic voice
+  ORDER BY. Source finding: review baton 006 MEDIUM + LOW.
+- H2: 6f migrator main() narrow except (misses ArithmeticError/KeyError on
+  corrupt data) -> MigrationError + clean exit 1 + dict-shape validation.
+  Source finding: review baton 012 MEDIUM + LOW.
+Plan: fix-unit H1 -> commit; fix-unit H2 -> commit; one combined independent
+review -> commit; push (PR #37 updates automatically).
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 

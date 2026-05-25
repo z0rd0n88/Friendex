@@ -23,12 +23,13 @@ The fixture pattern (shared in-memory engine, ``AsyncSession``) mirrors
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import pytest_asyncio
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from friendex.adapters.persistence.db import Base, build_engine, build_sessionmaker
 from friendex.adapters.persistence.orm import (
@@ -48,7 +49,7 @@ from friendex.domain.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Iterator
 
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -141,6 +142,41 @@ def _rich_account(user_id: str = "111") -> UserAccount:
         opt_in=True,
         intro_shown=False,
     )
+
+
+@contextlib.contextmanager
+def _count_selects(engine: AsyncEngine) -> Iterator[list[int]]:
+    """Count ``SELECT`` statements emitted on ``engine`` within the block.
+
+    Yields a one-element list whose value is updated as cursors execute, so the
+    caller reads the final tally *after* exiting the block. Only ``SELECT``s are
+    counted (the read fan-out we are bounding); ``PRAGMA``/``INSERT``/``DELETE``
+    are ignored.
+    """
+    tally = [0]
+
+    def _on_execute(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _params: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            tally[0] += 1
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _on_execute)
+    try:
+        yield tally
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _on_execute)
+
+
+# Upper bound on SELECTs per list call, independent of the number of users:
+# 1 parent + long + short + bucket + voice = 5. The guard keeps headroom at 6
+# so the assertion catches the old ~5N+1 fan-out, not incidental +1 drift.
+_MAX_LIST_SELECTS = 6
 
 
 # ---------------------------------------------------------------------------
@@ -359,3 +395,75 @@ async def test_delete_missing_user_is_noop(repo: SqlUserRepository) -> None:
     """AC3 — deleting an absent user does not raise."""
     await repo.delete(GUILD_ID, "ghost")
     assert await repo.get(GUILD_ID, "ghost") is None
+
+
+# ---------------------------------------------------------------------------
+# H1 — list_all / list_active_in_last issue a bounded number of SELECTs
+# ---------------------------------------------------------------------------
+
+
+async def test_list_all_query_count_is_bounded(
+    repo: SqlUserRepository, engine: AsyncEngine
+) -> None:
+    """H1 — ``list_all`` issues O(1) SELECTs, not O(N) per-user fan-out.
+
+    The pre-fix implementation rebuilt each row with 3-5 child SELECTs, so N
+    users cost ~5N+1 queries. Batching the children into one ``IN`` query per
+    table must keep the count flat as N grows.
+    """
+    for n in range(4):
+        await repo.upsert(GUILD_ID, _rich_account(f"u{n}"))
+
+    with _count_selects(engine) as tally:
+        accounts = await repo.list_all(GUILD_ID)
+
+    assert len(accounts) == 4
+    assert tally[0] <= _MAX_LIST_SELECTS, (
+        f"list_all over 4 users issued {tally[0]} SELECTs; "
+        f"expected <= {_MAX_LIST_SELECTS} (constant, not per-user)"
+    )
+
+
+async def test_list_active_in_last_query_count_is_bounded(
+    repo: SqlUserRepository, engine: AsyncEngine
+) -> None:
+    """H1 — ``list_active_in_last`` (activity-tick hot path) is O(1) in SELECTs."""
+    now = datetime.now(tz=UTC)
+    for n in range(4):
+        acct = _rich_account(f"u{n}")
+        acct.last_activity = now - timedelta(minutes=5)
+        await repo.upsert(GUILD_ID, acct)
+
+    with _count_selects(engine) as tally:
+        accounts = await repo.list_active_in_last(GUILD_ID, seconds=3600)
+
+    assert len(accounts) == 4
+    assert tally[0] <= _MAX_LIST_SELECTS, (
+        f"list_active_in_last over 4 users issued {tally[0]} SELECTs; "
+        f"expected <= {_MAX_LIST_SELECTS} (constant, not per-user)"
+    )
+
+
+async def test_list_all_empty_guild_returns_empty(repo: SqlUserRepository) -> None:
+    """H1 — an empty guild lists nothing without an ``IN ()`` error."""
+    assert await repo.list_all(GUILD_ID) == []
+
+
+async def test_list_all_voice_channels_have_deterministic_order(
+    repo: SqlUserRepository,
+) -> None:
+    """LOW — batched voice-channel load returns channels in a stable order.
+
+    Inserted out of natural sort order to prove the ``ORDER BY channel_id`` is
+    what fixes the order, not insertion/rowid luck.
+    """
+    account = _rich_account("ordered")
+    account.today = ActivityBucket(
+        voice_unique_channels=["c3", "c1", "c2"],
+        bucket_start=_utc(2026, 5, 23, 0),
+    )
+    await repo.upsert(GUILD_ID, account)
+
+    listed = next(a for a in await repo.list_all(GUILD_ID) if a.user_id == "ordered")
+
+    assert listed.today.voice_unique_channels == ["c1", "c2", "c3"]

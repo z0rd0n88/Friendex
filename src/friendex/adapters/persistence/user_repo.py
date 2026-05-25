@@ -27,6 +27,7 @@ never mutates the loaded rows.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, TypeVar
 
@@ -41,10 +42,17 @@ from friendex.adapters.persistence.orm import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
     from sqlalchemy.sql._typing import ColumnExpressionArgument
 
-    from friendex.domain.models import ActivityBucket, UserAccount
+    from friendex.domain.models import (
+        ActivityBucket,
+        LongPosition,
+        ShortPosition,
+        UserAccount,
+    )
 
 _ChildT = TypeVar("_ChildT")
 
@@ -91,7 +99,12 @@ class SqlUserRepository:
             await session.commit()
 
     async def list_all(self, guild_id: str) -> list[UserAccount]:
-        """Return every account in ``guild_id``, each fully rebuilt."""
+        """Return every account in ``guild_id``, each fully rebuilt.
+
+        Issues a constant number of queries (1 parent + one batched ``IN`` query
+        per child table) regardless of the number of users, then groups children
+        in memory — see :meth:`_rebuild_many`.
+        """
         async with self._sessionmaker() as session:
             rows = (
                 (
@@ -102,12 +115,17 @@ class SqlUserRepository:
                 .scalars()
                 .all()
             )
-            return [await self._rebuild(session, row) for row in rows]
+            return await self._rebuild_many(session, guild_id, rows)
 
     async def list_active_in_last(
         self, guild_id: str, seconds: float
     ) -> list[UserAccount]:
-        """Return accounts whose ``last_activity`` is within ``seconds`` of now."""
+        """Return accounts whose ``last_activity`` is within ``seconds`` of now.
+
+        On the activity-tick / inactivity-decay hot path, so it batches child
+        loads the same way as :meth:`list_all` — a constant query count
+        independent of how many users match.
+        """
         cutoff = datetime.now(tz=UTC) - timedelta(seconds=seconds)
         async with self._sessionmaker() as session:
             rows = (
@@ -122,7 +140,7 @@ class SqlUserRepository:
                 .scalars()
                 .all()
             )
-            return [await self._rebuild(session, row) for row in rows]
+            return await self._rebuild_many(session, guild_id, rows)
 
     # -- internal helpers ---------------------------------------------------
 
@@ -193,8 +211,124 @@ class SqlUserRepository:
             VoiceUniqueChannelORM.guild_id == guild_id,
             VoiceUniqueChannelORM.user_id == user_id,
             VoiceUniqueChannelORM.bucket_type == bucket_type,
+            order_by=VoiceUniqueChannelORM.channel_id,
         )
         channels = [r.channel_id for r in channel_rows]
+        return bucket_row.to_domain(channels)
+
+    # -- batched (constant-query) list path ---------------------------------
+
+    async def _rebuild_many(
+        self,
+        session: AsyncSession,
+        guild_id: str,
+        rows: Sequence[UserORM],
+    ) -> list[UserAccount]:
+        """Rebuild many accounts with a constant number of queries.
+
+        After the caller's single parent query, this loads each child table once
+        with a ``WHERE guild_id = :g AND <owner/user>_id IN (:ids)`` query, groups
+        the children in memory by user, and assembles each :class:`UserAccount`
+        from the pre-grouped maps. Total cost is ~5 queries (long + short +
+        bucket + voice, plus the parent query already spent) instead of the
+        per-user ~5N fan-out of :meth:`_rebuild`.
+        """
+        user_ids = [row.user_id for row in rows]
+        if not user_ids:
+            return []
+
+        long_rows = await self._children(
+            session,
+            LongPositionORM,
+            LongPositionORM.guild_id == guild_id,
+            LongPositionORM.owner_id.in_(user_ids),
+        )
+        short_rows = await self._children(
+            session,
+            ShortPositionORM,
+            ShortPositionORM.guild_id == guild_id,
+            ShortPositionORM.owner_id.in_(user_ids),
+        )
+        bucket_rows = await self._children(
+            session,
+            ActivityBucketORM,
+            ActivityBucketORM.guild_id == guild_id,
+            ActivityBucketORM.user_id.in_(user_ids),
+        )
+        channel_rows = await self._children(
+            session,
+            VoiceUniqueChannelORM,
+            VoiceUniqueChannelORM.guild_id == guild_id,
+            VoiceUniqueChannelORM.user_id.in_(user_ids),
+            order_by=VoiceUniqueChannelORM.channel_id,
+        )
+
+        longs_by_user: dict[str, dict[str, LongPosition]] = defaultdict(dict)
+        for long_row in long_rows:
+            position = long_row.to_domain()
+            longs_by_user[long_row.owner_id][position.target_user_id] = position
+
+        shorts_by_user: dict[str, dict[str, ShortPosition]] = defaultdict(dict)
+        for short_row in short_rows:
+            short = short_row.to_domain()
+            shorts_by_user[short_row.owner_id][short.target_user_id] = short
+
+        buckets_by_user: dict[str, dict[str, ActivityBucketORM]] = defaultdict(dict)
+        for bucket_row in bucket_rows:
+            buckets_by_user[bucket_row.user_id][bucket_row.bucket_type] = bucket_row
+
+        # Channels keyed by (user_id, bucket_type); ``order_by`` above keeps each
+        # list deterministically ordered by channel_id.
+        channels_by_bucket: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for channel_row in channel_rows:
+            key = (channel_row.user_id, channel_row.bucket_type)
+            channels_by_bucket[key].append(channel_row.channel_id)
+
+        return [
+            self._assemble(
+                row,
+                longs_by_user.get(row.user_id, {}),
+                shorts_by_user.get(row.user_id, {}),
+                buckets_by_user.get(row.user_id, {}),
+                channels_by_bucket,
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def _assemble(
+        row: UserORM,
+        longs: dict[str, LongPosition],
+        shorts: dict[str, ShortPosition],
+        buckets: dict[str, ActivityBucketORM],
+        channels_by_bucket: dict[tuple[str, str], list[str]],
+    ) -> UserAccount:
+        """Build one :class:`UserAccount` from pre-grouped child maps."""
+        today = SqlUserRepository._bucket_from_maps(
+            row.user_id, buckets, channels_by_bucket, _TODAY
+        )
+        week = SqlUserRepository._bucket_from_maps(
+            row.user_id, buckets, channels_by_bucket, _WEEK
+        )
+        return row.to_domain(
+            long_positions=longs,
+            short_positions=shorts,
+            today=today,
+            week=week,
+        )
+
+    @staticmethod
+    def _bucket_from_maps(
+        user_id: str,
+        buckets: dict[str, ActivityBucketORM],
+        channels_by_bucket: dict[tuple[str, str], list[str]],
+        bucket_type: str,
+    ) -> ActivityBucket | None:
+        """Map one bucket from the pre-grouped maps, or ``None`` if absent."""
+        bucket_row = buckets.get(bucket_type)
+        if bucket_row is None:
+            return None
+        channels = channels_by_bucket.get((user_id, bucket_type), [])
         return bucket_row.to_domain(channels)
 
     @staticmethod
@@ -262,8 +396,14 @@ class SqlUserRepository:
         session: AsyncSession,
         model: type[_ChildT],
         *wheres: ColumnExpressionArgument[bool],
+        order_by: ColumnExpressionArgument[object] | None = None,
     ) -> list[_ChildT]:
-        """Load and return every child row of ``model`` matching ``wheres``."""
-        return list(
-            (await session.execute(select(model).where(*wheres))).scalars().all()
-        )
+        """Load and return every child row of ``model`` matching ``wheres``.
+
+        ``order_by`` makes the result deterministic where order matters (the
+        voice-channel load), so callers never rely on insertion / rowid luck.
+        """
+        stmt = select(model).where(*wheres)
+        if order_by is not None:
+            stmt = stmt.order_by(order_by)
+        return list((await session.execute(stmt)).scalars().all())
