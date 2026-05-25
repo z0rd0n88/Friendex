@@ -84,6 +84,37 @@ def _utc(year: int, month: int, day: int, hour: int = 12) -> datetime:
     return datetime(year, month, day, hour, 30, 15, tzinfo=UTC)
 
 
+def _minimal_user(user_id: str, *, guild_id: str = GUILD_ID) -> UserORM:
+    """A bare parent ``users`` row, so child inserts satisfy the FK.
+
+    ADR-0002 turns SQLite FK enforcement ON for every engine (including this
+    file's in-memory fixture), so a child row (position, activity bucket, …)
+    can only be inserted once its parent exists. Tests that exercise a child in
+    isolation use this to stand up the required parent first.
+    """
+    return UserORM.from_domain(
+        guild_id,
+        UserAccount(
+            user_id=user_id,
+            cash_balance=Decimal("10000.00"),
+            net_worth=Decimal("10000.00"),
+            month_start_net_worth=Decimal("10000.00"),
+            long_positions={},
+            short_positions={},
+            today=ActivityBucket(bucket_start=_utc(2026, 5, 23)),
+            week=ActivityBucket(bucket_start=_utc(2026, 5, 18)),
+            daily=DailyProgress(last_claim=None, streak=0),
+            last_activity=_utc(2026, 5, 23, 11),
+        ),
+    )
+
+
+async def _add_parent(session: AsyncSession, parent: object) -> None:
+    """Add a parent row and flush it so child inserts that follow see it."""
+    session.add(parent)
+    await session.flush()
+
+
 def _same_scale(actual: Decimal, expected: Decimal) -> bool:
     """True when ``actual`` carries the same decimal exponent (quantisation
     scale) as ``expected``.
@@ -97,6 +128,15 @@ def _same_scale(actual: Decimal, expected: Decimal) -> bool:
     fail — for currency (exponent ``-2``) and rate (e.g. ``-4``) fields alike.
     """
     return actual.as_tuple().exponent == expected.as_tuple().exponent
+
+
+# A money value that IEEE-754 binary float cannot represent exactly: round-trip
+# through a float-backed column (``Decimal(float(...))``, what SQLite's NUMERIC
+# affinity does) yields ``12345.67000000000007...`` — a different *value* AND a
+# different *exponent* than the exact ``Decimal('12345.67')``. Using it as a
+# fixture makes a regression from ``DecimalText`` to ``Numeric``/float fail both
+# the ``==`` and the ``.as_tuple().exponent ==`` assertions below.
+_FLOAT_INEXACT = Decimal("12345.67")
 
 
 async def test_create_all_runs_against_in_memory_sqlite(engine: AsyncEngine) -> None:
@@ -202,6 +242,7 @@ async def test_long_position_round_trip(session: AsyncSession) -> None:
         target_user_id="999", shares=42, avg_entry=Decimal("123.45")
     )
 
+    await _add_parent(session, _minimal_user("owner-1"))
     session.add(LongPositionORM.from_domain(GUILD_ID, "owner-1", position))
     await session.commit()
 
@@ -234,6 +275,7 @@ async def test_short_position_round_trip(session: AsyncSession) -> None:
         frozen=True,
     )
 
+    await _add_parent(session, _minimal_user("owner-2"))
     session.add(ShortPositionORM.from_domain(GUILD_ID, "owner-2", position))
     await session.commit()
 
@@ -288,7 +330,7 @@ async def test_user_with_positions_round_trip(session: AsyncSession) -> None:
         last_activity=_utc(2026, 5, 23, 10),
     )
 
-    session.add(UserORM.from_domain(GUILD_ID, account))
+    await _add_parent(session, UserORM.from_domain(GUILD_ID, account))
     session.add_all(
         LongPositionORM.from_domain(GUILD_ID, "333", lp)
         for lp in account.long_positions.values()
@@ -344,7 +386,12 @@ async def test_activity_bucket_round_trip(session: AsyncSession) -> None:
         bucket_start=_utc(2026, 5, 23, 0),
     )
 
-    session.add(ActivityBucketORM.from_domain(GUILD_ID, "444", "today", bucket))
+    # Parent chain: users -> activity_buckets -> voice_unique_channels. Each
+    # parent must be flushed before its children under FK enforcement.
+    await _add_parent(session, _minimal_user("444"))
+    await _add_parent(
+        session, ActivityBucketORM.from_domain(GUILD_ID, "444", "today", bucket)
+    )
     session.add_all(
         VoiceUniqueChannelORM.from_domain(GUILD_ID, "444", "today", channel)
         for channel in bucket.voice_unique_channels
@@ -397,7 +444,7 @@ async def test_stock_round_trip(session: AsyncSession) -> None:
         all_time_high=Decimal("150.00"),
     )
 
-    session.add(StockORM.from_domain(GUILD_ID, stock))
+    await _add_parent(session, StockORM.from_domain(GUILD_ID, stock))
     session.add_all(
         PriceHistoryORM.from_domain(GUILD_ID, "555", point) for point in stock.history
     )
@@ -455,7 +502,7 @@ async def test_hedge_fund_round_trip(session: AsyncSession) -> None:
         },
     )
 
-    session.add(HedgeFundORM.from_domain(GUILD_ID, fund))
+    await _add_parent(session, HedgeFundORM.from_domain(GUILD_ID, fund))
     session.add_all(
         FundInvestorORM.from_domain(GUILD_ID, "fund-1", investor_id, amount)
         for investor_id, amount in fund.investors.items()
@@ -624,3 +671,85 @@ async def test_guild_isolation_same_user_two_guilds(session: AsyncSession) -> No
 
     assert row_a.to_domain([]).current == Decimal("100.00")
     assert row_b.to_domain([]).current == Decimal("250.00")
+
+
+async def test_decimal_text_preserves_exact_scale_for_float_inexact_value(
+    session: AsyncSession,
+) -> None:
+    """Phase-5 MEDIUM carry-forward — exact Decimal scale survives the round trip.
+
+    Persists a ``ShortPosition`` (four ``DecimalText`` money columns) using a
+    value IEEE-754 float cannot represent exactly, then asserts both the value
+    and the *quantisation exponent* round-trip identically. A regression from
+    ``DecimalText`` to a float-backed ``Numeric`` column would corrupt the value
+    (``12345.67`` → ``12345.67000000000007...``) and shift its exponent,
+    failing the explicit ``.as_tuple().exponent ==`` assertions below.
+    """
+    position = ShortPosition(
+        target_user_id="777",
+        shares=3,
+        entry_price=_FLOAT_INEXACT,
+        locked_cash=_FLOAT_INEXACT,
+        locked_fund=Decimal("0.00"),
+        created_at=_utc(2026, 5, 24, 9),
+    )
+
+    await _add_parent(session, _minimal_user("owner-fx"))
+    session.add(ShortPositionORM.from_domain(GUILD_ID, "owner-fx", position))
+    await session.commit()
+
+    loaded = (
+        await session.execute(
+            select(ShortPositionORM).where(
+                ShortPositionORM.guild_id == GUILD_ID,
+                ShortPositionORM.owner_id == "owner-fx",
+                ShortPositionORM.target_id == "777",
+            )
+        )
+    ).scalar_one()
+    result = loaded.to_domain()
+
+    # Exact value (a float column would corrupt the trailing digits).
+    assert result.entry_price == _FLOAT_INEXACT
+    assert result.locked_cash == _FLOAT_INEXACT
+    assert result.locked_fund == Decimal("0.00")
+
+    # Exact quantisation — the literal exponent form the carry-forward requires,
+    # one assertion per ``DecimalText`` column on this model.
+    assert result.entry_price.as_tuple().exponent == _FLOAT_INEXACT.as_tuple().exponent
+    assert result.locked_cash.as_tuple().exponent == _FLOAT_INEXACT.as_tuple().exponent
+    assert result.locked_fund.as_tuple().exponent == Decimal("0.00").as_tuple().exponent
+
+
+async def test_decimal_text_preserves_rate_scale_for_penalty(
+    session: AsyncSession,
+) -> None:
+    """Phase-5 MEDIUM carry-forward — a 4-dp rate column keeps its exact scale.
+
+    ``FundPenalty.penalty_apr`` is a rate (exponent ``-4``), distinct from the
+    currency columns (exponent ``-2``). The explicit exponent assertion proves
+    ``DecimalText`` preserves rate quantisation too, not just two-place money.
+    """
+    penalty = FundPenalty(
+        user_id="rate-1",
+        penalty_apr=Decimal("0.0375"),
+        penalty_until=_utc(2026, 6, 6, 0),
+    )
+
+    session.add(FundPenaltyORM.from_domain(GUILD_ID, penalty))
+    await session.commit()
+
+    loaded = (
+        await session.execute(
+            select(FundPenaltyORM).where(
+                FundPenaltyORM.guild_id == GUILD_ID,
+                FundPenaltyORM.user_id == "rate-1",
+            )
+        )
+    ).scalar_one()
+    result = loaded.to_domain()
+
+    assert result.penalty_apr == Decimal("0.0375")
+    assert (
+        result.penalty_apr.as_tuple().exponent == Decimal("0.0375").as_tuple().exponent
+    )

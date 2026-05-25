@@ -1,0 +1,23 @@
+{
+  "111": {
+    "name": "Alpha Capital",
+    "manager_id": "111",
+    "cash_balance": 25000.00,
+    "investors": {
+      "222": 5000.00,
+      "333": 2500.50
+    }
+  },
+  "333": {
+    "name": "Beta Holdings",
+    "manager_id": "333",
+    "cash_balance": 1000.10,
+    "investors": {}
+  },
+  "events_wallet": {
+    "name": "Events Wallet",
+    "manager_id": "events_wallet",
+    "cash_balance": 750.00,
+    "investors": {}
+  }
+}

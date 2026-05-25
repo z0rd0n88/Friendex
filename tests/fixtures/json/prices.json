@@ -1,0 +1,39 @@
+{
+  "111": {
+    "current": 105.10,
+    "history": [
+      {"price": 100.00, "timestamp": "2026-05-23T06:00:00"},
+      {"price": 102.50, "timestamp": "2026-05-23T07:00:00"},
+      {"price": 105.10, "timestamp": "2026-05-23T08:00:00"}
+    ],
+    "high_24h": 106.00,
+    "low_24h": 99.30,
+    "all_time_high": 150.00
+  },
+  "222": {
+    "current": 80.10,
+    "history": [
+      {"price": 80.10, "timestamp": "2026-05-23T05:30:00"}
+    ],
+    "high_24h": 80.10,
+    "low_24h": 80.10,
+    "all_time_high": 120.00
+  },
+  "333": {
+    "current": 150.55,
+    "history": [],
+    "high_24h": 150.55,
+    "low_24h": 150.55,
+    "all_time_high": 150.55
+  },
+  "444": {
+    "current": 90.30,
+    "history": [
+      {"price": 95.00, "timestamp": "2026-05-23T04:00:00"},
+      {"price": 90.30, "timestamp": "2026-05-23T05:00:00"}
+    ],
+    "high_24h": 95.00,
+    "low_24h": 90.30,
+    "all_time_high": 200.00
+  }
+}
