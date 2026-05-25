@@ -64,6 +64,17 @@ Friendex/
 │   ├── workflows/
 │   │   └── ci.yml
 │   └── pull_request_template.md
+├── alembic/
+│   ├── versions/
+│   │   └── 0001_baseline.py
+│   ├── env.py
+│   └── script.py.mako
+├── baton-runner/
+│   └── br-2026-05-23-p4p5/
+│       ├── digest-phase-4.md
+│       ├── digest-phase-5.md
+│       ├── log.md
+│       └── STATE.md
 ├── docs/  — curated project documentation: architecture docs (current state, target, migration plan, testing strategy), ADRs, product ideas, prompts, and code-review records.
 │   ├── adr/
 │   │   ├── 0001-per-guild-markets.md
@@ -88,10 +99,19 @@ Friendex/
 │   │   ├── 000-2026-05-15-phase-3-kickoff.md
 │   │   └── 001-2026-05-15-phase-3-pr11-ready.md
 │   ├── phase-4-domain-funcs/
-│   │   └── 000-2026-05-22-phase-4-kickoff.md
+│   │   ├── 000-2026-05-22-phase-4-kickoff.md
+│   │   ├── 001-2026-05-23-price-engine-activity-done.md
+│   │   ├── 002-2026-05-23-market-hours-fund-math-done.md
+│   │   └── 003-2026-05-23-phase-4-review.md
+│   ├── phase-5-orm/
+│   │   ├── 000-2026-05-23-orm-roundtrip-done.md
+│   │   ├── 001-2026-05-23-alembic-baseline-done.md
+│   │   └── 002-2026-05-23-phase-5-review.md
 │   ├── 000-2026-05-15-start-pass-baton.md
 │   ├── CLAUDE.md
 │   └── INDEX.md
+├── scripts/
+│   └── gate.sh
 ├── src/  — the `friendex` package root containing all production source code, organized into `domain/`, `application/`, and `adapters/` layers.
 │   └── friendex/
 │       ├── adapters/
@@ -102,7 +122,10 @@ Friendex/
 │       │   │   │   └── __init__.py
 │       │   │   └── __init__.py
 │       │   ├── persistence/
-│       │   │   └── __init__.py
+│       │   │   ├── __init__.py
+│       │   │   ├── db.py
+│       │   │   ├── orm.py
+│       │   │   └── types.py
 │       │   ├── tasks/
 │       │   │   └── __init__.py
 │       │   ├── __init__.py
@@ -111,19 +134,32 @@ Friendex/
 │       │   └── __init__.py
 │       ├── domain/
 │       │   ├── __init__.py
+│       │   ├── activity.py
 │       │   ├── errors.py
-│       │   └── models.py
+│       │   ├── fund_math.py
+│       │   ├── market_hours.py
+│       │   ├── models.py
+│       │   └── price_engine.py
 │       └── __init__.py
 ├── tests/  — pytest test suite mirroring the `src/` layer structure, with fixtures and a conftest for shared test setup.
 │   ├── adapters/
 │   │   ├── fixtures/
 │   │   │   └── test.env
+│   │   ├── persistence/
+│   │   │   ├── __init__.py
+│   │   │   ├── test_migrations.py
+│   │   │   └── test_orm.py
 │   │   ├── __init__.py
 │   │   └── test_config.py
 │   ├── domain/
 │   │   ├── __init__.py
+│   │   ├── conftest.py
+│   │   ├── test_activity.py
 │   │   ├── test_errors.py
-│   │   └── test_models.py
+│   │   ├── test_fund_math.py
+│   │   ├── test_market_hours.py
+│   │   ├── test_models.py
+│   │   └── test_price_engine.py
 │   ├── __init__.py
 │   ├── conftest.py
 │   └── test_scaffold.py
@@ -132,6 +168,7 @@ Friendex/
 ├── .gitignore  — specifies files and directories excluded from version control (virtualenvs, build artifacts, `.env`, data files, etc.).
 ├── .pre-commit-config.yaml  — configuration for the pre-commit framework declaring hooks that run ruff and other checks locally before commits.
 ├── .python-version  — pins the Python version used by `uv` and pyenv for consistent local interpreter selection.
+├── alembic.ini
 ├── ARCH.md
 ├── CLAUDE.md  — project-level Claude Code instructions covering architecture layers, development commands, repo workflow rules, game rules, and phase status conventions.
 ├── mypy.ini  — mypy static type-checker configuration enabling strict mode for the `src/friendex` package.
