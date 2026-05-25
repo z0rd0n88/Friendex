@@ -11,3 +11,6 @@
 2026-05-24T00:00Z  COMMIT 6a  8394a0d chore(phase-6): 6a review CLEAN + phase-exit digest.
 2026-05-24T00:00Z  SPAWN 6b   WORK unit (general-purpose, opus) for 6b-interfaces.
 2026-05-24T00:00Z  RETURN 6b  STATUS COMPLETE. baton 003. 6 Protocols + 2 app DTOs (SystemState, TradeCooldown). RED captured; 18 conformance tests GREEN; GATE PASS (289). No new deps. units 3/75.
+2026-05-24T00:00Z  COMMIT 6b  40726d3 feat(phase-6): repository protocol interfaces.
+2026-05-24T00:00Z  SPAWN 6b   REVIEW unit (general-purpose, opus) iter 1.
+2026-05-24T00:00Z  RETURN 6b  VERDICT CLEAN. review baton 004. Gate green. 6 Protocols, complete method set, zero adapters import (grep+AST), non-tautological conformance (negative mypy probe). DTO placement sound. 2 LOW. Digest digest-phase-6b.md. units 4/75.
