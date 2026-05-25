@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-24-phase-6
-status: RUNNING
+status: DONE
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
-phase: 6 of 6  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-6-repos/011-2026-05-24-6f-json-sqlite-migrator.md
-units_used: 11
+phase: 6 of 6  unit: -  review_iter: -
+current_baton: pass-baton/phase-6-repos/012-2026-05-24-6f-migrator-review.md
+units_used: 12
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -52,12 +52,15 @@ single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 - id: 6f-migrator  spec: plan Phase 6  readiness: READY
   work_agent: general-purpose
   scope: migrate_json_to_sqlite.py + json fixtures + idempotency test + __init__ re-exports.
-  digest: -  units: 1  state: WORK_DONE -> REVIEW pending
-  note: unit DECLARED an added required --guild-id CLI arg (original JSON is guild-less;
-    ADR-0001 keys rows by (guild_id,user_id)) -> review must validate this deviation.
+  digest: baton-runner/br-2026-05-24-phase-6/digest-phase-6f.md
+  units: 2  state: DONE (VERDICT CLEAN; --guild-id deviation sound per ADR-0001;
+    1 MEDIUM main() narrow except + 1 LOW, non-blocking)
 
 ## Resume point
 
-6a-6e DONE; 6f WORK COMPLETE (baton 011), committed. Next action: spawn REVIEW
-unit for 6f-migrator (validate the declared --guild-id deviation). After 6f
-CLEAN: open the single Phase 6 draft PR (base main), then STATE=DONE.
+ALL 6 sub-units DONE (every VERDICT CLEAN; 0 fix iterations; 12/75 units). Run
+status DONE. Remaining manager action: push feat/phase-6-repos + open the single
+Phase 6 draft PR (base main, Refs #2). Non-blocking findings for the human
+reviewer/follow-up: 6a 0002-no-op-on-fresh-DB (ADR narrative); 6c user_repo
+list_all N+1 (not retrofitted; 6d/6e avoid it); 6f main() narrow except on
+corrupt JSON; assorted LOWs.

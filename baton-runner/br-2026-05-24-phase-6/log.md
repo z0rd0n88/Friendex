@@ -35,3 +35,7 @@
 2026-05-24T00:00Z  COMMIT 6e  843cf2d chore(phase-6): 6e review CLEAN + phase-exit digest.
 2026-05-24T00:00Z  SPAWN 6f   WORK unit (general-purpose, opus) for 6f-migrator.
 2026-05-24T00:00Z  RETURN 6f  STATUS COMPLETE. baton 011. JSON->SQLite migrator TDD; 12 tests RED->GREEN; GATE PASS; idempotency non-vacuous; Decimal-not-float; FK-safe order. DECLARED added --guild-id arg (ADR-0001). No new deps. units 11/75.
+2026-05-24T00:00Z  COMMIT 6f  820a517 feat(phase-6): JSON-to-SQLite migrator + fixtures.
+2026-05-24T00:00Z  SPAWN 6f   REVIEW unit (general-purpose, opus) iter 1.
+2026-05-24T00:00Z  RETURN 6f  VERDICT CLEAN. review baton 012. Gate PASS (362). 4 ACs mutation-verified non-vacuous; --guild-id sound per ADR-0001. 1 MEDIUM (main() narrow except) + 1 LOW. Digest digest-phase-6f.md. units 12/75.
+2026-05-24T00:00Z  DONE       All 6 sub-units VERDICT CLEAN; 0 fix iterations; 12/75 units. status=DONE. Next: push + open Phase 6 draft PR (base main, Refs #2).
