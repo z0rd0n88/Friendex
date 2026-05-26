@@ -38,3 +38,6 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T21:53Z  phase 5/7 DONE  PR #46 (base feat/phase-8c-trading)
 - 2026-05-25T21:55Z  phase 6/7 (8e) branch feat/phase-8e-fund-daily from 8d tip
 - 2026-05-25T22:06Z  phase 6/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8e/001-2026-05-25-phase-8e-complete.md  (E1-E11 + 8 boundary, 22 new tests, 522 suite; added AlreadyClaimedToday to domain/errors.py — declared)  units 15/75
+- 2026-05-25T22:08Z  phase 6/7 COMMIT  1258f85 feat(phase-8e): fund + daily services
+- 2026-05-25T22:14Z  phase 6/7 REVIEW iter1  spawn python-pro -> VERDICT CLEAN (one-shot)  baton=pass-baton/phase-8e/002-2026-05-25-review-iter1-clean.md  digest=digest-phase-8e.md  (2 LOW only)  units 16/75
+- 2026-05-25T22:14Z  phase 6/7 DONE  -> opening draft PR (base feat/phase-8d-portfolio)
