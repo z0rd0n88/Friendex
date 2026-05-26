@@ -46,10 +46,12 @@ fresh manager session resumes from `STATE.md` indistinguishably.
       / ~10 files; split larger into ordered sub-units).
 - [ ] **Spec readiness** per phase → `READY` / `THIN` / `BLOCKED` (draft proposed
       criteria for `THIN`).
-- [ ] **Work-unit agent (optional)** — let the user nominate an agent for work
-      units; default `general-purpose`. Any choice must support file edits +
-      Bash + the `tdd`/`pass-baton` skills (most specialized agents lack the
-      Skill tool — see REFERENCE → "Work-unit agent"). Record per phase in STATE.
+- [ ] **Unit agent (project default `python-pro`)** — this project runs **all**
+      units (work, review, fix) as `python-pro`, which carries the `Skill` tool
+      and so can invoke the `tdd`/`pass-baton`/`code-review`/`ecc-security-review`
+      skills the contracts require. The user may still override per phase; any
+      alternative must support file edits + Bash + the `Skill` tool (see REFERENCE
+      → "Unit agent"). Record per phase in STATE.
 - [ ] **Open questions + signoff** — surface ambiguities, the proposed criteria,
       and the chosen agent. **Do not spawn work unit 1 until the user signs off.**
 - [ ] **Init** `baton-runner/<run-id>/` (`STATE.md` + `log.md` with tunable
@@ -60,7 +62,8 @@ fresh manager session resumes from `STATE.md` indistinguishably.
 For each phase in order, with **fresh context** (this phase's spec + the
 accumulated phase-exit digests only):
 
-1. **WORK** — spawn a work-unit (`subagent_type` = the phase's work-agent). On
+1. **WORK** — spawn a work-unit (`subagent_type` = the phase's unit-agent,
+   `python-pro` by default). On
    return: `INCOMPLETE` → continuation from its baton until `COMPLETE`;
    `NEEDS_USER`/`FATAL` → PAUSE.
 2. **Commit** (manager; transient red is fine — healed before the PR).
@@ -75,8 +78,8 @@ stacked-merge order, any waivers).
 
 ## Spawning, budgets, pause
 
-- **Spawn:** `model: opus` always; work units use the phase's work-agent
-  (default `general-purpose`), review/fix units use `general-purpose`. Build
+- **Spawn:** `model: opus` always; **all units (work, review, fix) use the
+  phase's unit-agent, `python-pro` by default.** Build
   prompts from the REFERENCE templates — always include the spec/baton path, the
   worktree path, the return + containment contracts, and the bail budget
   (≈50 tool-calls / ≈10 files). Record the returned baton path in STATE first.

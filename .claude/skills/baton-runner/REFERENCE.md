@@ -54,7 +54,7 @@ pause_reason: <text or ->
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 phases:
   - id: phase-1  spec: <issue#|file|inline>  readiness: READY|THIN|BLOCKED
-    work_agent: general-purpose   # user-nominated agent for work units
+    unit_agent: python-pro        # agent for ALL units (work/review/fix); project default
     branch: ...  pr: <url|->  digest: baton-runner/<run-id>/digest-phase-1.md
     units: <n>  state: DONE
   - id: phase-2  spec: ...  state: RUNNING ...
@@ -80,9 +80,11 @@ the unit is not done.
 
 ## Unit prompt templates
 
-Every spawn: `model: opus` (forced — overrides the agent's own default). Work
-units use the phase's **work-agent** (default `general-purpose`); review and fix
-units use `general-purpose`. Fill the `<...>`.
+Every spawn: `model: opus` (forced — overrides the agent's own default). **All
+units (work, review, fix) spawn as the phase's unit-agent, `python-pro` by
+default** — it carries the `Skill` tool, so it can run the `tdd`, `pass-baton`,
+`code-review`, and `ecc-security-review` skills every contract needs. Fill the
+`<...>`.
 
 ### Containment contract (append to EVERY unit prompt)
 
@@ -128,7 +130,7 @@ exactly the criteria — no scope creep.
 <RETURN CONTRACT>
 ```
 
-### Review unit (independent of the implementer)
+### Review unit (independent instance — fresh context, not the work unit)
 
 ```
 You review the work just done. Worktree: <path>. Do NOT change product code.
@@ -180,23 +182,26 @@ criteria**, (3) explicit scope/non-goals. Classify each phase:
 - **BLOCKED** (fundamental ambiguity/contradiction) → raise as an open question;
   the phase cannot start until resolved.
 
-## Work-unit agent
+## Unit agent
 
-By default work units (and their continuations) spawn as `general-purpose` — it
-holds `*` tools, so it can edit files, run Bash, and invoke the `tdd` and
-`pass-baton` skills the contract requires. At signoff the user may **nominate a
-different agent per phase** (e.g. a domain specialist). Before accepting one:
+This project runs **every** unit — work, review, and fix — as the `python-pro`
+agent. python-pro carries `Read/Write/Edit/Bash/Glob/Grep` **and `Skill`**, so it
+can edit files, run Bash, and invoke the `tdd`, `pass-baton`, `code-review`, and
+`ecc-security-review` skills every contract requires. (The `Skill` tool was added
+to this project's `python-pro` specifically so it can serve as a baton-runner
+unit — without it the agent could not run `/tdd` or `/pass-baton`.)
 
-- **Tool check.** The agent must support file edits + Bash **and the `Skill`
-  tool** — most specialized agents (`python-pro`, `backend-developer`, …) carry
-  `Read/Write/Edit/Bash/Glob/Grep` but **not** `Skill`, so they cannot run
-  `/tdd` or `/pass-baton`. If the nominated agent lacks skill access, tell the
-  user and either fall back to `general-purpose` or get explicit confirmation to
-  proceed with an adapted contract (inline TDD + manual baton write).
-- **Scope.** The nomination applies to **work units only**; review and fix units
-  stay `general-purpose` (they must run the gate + review skills).
+- **Independence is preserved by instances, not types.** Each unit is a fresh
+  spawn with its own context, so the review unit is still an independent reviewer
+  even though it shares the `python-pro` agent type with the work unit — it only
+  ever sees the work baton + the diff, never the implementer's reasoning.
+- **Override.** The user may still nominate a different agent per phase at
+  signoff. Any alternative must support file edits + Bash **and the `Skill`
+  tool**; if it lacks `Skill`, fall back to `python-pro` (or `general-purpose`)
+  or get explicit confirmation for an adapted contract (inline TDD + manual baton
+  write).
 - **Model.** Spawns still force `model: opus` regardless of the agent's default.
-- Record the choice as `work_agent` on the phase in `STATE.md`.
+- Record the choice as `unit_agent` on the phase in `STATE.md`.
 
 ## Heuristic context split & resilience
 
