@@ -54,5 +54,5 @@ phases:
     units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 0 findings at any severity; no 8c regression
   - id: phase-8-followup  spec: "(1) 8c M2: widen ITradeCooldownRepo.get with now= kwarg + update trading_service call site; (2) 8b M1: calibrate activity_tick_k 0.5 -> 0.3 + update tests + docstring"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-8-followup-cooldown-and-k  base: feat/phase-8f-liq-disc  pr: <pending-push>  digest: -
+    branch: feat/phase-8-followup-cooldown-and-k  base: feat/phase-8f-liq-disc  pr: https://github.com/z0rd0n88/Friendex/pull/49  digest: -
     units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 0 CRITICAL/HIGH/MEDIUM, 1 LOW informational; two clean commits 68c1a8f + b01480b
