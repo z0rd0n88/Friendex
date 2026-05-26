@@ -19,3 +19,5 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T20:37Z  phase 2/7 DONE  PR #43 (base feat/phase-8-fakes)
 - 2026-05-25T20:38Z  phase 3/7 (8b) branch feat/phase-8b-price-tick created from 8a tip
 - 2026-05-25T20:47Z  phase 3/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8b/001-2026-05-25-phase-8b-complete.md  (B1-B5 + 4 extras, 439/439 suite, +2 Settings, vc_boost takes Iterable[VcExtraBoost])  units 7/75
+- 2026-05-25T20:49Z  phase 3/7 COMMIT  1e57910 feat(phase-8b): price tick service
+- 2026-05-25T20:57Z  phase 3/7 REVIEW iter1  spawn python-pro -> VERDICT ISSUES  baton=pass-baton/phase-8b/002-2026-05-25-phase-8b-review-issues.md  (1 HIGH read-before-lock race, 2 MEDIUM M1 activity-K guess M2 missing append_history, 3 LOW)  units 8/75  -> fix-unit

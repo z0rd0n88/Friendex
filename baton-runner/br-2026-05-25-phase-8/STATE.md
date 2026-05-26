@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-25-phase-8
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-25-phase-8
-phase: 3 of 7  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-8b/001-2026-05-25-phase-8b-complete.md
-units_used: 7
+phase: 3 of 7  unit: FIX  review_iter: 1 of 3 (ISSUES)
+current_baton: pass-baton/phase-8b/002-2026-05-25-phase-8b-review-issues.md
+units_used: 8
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
