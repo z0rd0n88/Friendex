@@ -54,13 +54,20 @@ class LockManager:
         Ids are sorted and de-duplicated so acquisition order is deterministic
         (deadlock prevention); locks are released in reverse order in a
         ``finally`` so a failure inside the block never leaks a held lock.
+
+        **Cancellation safety.** The acquire loop runs *inside* the
+        ``try`` and records each lock only once it is actually held, so a
+        cancellation (or exception) while awaiting the N-th lock releases the
+        first N-1 already-held locks in the ``finally`` instead of leaking them.
         """
         ids = sorted(set(user_ids))
         locks = [await self._ensure_lock(uid) for uid in ids]
-        for lock in locks:
-            await lock.acquire()
+        acquired: list[asyncio.Lock] = []
         try:
+            for lock in locks:
+                await lock.acquire()
+                acquired.append(lock)
             yield
         finally:
-            for lock in reversed(locks):
+            for lock in reversed(acquired):
                 lock.release()
