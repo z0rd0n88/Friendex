@@ -24,6 +24,6 @@ budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 
 phases:
   - id: phase-10  spec: "docs/04-migration-plan.md §Phase 10 (lines 635-658)"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-10-embeds  base: origin/main@64fbbe6  pr: <pending push>  digest: baton-runner/br-2026-05-26-phase-10/digest-phase-10.md
+    branch: feat/phase-10-embeds  base: origin/main@64fbbe6  pr: https://github.com/z0rd0n88/Friendex/pull/54  digest: baton-runner/br-2026-05-26-phase-10/digest-phase-10.md
     units: 2  state: DONE  review: iter-1 CLEAN; 0 CRITICAL/HIGH/MEDIUM; 2 LOW + 3 INFO carry-forwards (L1 AC8 mutation tighten, L2 negative-_money guard, I2 cog AllowedMentions.none() for fund names) — non-blocking, deferred to Phase 11/follow-up
     notes: work-unit (agentId a6998c8eec1461f61) stalled post-baton; treated COMPLETE by artifact-grounded verification (revalidated gate PASS). Review-unit (aa99c15f21c9e66b4) returned cleanly in 7m07s / 76 tool uses.
