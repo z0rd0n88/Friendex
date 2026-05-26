@@ -620,10 +620,10 @@ async def test_activity_tick_does_not_clobber_concurrent_upsert(
     after = await inner.get(GUILD, user_id)
     assert after is not None
     # Atomicity proof: the final price was derived from the marker (not 100.00).
-    # An active engaged bucket yields a positive return at k=0.5, so the
-    # post-tick price is strictly greater than the marker. Critically, it must
-    # NOT equal a value derived from the stale 100.00 snapshot (which would be
-    # less than the marker).
+    # An active engaged bucket yields a positive return for any positive
+    # ``activity_tick_k`` (default K=0.3), so the post-tick price is at least
+    # the marker. Critically, it must NOT equal a value derived from the stale
+    # 100.00 snapshot (which would be less than the marker).
     assert after.current >= marker, (
         f"Concurrent upsert at {marker} was clobbered — tick wrote {after.current}, "
         "indicating new_price was computed from the stale pre-lock read."
