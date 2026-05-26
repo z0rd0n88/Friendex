@@ -241,8 +241,20 @@ class ITradeCooldownRepo(Protocol):
     :class:`TradeCooldown` DTO (``upsert`` carries ``guild_id`` inside it).
     """
 
-    async def get(self, guild_id: str, user_id: str) -> TradeCooldown | None:
-        """Return the *active* cooldown, or ``None`` if absent or expired."""
+    async def get(
+        self, guild_id: str, user_id: str, *, now: datetime
+    ) -> TradeCooldown | None:
+        """Return the *active* cooldown, or ``None`` if absent or expired.
+
+        ``now`` is keyword-only and required so the active-vs-expired filter
+        is part of the contract — a row is considered expired (and excluded)
+        once ``expires_at <= now``. Callers (the trading service, background
+        sweeps, tests under ``freeze_time``) pass a deterministic UTC instant;
+        relying on the repo to take ``datetime.now(UTC)`` itself would couple
+        the contract to wall-clock time and leave a race window between the
+        caller's "now" and the repo's "now". The SQLAlchemy adapter and the
+        in-memory fake both accept this kwarg.
+        """
         ...
 
     async def upsert(self, cooldown: TradeCooldown) -> None:

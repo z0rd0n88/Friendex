@@ -10,9 +10,9 @@ dependency arrow pointing inward (``adapters -> application -> domain``).
 **TTL via ``expires_at`` (replaces Redis-native TTL).** :meth:`get` returns a
 cooldown only while it is *active* — a row whose ``expires_at <= now`` is treated
 as expired and excluded (inclusive ``<=``: TTL has elapsed *at* ``now``). The
-``now`` cutoff is an optional keyword (defaulting to the current UTC instant) so
-the service layer and tests can pass a deterministic clock; passing nothing
-satisfies the ``get(guild_id, user_id)`` Protocol shape.
+``now`` cutoff is a required keyword-only parameter so the active-vs-expired
+filter is part of the contract — callers (the trading service, background sweeps,
+tests under ``freeze_time``) pass a deterministic UTC instant.
 
 **Bulk purge.** :meth:`purge_expired` is a single
 ``DELETE ... WHERE expires_at <= now`` across every guild (unscoped sweep) — no
@@ -33,7 +33,6 @@ across the boundary; the mapper builds fresh DTOs and never mutates loaded rows.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import delete, select
@@ -42,6 +41,8 @@ from friendex.adapters.persistence.orm import TradeCooldownORM
 from friendex.application.interfaces import TradeCooldown
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.engine import CursorResult
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -67,22 +68,21 @@ class SqlTradeCooldownRepository:
         self._sessionmaker = sessionmaker
 
     async def get(
-        self, guild_id: str, user_id: str, *, now: datetime | None = None
+        self, guild_id: str, user_id: str, *, now: datetime
     ) -> TradeCooldown | None:
         """Return the *active* cooldown, or ``None`` if absent or expired.
 
-        A row is expired (and excluded) once ``expires_at <= now``. ``now``
-        defaults to the current UTC instant; pass an explicit value for a
-        deterministic clock.
+        A row is expired (and excluded) once ``expires_at <= now``. ``now`` is
+        keyword-only and required, so callers must pass a deterministic UTC
+        instant (matches :class:`~friendex.application.interfaces.ITradeCooldownRepo`).
         """
-        cutoff = now if now is not None else datetime.now(UTC)
         async with self._sessionmaker() as session:
             row = (
                 await session.execute(
                     select(TradeCooldownORM).where(
                         TradeCooldownORM.guild_id == guild_id,
                         TradeCooldownORM.user_id == user_id,
-                        TradeCooldownORM.expires_at > cutoff,
+                        TradeCooldownORM.expires_at > now,
                     )
                 )
             ).scalar_one_or_none()
