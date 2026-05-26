@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-25-phase-8
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-25-phase-8
-phase: 1 of 7  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-8-fakes/001-2026-05-25-fakes-complete.md
-units_used: 1
+phase: 2 of 7  unit: WORK  review_iter: 0 of 3
+current_baton: pass-baton/phase-8-fakes/002-2026-05-25-review-clean.md
+units_used: 2
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -26,8 +26,8 @@ budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 
 phases:
   - id: phase-8-fakes  spec: "inline (test-double infra; derived from migration plan §8b fakes)"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-8-fakes  base: main  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8-fakes.md
-    units: 0  state: RUNNING
+    branch: feat/phase-8-fakes  base: main  pr: <pending-push>  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8-fakes.md
+    units: 2  state: DONE  review: iter-1 CLEAN; 1 LOW (fakes return mutable refs vs fresh objects — convention in digest) + 1 INFO
   - id: phase-8a  spec: "docs/04-migration-plan.md §Phase 8a (+ lock-leak carry-forward)"  readiness: READY
     unit_agent: python-pro
     branch: feat/phase-8a-activity  base: feat/phase-8-fakes  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8a.md
