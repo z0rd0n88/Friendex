@@ -269,15 +269,16 @@ async def test_penalty_repo_round_trip_and_missing_and_delete() -> None:
 
 async def test_cooldown_repo_round_trip_and_missing_and_delete() -> None:
     repo = FakeTradeCooldownRepo()
-    expires = datetime.now(tz=UTC) + timedelta(minutes=15)
+    now = datetime.now(tz=UTC)
+    expires = now + timedelta(minutes=15)
     cooldown = TradeCooldown(guild_id=GUILD_A, user_id="u1", expires_at=expires)
 
     await repo.upsert(cooldown)
-    assert await repo.get(GUILD_A, "u1") == cooldown
-    assert await repo.get(GUILD_A, "missing") is None
+    assert await repo.get(GUILD_A, "u1", now=now) == cooldown
+    assert await repo.get(GUILD_A, "missing", now=now) is None
 
     await repo.delete(GUILD_A, "u1")
-    assert await repo.get(GUILD_A, "u1") is None
+    assert await repo.get(GUILD_A, "u1", now=now) is None
 
 
 async def test_system_state_repo_round_trip_and_missing_and_delete() -> None:

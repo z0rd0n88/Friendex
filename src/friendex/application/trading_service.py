@@ -176,18 +176,16 @@ class TradingService:
     async def _check_cooldown(self, user_id: str, now: datetime) -> None:
         """Raise :class:`OnCooldown` if ``user_id`` is on a short/cover cooldown.
 
-        The protocol :meth:`ITradeCooldownRepo.get` does not accept a ``now``
-        argument (the real adapter and the test fake both default to
-        ``datetime.now(tz=UTC)``); under ``freeze_time`` the in-repo default
-        therefore matches the caller's frozen ``now``, so the remainder
-        arithmetic stays correct.
+        Delegates the active-vs-expired filter to the repository: the
+        :meth:`ITradeCooldownRepo.get` Protocol takes a keyword-only ``now``
+        and returns ``None`` for an expired (or missing) row, so the service
+        only has to translate a non-``None`` return into the remaining-time
+        arithmetic for the user-facing :class:`OnCooldown` payload.
         """
-        cooldown = await self._cooldown_repo.get(self._guild_id, user_id)
+        cooldown = await self._cooldown_repo.get(self._guild_id, user_id, now=now)
         if cooldown is None:
             return
         remaining = (cooldown.expires_at - now).total_seconds()
-        if remaining <= 0:
-            return
         raise OnCooldown(seconds_remaining=int(remaining))
 
     async def _set_cooldown(self, user_id: str, now: datetime) -> None:

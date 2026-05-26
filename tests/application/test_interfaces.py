@@ -19,7 +19,8 @@ inspecting the compiled module's source imports.
 from __future__ import annotations
 
 import ast
-from datetime import UTC, datetime
+import inspect
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -269,9 +270,11 @@ class _FakeCooldownRepo:
     def __init__(self) -> None:
         self._rows: dict[tuple[str, str], TradeCooldown] = {}
 
-    async def get(self, guild_id: str, user_id: str) -> TradeCooldown | None:
+    async def get(
+        self, guild_id: str, user_id: str, *, now: datetime
+    ) -> TradeCooldown | None:
         row = self._rows.get((guild_id, user_id))
-        if row is None or row.expires_at <= datetime.now(tz=UTC):
+        if row is None or row.expires_at <= now:
             return None
         return row
 
@@ -294,6 +297,58 @@ class _FakeCooldownRepo:
 def test_fake_cooldown_repo_satisfies_protocol() -> None:
     repo: ITradeCooldownRepo = _FakeCooldownRepo()
     assert repo is not None
+
+
+def test_cooldown_repo_get_declares_keyword_only_now() -> None:
+    """``ITradeCooldownRepo.get`` must declare a keyword-only ``now: datetime``.
+
+    The SQLAlchemy adapter (``SqlTradeCooldownRepository``) and the in-memory
+    fake (``FakeTradeCooldownRepo``) both accept ``*, now=`` so the active-only
+    filter is testable against a frozen clock; the Protocol previously failed to
+    declare it, leaving the contract narrower than the implementations.
+    """
+    sig = inspect.signature(ITradeCooldownRepo.get)
+    assert "now" in sig.parameters, (
+        "ITradeCooldownRepo.get must accept a 'now' parameter so the active-only "
+        "filter (return None when expires_at <= now) is part of the contract"
+    )
+    now_param = sig.parameters["now"]
+    assert now_param.kind is inspect.Parameter.KEYWORD_ONLY, (
+        "'now' must be keyword-only to match SqlTradeCooldownRepository.get and "
+        "FakeTradeCooldownRepo.get"
+    )
+
+
+async def test_cooldown_repo_get_returns_none_for_expired_row() -> None:
+    """An expired cooldown is filtered out — the protocol contract's whole point.
+
+    Behavioural assertion against the production fake (which the trading
+    service uses in tests): a row whose ``expires_at`` is at or before ``now``
+    must surface as ``None``, identical to a missing key. Anchors the semantic
+    half of the Protocol widening so the service can drop its compensating
+    in-service "is expired" arithmetic.
+    """
+    from tests.application.fakes.fake_repos import FakeTradeCooldownRepo
+
+    repo: ITradeCooldownRepo = FakeTradeCooldownRepo()
+    now = datetime(2026, 5, 25, 12, 0, tzinfo=UTC)
+
+    # Active row — returned.
+    active = TradeCooldown(
+        guild_id="g1", user_id="alice", expires_at=now + timedelta(seconds=30)
+    )
+    await repo.upsert(active)
+    assert await repo.get("g1", "alice", now=now) == active
+
+    # Expired row — filtered out.
+    expired = TradeCooldown(
+        guild_id="g1", user_id="bob", expires_at=now - timedelta(seconds=1)
+    )
+    await repo.upsert(expired)
+    assert await repo.get("g1", "bob", now=now) is None
+
+    # Missing row — also None.
+    assert await repo.get("g1", "missing", now=now) is None
 
 
 class _FakeSystemStateRepo:

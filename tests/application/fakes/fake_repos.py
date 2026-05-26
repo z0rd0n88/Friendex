@@ -252,16 +252,16 @@ class FakeTradeCooldownRepo:
         self._store: dict[tuple[str, str], TradeCooldown] = {}
 
     async def get(
-        self, guild_id: str, user_id: str, *, now: datetime | None = None
+        self, guild_id: str, user_id: str, *, now: datetime
     ) -> TradeCooldown | None:
         """Return the *active* cooldown, or ``None`` if absent or expired.
 
-        ``now`` defaults to the current UTC instant; pass an explicit value for
-        a deterministic clock (the adapter exposes the same keyword).
+        ``now`` is keyword-only and required, matching the adapter and the
+        widened :class:`~friendex.application.interfaces.ITradeCooldownRepo`
+        contract — callers pass a deterministic UTC instant.
         """
-        cutoff = now if now is not None else datetime.now(tz=UTC)
         cooldown = self._store.get((guild_id, user_id))
-        if cooldown is None or cooldown.expires_at <= cutoff:
+        if cooldown is None or cooldown.expires_at <= now:
             return None
         return cooldown
 
