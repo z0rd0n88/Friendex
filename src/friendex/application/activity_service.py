@@ -16,9 +16,12 @@ original single-guild handler signatures while the per-guild scope is supplied a
 composition time (Phase 14 wires one service per guild).
 
 **Concurrency.** Every method that mutates a user's stored state does so inside
-``async with lock_manager.locked(user_id)`` so concurrent listener callbacks for
-the same user serialise. The :class:`~friendex.application.lock_manager.LockManager`
-is an injected process-local singleton — never constructed per call.
+``async with lock_manager.locked(self._lock_key(user_id))`` (composite
+``"<guild_id>:<user_id>"`` key, per ADR-0001) so concurrent listener callbacks
+for the same ``(guild, user)`` serialise — and the same user in a *different*
+guild does not. The :class:`~friendex.application.lock_manager.LockManager` is
+an injected process-local singleton (one shared across every per-guild scope)
+— never constructed per call.
 
 **Immutability.** Domain models are dataclasses but are treated as immutable: a
 mutation reads the stored aggregate, builds a replaced copy via
@@ -74,6 +77,17 @@ class ActivityService:
 
     # -- internal helpers ---------------------------------------------------
 
+    def _lock_key(self, user_id: str) -> str:
+        """Return the ``LockManager`` key for ``user_id`` in this guild.
+
+        ADR-0001 mandates per-guild market isolation: the same user in two
+        guilds must NOT serialise against themselves on the single shared
+        :class:`~friendex.application.lock_manager.LockManager` that
+        Phase 14 injects into every per-guild service scope. Composing the
+        guild id into the key guarantees that.
+        """
+        return f"{self._guild_id}:{user_id}"
+
     async def _get_or_create(self, user_id: str) -> UserAccount:
         """Return the stored account for ``user_id``, creating a default one.
 
@@ -109,7 +123,7 @@ class ActivityService:
         ``change`` is a pure function from the current account to a replaced
         copy; it must not mutate its argument in place.
         """
-        async with self._locks.locked(user_id):
+        async with self._locks.locked(self._lock_key(user_id)):
             account = await self._get_or_create(user_id)
             await self._user_repo.upsert(self._guild_id, change(account))
 
@@ -255,7 +269,7 @@ class ActivityService:
         """Apply the one-time long-stay price boost to ``user_id``'s stock."""
         min_price = Decimal(str(self._settings.min_price))
         boost = Decimal(str(self._settings.voice_stay_boost))
-        async with self._locks.locked(user_id):
+        async with self._locks.locked(self._lock_key(user_id)):
             stock = await self._price_repo.get(self._guild_id, user_id)
             if stock is None:
                 return
@@ -281,7 +295,7 @@ class ActivityService:
         """Zero every account's *today* bucket across the guild (week untouched)."""
         now = datetime.now(tz=UTC)
         for account in await self._user_repo.list_all(self._guild_id):
-            async with self._locks.locked(account.user_id):
+            async with self._locks.locked(self._lock_key(account.user_id)):
                 current = await self._user_repo.get(self._guild_id, account.user_id)
                 if current is None:
                     continue
@@ -294,7 +308,7 @@ class ActivityService:
         """Zero every account's *week* bucket across the guild (today untouched)."""
         now = datetime.now(tz=UTC)
         for account in await self._user_repo.list_all(self._guild_id):
-            async with self._locks.locked(account.user_id):
+            async with self._locks.locked(self._lock_key(account.user_id)):
                 current = await self._user_repo.get(self._guild_id, account.user_id)
                 if current is None:
                     continue

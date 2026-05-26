@@ -18,6 +18,7 @@ Acceptance criteria pinned here:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -449,3 +450,111 @@ async def test_voice_session_store_set_get_pop_and_link_ping() -> None:
     popped = await store.pop(USER)
     assert popped is not None
     assert await store.get(USER) is None
+
+
+class _BarrierUserRepo:
+    """A :class:`FakeUserRepo`-shaped wrapper whose ``upsert`` parks on a barrier.
+
+    Used by the per-guild lock isolation test to deterministically prove two
+    service calls are *both* inside their critical sections at the same time:
+    each ``upsert`` signals it has entered, then waits on a shared barrier that
+    only releases once *both* have arrived. A serialising lock would prevent the
+    second caller from ever reaching its barrier wait and the test's timeout
+    would trip.
+    """
+
+    def __init__(self, inner: FakeUserRepo, barrier: asyncio.Barrier) -> None:
+        self._inner = inner
+        self._barrier = barrier
+        self.entered: list[str] = []
+
+    async def get(self, guild_id: str, user_id: str):  # type: ignore[no-untyped-def]
+        return await self._inner.get(guild_id, user_id)
+
+    async def upsert(self, guild_id: str, account) -> None:  # type: ignore[no-untyped-def]
+        self.entered.append(guild_id)
+        await self._barrier.wait()
+        await self._inner.upsert(guild_id, account)
+
+    async def delete(self, guild_id: str, user_id: str) -> None:
+        await self._inner.delete(guild_id, user_id)
+
+    async def list_all(self, guild_id: str):  # type: ignore[no-untyped-def]
+        return await self._inner.list_all(guild_id)
+
+    async def list_active_in_last(self, guild_id: str, seconds: float):  # type: ignore[no-untyped-def]
+        return await self._inner.list_active_in_last(guild_id, seconds)
+
+
+async def test_same_user_in_two_guilds_does_not_serialise_on_shared_lock_manager(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """ADR-0001: the same user in two guilds must not contend on one LockManager.
+
+    Phase 14 injects a *single* shared :class:`LockManager` into every per-guild
+    service scope. The lock key must therefore be the composite
+    ``(guild_id, user_id)`` — keying on the bare ``user_id`` would make user
+    ``USER`` in guild A serialise against the *same* ``USER`` in guild B,
+    breaking the per-guild market isolation ADR-0001 commits to.
+
+    Proof: two ``ActivityService``s — one per guild, sharing one
+    :class:`LockManager` — each perform a ``record_message`` for the *same*
+    ``USER`` concurrently. The injected ``upsert`` parks on an
+    :class:`asyncio.Barrier(2)`: both must arrive before either proceeds. With a
+    bare-``user_id`` lock key, guild B's mutation would block on guild A's held
+    lock and never reach the barrier — :func:`asyncio.gather` would time out.
+    With the composite key the two services lock on independent
+    ``"<guild>:<user>"`` keys, both enter their critical sections concurrently,
+    the barrier releases, and ``gather`` completes well under the timeout.
+    """
+    guild_a = "100000000000000001"
+    guild_b = "200000000000000002"
+    shared_locks = LockManager()
+    barrier = asyncio.Barrier(2)
+    barrier_repo = _BarrierUserRepo(fake_user_repo, barrier)
+
+    service_a = ActivityService(
+        guild_id=guild_a,
+        user_repo=barrier_repo,  # type: ignore[arg-type]
+        price_repo=fake_price_repo,
+        lock_manager=shared_locks,
+        settings=default_settings,
+        voice_sessions=VoiceSessionStore(),
+    )
+    service_b = ActivityService(
+        guild_id=guild_b,
+        user_repo=barrier_repo,  # type: ignore[arg-type]
+        price_repo=fake_price_repo,
+        lock_manager=shared_locks,
+        settings=default_settings,
+        voice_sessions=VoiceSessionStore(),
+    )
+
+    await asyncio.wait_for(
+        asyncio.gather(
+            service_a.record_message(
+                author_id=USER,
+                has_attachment=False,
+                is_reply=False,
+                channel_id=PLAIN_CHANNEL,
+            ),
+            service_b.record_message(
+                author_id=USER,
+                has_attachment=False,
+                is_reply=False,
+                channel_id=PLAIN_CHANNEL,
+            ),
+        ),
+        timeout=1.0,
+    )
+
+    # Both guilds saw an independent USER account materialise with one text msg.
+    account_a = await fake_user_repo.get(guild_a, USER)
+    account_b = await fake_user_repo.get(guild_b, USER)
+    assert account_a is not None
+    assert account_b is not None
+    assert account_a.today.text_msgs == 1
+    assert account_b.today.text_msgs == 1
+    assert sorted(barrier_repo.entered) == [guild_a, guild_b]
