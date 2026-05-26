@@ -50,5 +50,5 @@ phases:
     units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 2 LOW only (benign create-on-withdraw + cosmetic now-threading)
   - id: phase-8f  spec: "docs/04-migration-plan.md §Phase 8f (liquidation + discipline)"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-8f-liq-disc  base: feat/phase-8e-fund-daily  pr: <pending-push>  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8f.md
+    branch: feat/phase-8f-liq-disc  base: feat/phase-8e-fund-daily  pr: https://github.com/z0rd0n88/Friendex/pull/48  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8f.md
     units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 0 findings at any severity; no 8c regression
