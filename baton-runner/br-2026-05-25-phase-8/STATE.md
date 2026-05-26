@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-25-phase-8
 status: DONE
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-25-phase-8
-phase: 7 of 7  unit: DONE  review_iter: 1 of 3 (CLEAN)
-current_baton: pass-baton/phase-8f/002-2026-05-25-review-iter1-clean.md
-units_used: 18
+phase: followup of 7  unit: DONE  review_iter: 1 of 3 (CLEAN)
+current_baton: pass-baton/phase-8-followup/002-2026-05-25-review-clean.md
+units_used: 20
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -52,3 +52,7 @@ phases:
     unit_agent: python-pro
     branch: feat/phase-8f-liq-disc  base: feat/phase-8e-fund-daily  pr: https://github.com/z0rd0n88/Friendex/pull/48  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8f.md
     units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 0 findings at any severity; no 8c regression
+  - id: phase-8-followup  spec: "(1) 8c M2: widen ITradeCooldownRepo.get with now= kwarg + update trading_service call site; (2) 8b M1: calibrate activity_tick_k 0.5 -> 0.3 + update tests + docstring"  readiness: READY
+    unit_agent: python-pro
+    branch: feat/phase-8-followup-cooldown-and-k  base: feat/phase-8f-liq-disc  pr: <pending-push>  digest: -
+    units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 0 CRITICAL/HIGH/MEDIUM, 1 LOW informational; two clean commits 68c1a8f + b01480b

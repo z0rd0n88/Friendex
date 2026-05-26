@@ -47,3 +47,8 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T22:36Z  phase 7/7 REVIEW iter1  spawn python-pro -> VERDICT CLEAN (one-shot, 0 findings)  baton=pass-baton/phase-8f/002-2026-05-25-review-iter1-clean.md  digest=digest-phase-8f.md  units 18/75
 - 2026-05-25T22:36Z  phase 7/7 DONE  -> opening final draft PR (base feat/phase-8e-fund-daily)
 - 2026-05-25T22:36Z  RUN DONE  status=DONE  units 18/75  PRs #42-#48 (stacked, merge in order)
+- 2026-05-25T22:50Z  FOLLOWUP RESUMED  chore A (8c M2 cooldown Protocol widening) + chore B (8b M1 activity_tick_k 0.5->0.3)
+- 2026-05-25T23:00Z  followup WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8-followup/001-2026-05-25-activity-k-calibrated.md  (2 commits 68c1a8f + b01480b, 533 tests)  units 19/75
+- 2026-05-25T23:04Z  followup REVIEW iter1  spawn python-pro -> VERDICT CLEAN (one-shot)  baton=pass-baton/phase-8-followup/002-2026-05-25-review-clean.md  (1 LOW informational only)  units 20/75
+- 2026-05-25T23:04Z  followup DONE  -> opening PR (base feat/phase-8f-liq-disc)
+- 2026-05-25T23:04Z  RUN DONE (final)  status=DONE  units 20/75  PRs #42-#49 stacked
