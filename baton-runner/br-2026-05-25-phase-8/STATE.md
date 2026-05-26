@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-25-phase-8
-status: RUNNING
+status: DONE
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-25-phase-8
-phase: 7 of 7  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-8f/001-2026-05-25-phase-8f-complete.md
-units_used: 17
+phase: 7 of 7  unit: DONE  review_iter: 1 of 3 (CLEAN)
+current_baton: pass-baton/phase-8f/002-2026-05-25-review-iter1-clean.md
+units_used: 18
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -50,5 +50,5 @@ phases:
     units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 2 LOW only (benign create-on-withdraw + cosmetic now-threading)
   - id: phase-8f  spec: "docs/04-migration-plan.md §Phase 8f (liquidation + discipline)"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-8f-liq-disc  base: feat/phase-8e-fund-daily  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8f.md
-    units: 0  state: RUNNING
+    branch: feat/phase-8f-liq-disc  base: feat/phase-8e-fund-daily  pr: <pending-push>  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8f.md
+    units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 0 findings at any severity; no 8c regression
