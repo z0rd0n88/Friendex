@@ -30,4 +30,6 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T21:28Z  phase 4/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8c/000-2026-05-25-trading-service-green.md  (14 ACs, 41 tests, 486 suite, 92.53% cov; flagged: ITradeCooldownRepo.get lacks now= kwarg, call-side dropped per scope)  units 11/75
 - 2026-05-25T21:30Z  phase 4/7 COMMIT  2965238 feat(phase-8c): trading service (buy/sell/short/cover + update_frozen_shorts)
 - 2026-05-25T21:34Z  phase 4/7 REVIEW iter1  spawn python-pro -> VERDICT CLEAN (one-shot)  baton=pass-baton/phase-8c/001-2026-05-25-review-iter-1-clean.md  digest=digest-phase-8c.md  (2 MEDIUM carry-forward to 8d, 2 LOW)  units 12/75
-- 2026-05-25T21:34Z  phase 4/7 DONE  -> opening draft PR (base feat/phase-8b-price-tick)
+- 2026-05-25T21:34Z  phase 4/7 DONE  PR #45 (base feat/phase-8b-price-tick)
+- 2026-05-25T21:36Z  phase 5/7 (8d) branch feat/phase-8d-portfolio from 8c tip
+- 2026-05-25T21:46Z  phase 5/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8d/001-2026-05-25-portfolio-stats-green.md  (D1-D10, 14 tests, 500 suite, 92% cov; capture_month_start uses per-user locked() sweep, reads lockless)  units 13/75
