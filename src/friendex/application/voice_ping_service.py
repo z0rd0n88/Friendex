@@ -20,8 +20,10 @@ restart.
 **Guild scoping (ADR-0001) + concurrency + immutability** follow the same rules
 as :class:`~friendex.application.activity_service.ActivityService`: ``guild_id``
 is a constructor argument, every user mutation serialises under
-``lock_manager.locked(user_id)``, and stored aggregates are replaced (never
-mutated in place) and round-tripped through ``upsert``.
+``lock_manager.locked(self._lock_key(user_id))`` (composite
+``"<guild_id>:<user_id>"`` key, so the same user in a different guild does not
+contend on the single shared :class:`LockManager`), and stored aggregates are
+replaced (never mutated in place) and round-tripped through ``upsert``.
 """
 
 from __future__ import annotations
@@ -181,11 +183,22 @@ class VoicePingService:
             return self._settings.voice_ping_medium_multiplier
         return self._settings.voice_ping_slow_multiplier
 
+    def _lock_key(self, user_id: str) -> str:
+        """Return the ``LockManager`` key for ``user_id`` in this guild.
+
+        ADR-0001 mandates per-guild market isolation: the same user in two
+        guilds must NOT serialise against themselves on the single shared
+        :class:`~friendex.application.lock_manager.LockManager` that
+        Phase 14 injects into every per-guild service scope. Composing the
+        guild id into the key guarantees that.
+        """
+        return f"{self._guild_id}:{user_id}"
+
     async def _apply_join_boost(self, responder_id: str) -> None:
         """Apply the one-time first-N-joiner price boost to ``responder_id``."""
         min_price = Decimal(str(self._settings.min_price))
         boost = Decimal(str(self._settings.voice_ping_join_boost))
-        async with self._locks.locked(responder_id):
+        async with self._locks.locked(self._lock_key(responder_id)):
             stock = await self._price_repo.get(self._guild_id, responder_id)
             if stock is None:
                 return
@@ -199,7 +212,7 @@ class VoicePingService:
 
     async def _credit(self, user_id: str, **deltas: float) -> None:
         """Add ``deltas`` to ``user_id``'s today + week buckets under its lock."""
-        async with self._locks.locked(user_id):
+        async with self._locks.locked(self._lock_key(user_id)):
             account = await self._get_or_create(user_id)
             today = replace(
                 account.today,
