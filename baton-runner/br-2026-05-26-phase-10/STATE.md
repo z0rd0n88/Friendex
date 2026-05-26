@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-26-phase-10
-status: RUNNING
+status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-26-phase-10
-phase: 1 of 1  unit: REVIEW  review_iter: 0 of 3
-current_baton: pass-baton/phase-10/000-2026-05-26-phase-10-embeds-complete.md
-units_used: 1
+phase: 1 of 1  unit: DONE  review_iter: 1 of 3 (CLEAN)
+current_baton: pass-baton/phase-10/001-2026-05-26-phase-10-review-clean.md
+units_used: 2
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -24,5 +24,6 @@ budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 
 phases:
   - id: phase-10  spec: "docs/04-migration-plan.md §Phase 10 (lines 635-658)"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-10-embeds  base: origin/main@64fbbe6  pr: -  digest: -
-    units: 1  state: RUNNING  work: COMPLETE (baton + revalidated gate; agent stalled post-baton, work artifact-verified)
+    branch: feat/phase-10-embeds  base: origin/main@64fbbe6  pr: <pending push>  digest: baton-runner/br-2026-05-26-phase-10/digest-phase-10.md
+    units: 2  state: DONE  review: iter-1 CLEAN; 0 CRITICAL/HIGH/MEDIUM; 2 LOW + 3 INFO carry-forwards (L1 AC8 mutation tighten, L2 negative-_money guard, I2 cog AllowedMentions.none() for fund names) — non-blocking, deferred to Phase 11/follow-up
+    notes: work-unit (agentId a6998c8eec1461f61) stalled post-baton; treated COMPLETE by artifact-grounded verification (revalidated gate PASS). Review-unit (aa99c15f21c9e66b4) returned cleanly in 7m07s / 76 tool uses.
