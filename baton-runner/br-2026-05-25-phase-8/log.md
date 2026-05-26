@@ -43,3 +43,7 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T22:14Z  phase 6/7 DONE  PR #47 (base feat/phase-8d-portfolio)
 - 2026-05-25T22:16Z  phase 7/7 (8f) branch feat/phase-8f-liq-disc from 8e tip
 - 2026-05-25T22:27Z  phase 7/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8f/001-2026-05-25-phase-8f-complete.md  (F1-F8, _cover_internal extracted privately, 531 suite, 92.68% app cov, no 8c regression)  units 17/75
+- 2026-05-25T22:29Z  phase 7/7 COMMIT  c84ca79 feat(phase-8f): liquidation + discipline services
+- 2026-05-25T22:36Z  phase 7/7 REVIEW iter1  spawn python-pro -> VERDICT CLEAN (one-shot, 0 findings)  baton=pass-baton/phase-8f/002-2026-05-25-review-iter1-clean.md  digest=digest-phase-8f.md  units 18/75
+- 2026-05-25T22:36Z  phase 7/7 DONE  -> opening final draft PR (base feat/phase-8e-fund-daily)
+- 2026-05-25T22:36Z  RUN DONE  status=DONE  units 18/75  PRs #42-#48 (stacked, merge in order)
