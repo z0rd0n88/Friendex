@@ -103,11 +103,29 @@ class Settings(BaseSettings):
     fast_response_seconds: int = 120
     medium_response_seconds: int = 300
     vc_extra_boost_interval_seconds: int = 900
+    # Number of responders that earn the one-time join price boost; the 11th+
+    # joiner is tracked for periodic extra boosts instead (original first-10 cap).
+    voice_ping_first_n_joiners: int = 10
+    # One-time price multiplier granted to each of the first-N responders.
+    voice_ping_join_boost: float = 1.20
+    # One-time price multiplier when a user stays >= the stay-bonus threshold.
+    voice_stay_boost: float = 1.50
+    # Minutes a user must remain in voice to earn the one-time stay boost.
+    voice_stay_bonus_minutes: float = 60.0
+    # Engagement base points and speed multipliers for a ping responder.
+    voice_ping_base_points: float = 5.0
+    voice_ping_fast_multiplier: float = 3.0
+    voice_ping_medium_multiplier: float = 2.0
+    voice_ping_slow_multiplier: float = 1.0
+    # Engagement credit the host earns per responder that joins their ping.
+    voice_ping_host_credit: float = 0.5
 
     # Photo bonus
     photo_bonus_channel_ids: Annotated[list[int], NoDecode] = Field(
         default_factory=list,
     )
+    # Engagement credit (role_ping_join_minutes) for media in a bonus channel.
+    photo_bonus_points: float = 10.0
 
     # Hedge fund
     hedge_fund_base_apy: float = 0.15

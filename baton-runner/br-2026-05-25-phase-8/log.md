@@ -7,4 +7,6 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T19:36Z  phase 1/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8-fakes/001-2026-05-25-fakes-complete.md  (30 tests, no new deps)  units 1/75
 - 2026-05-25T19:38Z  phase 1/7 COMMIT  a75d59a test(application): in-memory fake repos + fixtures
 - 2026-05-25T19:44Z  phase 1/7 REVIEW iter1  spawn python-pro -> VERDICT CLEAN  baton=pass-baton/phase-8-fakes/002-2026-05-25-review-clean.md  digest=digest-phase-8-fakes.md  (1 LOW + 1 INFO)  units 2/75
-- 2026-05-25T19:44Z  phase 1/7 DONE  -> opening draft PR (base main)
+- 2026-05-25T19:44Z  phase 1/7 DONE  PR #42 (base main)
+- 2026-05-25T19:45Z  phase 2/7 (8a) branch feat/phase-8a-activity created from fakes tip
+- 2026-05-25T19:55Z  phase 2/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8a/002-2026-05-25-phase-8a-complete.md  (11 ACs, +10 Settings tunables declared, guild_id=ctor arg, no new deps)  units 3/75

@@ -8,12 +8,14 @@ contract deterministically with events and timeouts rather than relying on
 (a) two ``locked(uid)`` contexts on the **same** user serialise;
 (b) ``locked(a, b)`` and ``locked(b, a)`` run concurrently without deadlock;
 (c) a reentrant ``locked(uid)`` on a held user blocks (timeout proof);
-(d) two **different** users do not block each other.
+(d) two **different** users do not block each other;
+(e) cancelling a multi-lock acquire mid-flight leaks no already-held locks.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from friendex.application.lock_manager import LockManager
 
@@ -176,3 +178,48 @@ async def test_different_users_do_not_block_each_other() -> None:
     )
 
     assert sorted(entered) == ["alice", "bob"]
+
+
+async def test_cancel_mid_acquire_releases_already_held_locks() -> None:
+    """Cancelling ``locked("a", "b")`` while awaiting ``b`` must free ``a``.
+
+    ``locked()`` sorts ids, so a ``locked("a", "b")`` call acquires ``a`` first
+    and then awaits ``b``. The test pre-holds ``b`` so the call parks on its
+    *second* acquire while already holding ``a``. Cancelling the task in that
+    window must not leak ``a``: a leak would wedge that user's economy for the
+    manager's lifetime. After the cancellation, ``a`` must be immediately
+    re-acquirable — proven by entering ``locked("a")`` under a tight timeout.
+    """
+    manager = LockManager()
+
+    # Pre-hold "b" so the acquire loop blocks on its second lock while holding
+    # "a". Acquiring it via the public API mirrors a real concurrent holder.
+    lock_b = await manager._ensure_lock("b")
+    await lock_b.acquire()
+
+    parked = asyncio.Event()
+
+    async def victim() -> None:
+        # Signal *before* entering so the canceller can act once we are parked.
+        parked.set()
+        async with manager.locked("a", "b"):  # blocks awaiting "b"
+            pass
+
+    victim_task = asyncio.create_task(victim())
+    await parked.wait()
+    # Let the task acquire "a" and park on "b".
+    await asyncio.sleep(0.05)
+
+    victim_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await victim_task
+
+    # Release the pre-held "b" so only the leak of "a" could still block us.
+    lock_b.release()
+
+    # If "a" leaked, this re-acquire would hang and trip the timeout.
+    async def reacquire() -> None:
+        async with manager.locked("a"):
+            pass
+
+    await asyncio.wait_for(reacquire(), _TIMEOUT)
