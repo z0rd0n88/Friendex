@@ -94,18 +94,18 @@ class Settings(BaseSettings):
     # (see :func:`friendex.domain.price_engine.compute_activity_return`). Distinct
     # from :attr:`price_impact_k` (which models the per-trade order-book bump).
     #
-    # **TBD/placeholder.** The original spec leaves K parameterised — it is
-    # neither pinned in ``docs/spec/original-skeleton.md`` (which sets
-    # ``ACTIVITY_TICK_MINUTES = 15`` but no K) nor in the Phase 4 digest
-    # (which records ``compute_activity_return`` as ``k·ln(1+score)`` with K
-    # left parameterised). The current default ``0.5`` was chosen to mirror
-    # :attr:`price_impact_k` *semantically* but is not derived from either
-    # spec source — it is a sensible-looking but unsourced value. **Verify
-    # with product before production.** Calibrating K against a few
-    # representative hourly buckets is cheap pre-Phase-9 wiring and not after.
-    # See the carry-forward note in ``baton-runner/br-2026-05-23-p4p5``
-    # (activity-K gap still open — needs user).
-    activity_tick_k: float = 0.5
+    # **Initial calibration (2026-05-25).** Original spec leaves K parameterised
+    # (``docs/spec/original-skeleton.md`` sets ``ACTIVITY_TICK_MINUTES = 15``
+    # but no K; the Phase 4 digest records ``compute_activity_return`` as
+    # ``k·ln(1+score)`` with K left parameterised). K=0.3 is the chosen
+    # starting point based on game-design math: it keeps moderate users on
+    # light pressure-to-engage while damping the runaway price gains K=0.5
+    # produced for sustained heavy activity (~+560%/day at 15 units/tick under
+    # 15-min cadence). The natural-log shape still rewards activity; the lower
+    # K trades raw upside for a more bounded curve. Conservative starting
+    # point — **re-tune empirically once Phase 9 wires the live activity
+    # tick** against a few representative hourly buckets.
+    activity_tick_k: float = 0.3
     # Periodic price multiplier applied by :meth:`PriceTickService.vc_boost_tick`
     # to extra VC responders still in voice (original spec hard-codes ``1.03``).
     vc_extra_boost_multiplier: float = 1.03
