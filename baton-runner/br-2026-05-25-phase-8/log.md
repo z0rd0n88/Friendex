@@ -23,3 +23,6 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T20:57Z  phase 3/7 REVIEW iter1  spawn python-pro -> VERDICT ISSUES  baton=pass-baton/phase-8b/002-2026-05-25-phase-8b-review-issues.md  (1 HIGH read-before-lock race, 2 MEDIUM M1 activity-K guess M2 missing append_history, 3 LOW)  units 8/75  -> fix-unit
 - 2026-05-25T20:59Z  phase 3/7 COMMIT  995ef00 chore(phase-8b): review iter1 — VERDICT ISSUES
 - 2026-05-25T21:06Z  phase 3/7 FIX iter1  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8b/003-2026-05-25-phase-8b-review-fixes.md  (H1 RMW atomicity + RED barrier test; M2 history+ATH; L1 L2; M1 deferred w/ TBD docstring; 445 tests pass)  units 9/75
+- 2026-05-25T21:08Z  phase 3/7 COMMIT  5888801 fix(phase-8b): address review findings (iter 1)
+- 2026-05-25T21:12Z  phase 3/7 REVIEW iter2  spawn python-pro -> VERDICT CLEAN  baton=pass-baton/phase-8b/004-2026-05-25-phase-8b-review-iter2-clean.md  digest=digest-phase-8b.md  units 10/75
+- 2026-05-25T21:12Z  phase 3/7 DONE  -> opening draft PR (base feat/phase-8a-activity)
