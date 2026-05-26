@@ -22,25 +22,28 @@ Acceptance criteria pinned here, each named on its test:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from friendex.application.lock_manager import LockManager
 from friendex.application.price_tick_service import PriceTickService
 from friendex.application.voice_session_store import VoiceSessionStore
 from friendex.domain.models import (
     ActivityBucket,
     DailyProgress,
+    PricePoint,
     Stock,
     UserAccount,
     VcExtraBoost,
     VoiceSession,
 )
+from tests.application.fakes.fake_repos import FakePriceRepo
 
 if TYPE_CHECKING:
     from friendex.adapters.config import Settings
-    from friendex.application.lock_manager import LockManager
-    from tests.application.fakes.fake_repos import FakePriceRepo, FakeUserRepo
+    from tests.application.fakes.fake_repos import FakeUserRepo
 
 GUILD = "100000000000000001"
 USER_ACTIVE = "5001"
@@ -495,3 +498,342 @@ async def test_activity_tick_skips_user_without_stock(
     # Must not raise; repo stays empty.
     await service.activity_price_tick()
     assert await fake_price_repo.get(GUILD, "stockless") is None
+
+
+# ---------------------------------------------------------------------------
+# H1 — Read-modify-write atomicity: a concurrent upsert landing between the
+# tick's pre-lock read and its in-lock write must NOT be clobbered.
+# ---------------------------------------------------------------------------
+
+
+class _BarrierPriceRepo:
+    """A :class:`FakePriceRepo`-shaped wrapper that parks ``upsert`` on a barrier.
+
+    Used by the H1 interleaving test to deterministically race a tick against a
+    simulated concurrent trade-style ``upsert`` on the same ``(guild, user)``.
+
+    The barrier strategy:
+
+    * ``get`` calls are counted; the second ``get`` (the in-lock re-read the
+      RMW fix introduces) blocks the tick until the test releases it, giving
+      the concurrent ``upsert`` a deterministic window to land first.
+    * The concurrent ``upsert`` is performed directly against the underlying
+      :class:`FakePriceRepo`, bypassing the lock — this models a writer that
+      already committed under the same lock and released it in real life.
+    """
+
+    def __init__(self, inner: FakePriceRepo) -> None:
+        self._inner = inner
+        self.get_calls = 0
+        self.second_get_arrived = asyncio.Event()
+        self.release_second_get = asyncio.Event()
+
+    async def get(self, guild_id: str, user_id: str) -> Stock | None:
+        self.get_calls += 1
+        if self.get_calls == 2:
+            self.second_get_arrived.set()
+            await self.release_second_get.wait()
+        return await self._inner.get(guild_id, user_id)
+
+    async def upsert(self, guild_id: str, stock: Stock) -> None:
+        await self._inner.upsert(guild_id, stock)
+
+    async def delete(self, guild_id: str, user_id: str) -> None:
+        await self._inner.delete(guild_id, user_id)
+
+    async def list_all(self, guild_id: str) -> list[Stock]:
+        return await self._inner.list_all(guild_id)
+
+    async def append_history(
+        self, guild_id: str, user_id: str, point: PricePoint
+    ) -> None:
+        await self._inner.append_history(guild_id, user_id, point)
+
+    async def get_history(
+        self,
+        guild_id: str,
+        user_id: str,
+        *,
+        since: datetime | None = None,
+    ) -> list[PricePoint]:
+        return await self._inner.get_history(guild_id, user_id, since=since)
+
+    async def prune_history_older_than(self, cutoff: datetime) -> int:
+        return await self._inner.prune_history_older_than(cutoff)
+
+
+async def test_activity_tick_does_not_clobber_concurrent_upsert(
+    fake_user_repo: FakeUserRepo,
+    default_settings: Settings,
+) -> None:
+    """A concurrent trade-style upsert between tick read and write is not clobbered.
+
+    The tick must take the lock FIRST, then re-read ``stock`` inside the lock,
+    then compute ``new_price`` from the fresh snapshot. With the broken
+    pre-lock read, the tick's stale-derived price clobbers any value a
+    concurrent mutator wrote between the pre-lock get and the lock acquire.
+
+    Construction: a barrier-instrumented price repo blocks the tick's second
+    ``get`` (the in-lock re-read) until the test directly writes a
+    concurrent-trade-style stock with a marker price. Releasing the gate lets
+    the tick re-read; an atomic RMW recomputes from the fresh value, so the
+    final stored price is *derived from the marker* (not the original) — the
+    concurrent write is honoured, not clobbered.
+    """
+    now = datetime.now(tz=UTC)
+    user_id = "rmw_user"
+    engaged = ActivityBucket(
+        bucket_start=now,
+        text_msgs=50,
+        media_msgs=10,
+        voice_minutes=30.0,
+        reaction_count=20,
+    )
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(user_id, last_activity=now, today=engaged),
+    )
+    starting = Decimal("100.00")
+    inner = FakePriceRepo()
+    await inner.upsert(GUILD, _stock(user_id, current=starting))
+    barrier_repo = _BarrierPriceRepo(inner)
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=barrier_repo,  # type: ignore[arg-type]
+        lock_manager=LockManager(),
+        settings=default_settings,
+    )
+
+    tick_task = asyncio.create_task(service.activity_price_tick())
+
+    # Wait for the tick's in-lock re-read to park on the barrier, then land a
+    # concurrent upsert with a deliberately divergent marker price.
+    await asyncio.wait_for(barrier_repo.second_get_arrived.wait(), timeout=1.0)
+    marker = Decimal("200.00")
+    await inner.upsert(GUILD, _stock(user_id, current=marker))
+
+    # Release the in-lock re-read; the RMW recomputes from the marker.
+    barrier_repo.release_second_get.set()
+    await asyncio.wait_for(tick_task, timeout=1.0)
+
+    after = await inner.get(GUILD, user_id)
+    assert after is not None
+    # Atomicity proof: the final price was derived from the marker (not 100.00).
+    # An active engaged bucket yields a positive return at k=0.5, so the
+    # post-tick price is strictly greater than the marker. Critically, it must
+    # NOT equal a value derived from the stale 100.00 snapshot (which would be
+    # less than the marker).
+    assert after.current >= marker, (
+        f"Concurrent upsert at {marker} was clobbered — tick wrote {after.current}, "
+        "indicating new_price was computed from the stale pre-lock read."
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2 — Ticks must append PricePoint history and bump all_time_high.
+# ---------------------------------------------------------------------------
+
+
+async def test_activity_tick_appends_price_history(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Every price-changing activity tick appends a PricePoint to history."""
+    now = datetime.now(tz=UTC)
+    engaged = ActivityBucket(
+        bucket_start=now,
+        text_msgs=50,
+        media_msgs=10,
+        voice_minutes=30.0,
+        reaction_count=20,
+    )
+    user_id = "history_user"
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(user_id, last_activity=now, today=engaged),
+    )
+    await fake_price_repo.upsert(GUILD, _stock(user_id, current=Decimal("100.00")))
+
+    history_before = await fake_price_repo.get_history(GUILD, user_id)
+    assert history_before == []
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+    await service.activity_price_tick()
+
+    history_after = await fake_price_repo.get_history(GUILD, user_id)
+    assert len(history_after) == 1
+    after = await fake_price_repo.get(GUILD, user_id)
+    assert after is not None
+    assert history_after[0].price == after.current
+
+
+async def test_inactivity_decay_tick_appends_price_history(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Every price-changing inactivity-decay tick appends a PricePoint."""
+    now = datetime.now(tz=UTC)
+    threshold = default_settings.inactivity_threshold_seconds
+    well_past = now - timedelta(seconds=threshold + 600)
+    user_id = "decay_history_user"
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(user_id, last_activity=well_past),
+    )
+    await fake_price_repo.upsert(GUILD, _stock(user_id, current=Decimal("100.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+    await service.inactivity_decay_tick()
+
+    history = await fake_price_repo.get_history(GUILD, user_id)
+    assert len(history) == 1
+    after = await fake_price_repo.get(GUILD, user_id)
+    assert after is not None
+    assert history[0].price == after.current
+
+
+async def test_vc_boost_tick_appends_price_history(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """A successful VC boost appends a PricePoint to history."""
+    now = datetime.now(tz=UTC)
+    ping_time = now - timedelta(minutes=20)
+    end_time = ping_time + timedelta(seconds=default_settings.voice_ping_window_seconds)
+    last_boost_past = now - timedelta(
+        seconds=default_settings.vc_extra_boost_interval_seconds + 60
+    )
+    user_id = "boost_history_user"
+    boost = VcExtraBoost(
+        user_id=user_id,
+        ping_time=ping_time,
+        last_boost=last_boost_past,
+        end_time=end_time,
+    )
+
+    voice_sessions = VoiceSessionStore()
+    await voice_sessions.set(
+        VoiceSession(
+            user_id=user_id,
+            channel_id=42,
+            start=ping_time,
+            from_ping_message_ids=set(),
+        )
+    )
+
+    await fake_price_repo.upsert(GUILD, _stock(user_id, current=Decimal("100.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+        voice_sessions=voice_sessions,
+    )
+    await service.vc_boost_tick(extra_boosts=[boost], now=now)
+
+    history = await fake_price_repo.get_history(GUILD, user_id)
+    assert len(history) == 1
+    after = await fake_price_repo.get(GUILD, user_id)
+    assert after is not None
+    assert history[0].price == after.current
+
+
+async def test_activity_tick_advances_all_time_high(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """A positive tick that breaks the prior all_time_high advances it."""
+    now = datetime.now(tz=UTC)
+    engaged = ActivityBucket(
+        bucket_start=now,
+        text_msgs=50,
+        media_msgs=10,
+        voice_minutes=30.0,
+        reaction_count=20,
+    )
+    user_id = "ath_user"
+    starting = Decimal("100.00")
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(user_id, last_activity=now, today=engaged),
+    )
+    # Stock starts at $100 with all_time_high also $100 (via _stock helper).
+    await fake_price_repo.upsert(GUILD, _stock(user_id, current=starting))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+    await service.activity_price_tick()
+
+    after = await fake_price_repo.get(GUILD, user_id)
+    assert after is not None
+    assert after.current > starting
+    assert after.all_time_high == after.current
+
+
+async def test_inactivity_decay_does_not_lower_all_time_high(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """A downward tick must NOT lower all_time_high (only ratchets up)."""
+    now = datetime.now(tz=UTC)
+    threshold = default_settings.inactivity_threshold_seconds
+    well_past = now - timedelta(seconds=threshold + 600)
+    user_id = "ath_stays_user"
+    starting = Decimal("100.00")
+    prior_ath = Decimal("150.00")
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(user_id, last_activity=well_past),
+    )
+    # Seed an existing all_time_high that's above current — a downward tick
+    # must not touch it.
+    await fake_price_repo.upsert(
+        GUILD,
+        Stock(
+            user_id=user_id,
+            current=starting,
+            history=[],
+            high_24h=starting,
+            low_24h=starting,
+            all_time_high=prior_ath,
+        ),
+    )
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+    await service.inactivity_decay_tick()
+
+    after = await fake_price_repo.get(GUILD, user_id)
+    assert after is not None
+    assert after.current < starting
+    assert after.all_time_high == prior_ath
