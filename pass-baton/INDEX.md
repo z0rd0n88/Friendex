@@ -9,6 +9,7 @@ Latest entry per scope. Read the linked file for full context. **New sessions sh
 | phase-5-orm | [003](./phase-5-orm/003-2026-05-24-fk-decision-closed.md) | 2026-05-24 | FK enforcement decision closed — PRAGMA foreign_keys=ON chosen (ADR-0002); PR #36 open |
 | phase-6-repos | [015](./phase-6-repos/015-2026-05-25-hardening-h1-h2-review.md) | 2026-05-25 | Independent review of hardening fixes H1 (N+1 batching) + H2 (MigrationError) — VERDICT CLEAN; gate green, both RED-verified under reversion; 1 LOW (weak ordering test) + 1 INFO, no CRITICAL/HIGH/MEDIUM |
 | phase-7-locks | [000](./phase-7-locks/000-2026-05-25-phase-7-merged-carryforward.md) | 2026-05-25 | Phase 7 LockManager merged (PR #38, `97b505e`); VERDICT CLEAN, 100% cov. Carry-forward: 1 MEDIUM (cancel-mid-acquire lock leak) to fix in Phase 8a + 1 LOW; conventions for service lock usage |
+| phase-8-fakes | [001](./phase-8-fakes/001-2026-05-25-fakes-complete.md) | 2026-05-25 | In-memory fakes + 8 service-test fixtures COMPLETE; all 8 ACs green, 30 tests, RED-verified; gates clean (ruff/format/pytest 403 pass/mypy src) |
 
 *Top-level seed: [`000-2026-05-15-start-pass-baton.md`](./000-2026-05-15-start-pass-baton.md) (empty placeholder; establishes the sequence head).*
 
