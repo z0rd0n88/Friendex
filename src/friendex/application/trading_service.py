@@ -589,10 +589,13 @@ class TradingService:
         positive P&L is credited to cash on top of the released cash. The
         short position is *deleted* when shares hit zero.
 
-        **Phase 8c does NOT implement the liquidation bypass.** Frozen
-        positions always raise :class:`PositionFrozen` here. Phase 8f adds a
-        private ``_cover_internal(force=True)`` variant the liquidation
-        background loop uses to bypass the freeze guard.
+        The public method always rejects a frozen position with
+        :class:`PositionFrozen`. The Phase 8f
+        :class:`~friendex.application.liquidation_service.LiquidationService`
+        bypasses the freeze guard by calling :meth:`_cover_internal`
+        directly with ``force=True``; the ``force`` flag is deliberately
+        NOT surfaced on this public method so user-facing trade commands
+        cannot side-step the freeze window.
         """
         self._validate_shares(shares)
         self._check_not_self(coverer_id, target_id)
@@ -603,65 +606,100 @@ class TradingService:
         async with self._locks.locked(
             self._lock_key(coverer_id), self._lock_key(target_id)
         ):
-            target = await self._get_or_create_user(target_id)
-            self._check_opt_in(target)
-            coverer = await self._get_or_create_user(coverer_id)
-            existing = coverer.short_positions.get(target_id)
-            if existing is None:
-                raise NoPosition(target_id=target_id, position_type="short")
-            if existing.shares < shares:
-                raise InsufficientShares(requested=shares, held=existing.shares)
-            if existing.frozen:
-                raise PositionFrozen(target_id=target_id)
-            stock = await self._get_or_create_stock(target_id)
-            price = stock.current
-            cost = _quantise(price * Decimal(shares))
-            if coverer.cash_balance < cost:
-                raise InsufficientFunds(need=cost, have=coverer.cash_balance)
-
-            proportion = Decimal(shares) / Decimal(existing.shares)
-            released_cash = _quantise(existing.locked_cash * proportion)
-            released_fund = _quantise(existing.locked_fund * proportion)
-            pnl = _quantise((existing.entry_price - price) * Decimal(shares))
-
-            remaining = existing.shares - shares
-            new_shorts = dict(coverer.short_positions)
-            position_after: ShortPosition | None
-            if remaining == 0:
-                del new_shorts[target_id]
-                position_after = None
-            else:
-                position_after = ShortPosition(
-                    target_user_id=target_id,
-                    shares=remaining,
-                    entry_price=existing.entry_price,
-                    locked_cash=_quantise(existing.locked_cash - released_cash),
-                    locked_fund=_quantise(existing.locked_fund - released_fund),
-                    created_at=existing.created_at,
-                    frozen=existing.frozen,
-                )
-                new_shorts[target_id] = position_after
-
-            cash_after_pay = _quantise(coverer.cash_balance - cost + released_cash)
-            if pnl > 0:
-                cash_after_pay = _quantise(cash_after_pay + pnl)
-
-            fund_cash = await self._get_fund_cash(coverer_id)
-            new_fund_cash = _quantise(fund_cash + released_fund)
-            updated_coverer = replace(
-                coverer, cash_balance=cash_after_pay, short_positions=new_shorts
-            )
-            if await self._user_repo.get(self._guild_id, target_id) is None:
-                await self._user_repo.upsert(self._guild_id, target)
-            await self._user_repo.upsert(self._guild_id, updated_coverer)
-            await self._write_fund_cash(coverer_id, new_fund_cash)
-            if await self._price_repo.get(self._guild_id, target_id) is None:
-                await self._price_repo.upsert(self._guild_id, stock)
-            old_price, new_price, _ = await self._apply_price_impact_unlocked(
-                target_id, stock, shares, is_buy=False
+            result = await self._cover_internal(
+                coverer_id, target_id, shares, force=False
             )
 
         await self._set_cooldown(coverer_id, now)
+        return result
+
+    async def _cover_internal(
+        self,
+        coverer_id: str,
+        target_id: str,
+        shares: int,
+        *,
+        force: bool,
+    ) -> CoverResult:
+        """Inside-lock body of the cover use case; caller MUST hold the locks.
+
+        Encapsulates the post-lock RMW shared by :meth:`cover` and
+        :class:`LiquidationService`. **Locking contract:** this helper does
+        NOT acquire ``locked()`` — the caller is responsible for holding
+        ``self._locks.locked(coverer_id, target_id)`` for the entire
+        invocation. The :class:`~friendex.application.lock_manager.LockManager`
+        is non-reentrant per the Phase 7 digest, so calling this helper from
+        inside an outer ``locked()`` (as :class:`LiquidationService` does)
+        would deadlock if the helper tried to re-enter the lock.
+
+        ``force=True`` skips the :class:`PositionFrozen` guard; the public
+        :meth:`cover` always passes ``force=False`` so user-facing
+        ``/cover`` cannot bypass the freeze window. ``force=True`` is
+        reserved for liquidation, where the freeze is irrelevant (the
+        position is being auto-covered against the holder's will).
+
+        The cooldown set/clear is NOT done here — :meth:`cover` sets the
+        cooldown after the lock release on success; liquidation does not
+        set a cooldown at all (a force-cover is a system action, not a
+        user-initiated short/cover).
+        """
+        target = await self._get_or_create_user(target_id)
+        self._check_opt_in(target)
+        coverer = await self._get_or_create_user(coverer_id)
+        existing = coverer.short_positions.get(target_id)
+        if existing is None:
+            raise NoPosition(target_id=target_id, position_type="short")
+        if existing.shares < shares:
+            raise InsufficientShares(requested=shares, held=existing.shares)
+        if existing.frozen and not force:
+            raise PositionFrozen(target_id=target_id)
+        stock = await self._get_or_create_stock(target_id)
+        price = stock.current
+        cost = _quantise(price * Decimal(shares))
+        if coverer.cash_balance < cost:
+            raise InsufficientFunds(need=cost, have=coverer.cash_balance)
+
+        proportion = Decimal(shares) / Decimal(existing.shares)
+        released_cash = _quantise(existing.locked_cash * proportion)
+        released_fund = _quantise(existing.locked_fund * proportion)
+        pnl = _quantise((existing.entry_price - price) * Decimal(shares))
+
+        remaining = existing.shares - shares
+        new_shorts = dict(coverer.short_positions)
+        position_after: ShortPosition | None
+        if remaining == 0:
+            del new_shorts[target_id]
+            position_after = None
+        else:
+            position_after = ShortPosition(
+                target_user_id=target_id,
+                shares=remaining,
+                entry_price=existing.entry_price,
+                locked_cash=_quantise(existing.locked_cash - released_cash),
+                locked_fund=_quantise(existing.locked_fund - released_fund),
+                created_at=existing.created_at,
+                frozen=existing.frozen,
+            )
+            new_shorts[target_id] = position_after
+
+        cash_after_pay = _quantise(coverer.cash_balance - cost + released_cash)
+        if pnl > 0:
+            cash_after_pay = _quantise(cash_after_pay + pnl)
+
+        fund_cash = await self._get_fund_cash(coverer_id)
+        new_fund_cash = _quantise(fund_cash + released_fund)
+        updated_coverer = replace(
+            coverer, cash_balance=cash_after_pay, short_positions=new_shorts
+        )
+        if await self._user_repo.get(self._guild_id, target_id) is None:
+            await self._user_repo.upsert(self._guild_id, target)
+        await self._user_repo.upsert(self._guild_id, updated_coverer)
+        await self._write_fund_cash(coverer_id, new_fund_cash)
+        if await self._price_repo.get(self._guild_id, target_id) is None:
+            await self._price_repo.upsert(self._guild_id, stock)
+        old_price, new_price, _ = await self._apply_price_impact_unlocked(
+            target_id, stock, shares, is_buy=False
+        )
 
         return CoverResult(
             coverer_id=coverer_id,
