@@ -1,0 +1,740 @@
+"""Application service that owns the buy / sell / short / cover use cases.
+
+:class:`TradingService` is the most complex application-layer service in the
+Friendex migration. It mediates between the four ``/buy``, ``/sell``,
+``/short``, ``/cover`` Discord slash commands (Phase 11 cogs) and the
+persistence ports, enforcing the full game-rule envelope around every trade:
+
+* **Market hours** via :func:`~friendex.domain.market_hours.is_market_open`,
+  with the original spec's Sunday-buy exception — buys are allowed on Sundays
+  *only* (sell, short, and cover follow the normal weekday window).
+* **Opt-in** — a target with ``opt_in=False`` is not tradable in any direction.
+* **Self-trade** — the actor cannot trade their own stock.
+* **Cash floor** — buys and covers require enough cash; shorts spread the
+  notional across cash + at-most 50% of the shorter's personal hedge fund.
+* **Short cooldown** — short and cover share a single per-user cooldown of
+  ``settings.trade_cooldown_seconds`` (default 15 minutes). Buy and sell do
+  NOT consume the cooldown (per the original ``set_trade_time`` callsites).
+* **Short freeze** — a short position is frozen ``settings.short_freeze_minutes``
+  after creation; a frozen position blocks manual cover and any short top-up.
+  The :meth:`update_frozen_shorts` sweep (Phase 9 background loop) walks every
+  account and flips ``frozen=True`` once the age threshold is crossed. The
+  liquidation bypass for cover (Phase 8f) is *not* implemented in this phase —
+  the public :meth:`cover` always raises :class:`PositionFrozen` on a frozen
+  position; Phase 8f will add a private ``_cover_internal`` variant that
+  liquidations use to bypass the check.
+
+**Guild scoping (ADR-0001 / Phase 8a digest).** ``guild_id`` is a constructor
+argument captured once as ``self._guild_id``; domain models stay
+guild-agnostic. Every lock acquisition uses the composite
+``"<guild_id>:<user_id>"`` key built by :meth:`_lock_key` so the single shared
+:class:`~friendex.application.lock_manager.LockManager` Phase 14 injects across
+every per-guild scope cannot serialise unrelated guilds against each other.
+
+**Concurrency (Phase 7 / Phase 8b RMW discipline).** Every trade locks
+*both* the actor and the target in a SINGLE
+``async with self._locks.locked(actor, target):`` call — one critical section
+per trade, never nested (the lock is non-reentrant and ``locked()`` sorts the
+ids for deadlock-free acquisition). Inside the critical section the service
+re-reads every aggregate it is about to mutate so a concurrent tick or trade
+landing between the public-method entry and the lock acquire is never
+clobbered.
+
+**Price impact RMW (mirrors :class:`PriceTickService._rmw_price`).** Every
+trade nudges the target's price via
+:func:`~friendex.domain.price_engine.apply_trade_impact`. The price read,
+new-price compute, ``Stock.upsert``, ``append_history`` call, and
+``all_time_high`` ratchet all happen inside the already-held critical section
+— the price RMW does NOT take the lock itself (the outer trade method already
+holds it), so re-entering ``locked()`` is avoided.
+
+**Collateral split (short).** Mirrors ``original-skeleton.md`` §$short
+verbatim: ``fund_available = fund_cash * 0.5``;
+``total_collateral = cash + fund_available``;
+``locked_cash = min(cash, notional)``;
+``locked_fund = min(fund_available, notional - locked_cash)``. The split is
+recomputed on every short (including additions to an existing position), and
+the released portion on cover is proportional to the shares being covered.
+
+**Immutability.** Every persisted aggregate is replaced via
+:func:`dataclasses.replace`; no in-place mutation of stored references (matches
+the fake-repo / SQLite parity invariant from the Phase 8 fakes digest).
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal
+from typing import TYPE_CHECKING
+
+from friendex.application.interfaces import TradeCooldown
+from friendex.application.trade_results import (
+    BuyResult,
+    CoverResult,
+    SellResult,
+    ShortResult,
+)
+from friendex.domain.errors import (
+    InsufficientFunds,
+    InsufficientShares,
+    InvalidAmount,
+    MarketClosed,
+    NoPosition,
+    OnCooldown,
+    OptedOut,
+    PositionFrozen,
+    SelfTrade,
+)
+from friendex.domain.market_hours import is_market_open, is_sunday
+from friendex.domain.models import (
+    ActivityBucket,
+    DailyProgress,
+    HedgeFund,
+    LongPosition,
+    PricePoint,
+    ShortPosition,
+    Stock,
+    UserAccount,
+)
+from friendex.domain.price_engine import apply_trade_impact
+
+if TYPE_CHECKING:
+    from friendex.adapters.config import Settings
+    from friendex.application.interfaces import (
+        IFundRepo,
+        IPriceRepo,
+        ITradeCooldownRepo,
+        IUserRepo,
+    )
+    from friendex.application.lock_manager import LockManager
+
+# Currency quantisation unit — two decimal places, banker's rounding.
+_CENT = Decimal("0.01")
+# Fraction of the shorter's hedge fund that counts toward collateral.
+_FUND_COLLATERAL_FRACTION = Decimal("0.5")
+
+
+def _quantise(value: Decimal) -> Decimal:
+    """Round ``value`` to two decimal places with banker's rounding."""
+    return value.quantize(_CENT, rounding=ROUND_HALF_EVEN)
+
+
+class TradingService:
+    """Buy / sell / short / cover use cases for the Friendex economy."""
+
+    def __init__(
+        self,
+        *,
+        guild_id: str,
+        user_repo: IUserRepo,
+        price_repo: IPriceRepo,
+        fund_repo: IFundRepo,
+        cooldown_repo: ITradeCooldownRepo,
+        lock_manager: LockManager,
+        settings: Settings,
+    ) -> None:
+        self._guild_id = guild_id
+        self._user_repo = user_repo
+        self._price_repo = price_repo
+        self._fund_repo = fund_repo
+        self._cooldown_repo = cooldown_repo
+        self._locks = lock_manager
+        self._settings = settings
+
+    # -- internal helpers ---------------------------------------------------
+
+    def _lock_key(self, user_id: str) -> str:
+        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001)."""
+        return f"{self._guild_id}:{user_id}"
+
+    def _check_market_open(self, *, allow_sunday: bool) -> None:
+        """Raise :class:`MarketClosed` when trading is not permitted now.
+
+        ``allow_sunday=True`` mirrors the original ``/buy`` Sunday exception:
+        Sunday is treated as a normal trading day for the time-of-day window
+        check. For ``/sell``, ``/short``, ``/cover`` the caller passes
+        ``allow_sunday=False`` and Sunday raises outright.
+        """
+        now = datetime.now(tz=UTC)
+        if not allow_sunday and is_sunday(now):
+            raise MarketClosed(
+                open_at=self._settings.market_open,
+                close_at=self._settings.market_close,
+            )
+        if not is_market_open(
+            now,
+            self._settings.market_open,
+            self._settings.market_close,
+            sunday_buy_allowed=allow_sunday,
+        ):
+            raise MarketClosed(
+                open_at=self._settings.market_open,
+                close_at=self._settings.market_close,
+            )
+
+    async def _check_cooldown(self, user_id: str, now: datetime) -> None:
+        """Raise :class:`OnCooldown` if ``user_id`` is on a short/cover cooldown.
+
+        The protocol :meth:`ITradeCooldownRepo.get` does not accept a ``now``
+        argument (the real adapter and the test fake both default to
+        ``datetime.now(tz=UTC)``); under ``freeze_time`` the in-repo default
+        therefore matches the caller's frozen ``now``, so the remainder
+        arithmetic stays correct.
+        """
+        cooldown = await self._cooldown_repo.get(self._guild_id, user_id)
+        if cooldown is None:
+            return
+        remaining = (cooldown.expires_at - now).total_seconds()
+        if remaining <= 0:
+            return
+        raise OnCooldown(seconds_remaining=int(remaining))
+
+    async def _set_cooldown(self, user_id: str, now: datetime) -> None:
+        """Persist the short/cover cooldown TTL row for ``user_id``."""
+        seconds = self._settings.trade_cooldown_seconds
+        expires = now + timedelta(seconds=seconds)
+        await self._cooldown_repo.upsert(
+            TradeCooldown(
+                guild_id=self._guild_id,
+                user_id=user_id,
+                expires_at=expires,
+            )
+        )
+
+    async def _get_or_create_user(self, user_id: str) -> UserAccount:
+        """Return the stored account for ``user_id`` (creating defaults if absent).
+
+        Mirrors the original ``ensure_user`` — a never-seen user starts with
+        the configured initial cash, flat net worth, empty positions, fresh
+        zeroed buckets, and ``opt_in=True``.
+        """
+        existing = await self._user_repo.get(self._guild_id, user_id)
+        if existing is not None:
+            return existing
+        now = datetime.now(tz=UTC)
+        initial_cash = _quantise(Decimal(str(self._settings.initial_cash)))
+        return UserAccount(
+            user_id=user_id,
+            cash_balance=initial_cash,
+            net_worth=initial_cash,
+            month_start_net_worth=initial_cash,
+            long_positions={},
+            short_positions={},
+            today=ActivityBucket(bucket_start=now),
+            week=ActivityBucket(bucket_start=now),
+            daily=DailyProgress(last_claim=None, streak=0),
+            last_activity=now,
+        )
+
+    async def _get_or_create_stock(self, target_id: str) -> Stock:
+        """Return the stored stock for ``target_id`` (creating defaults if absent).
+
+        Mirrors the original ``ensure_price`` — a never-seen stock starts at
+        ``settings.initial_price`` with that same value as the 24h high/low
+        and all-time high, and an empty history. The created stock is NOT
+        persisted here — the caller upserts it as part of its critical
+        section.
+        """
+        existing = await self._price_repo.get(self._guild_id, target_id)
+        if existing is not None:
+            return existing
+        initial = _quantise(Decimal(str(self._settings.initial_price)))
+        return Stock(
+            user_id=target_id,
+            current=initial,
+            history=[],
+            high_24h=initial,
+            low_24h=initial,
+            all_time_high=initial,
+        )
+
+    async def _get_fund_cash(self, user_id: str) -> Decimal:
+        """Return the user's personal hedge-fund cash balance, or zero if absent.
+
+        Personal funds are keyed by ``fund_id == user_id`` (per the original
+        ``funds_data[user_id]`` shape). A user who has never created a fund
+        contributes nothing to short collateral.
+        """
+        fund = await self._fund_repo.get(self._guild_id, user_id)
+        if fund is None:
+            return Decimal("0.00")
+        return fund.cash_balance
+
+    async def _apply_price_impact_unlocked(
+        self,
+        target_id: str,
+        stock: Stock,
+        shares: int,
+        *,
+        is_buy: bool,
+    ) -> tuple[Decimal, Decimal, Stock]:
+        """Compute and persist the immediate trade-price impact for ``target_id``.
+
+        Returns the ``(old_price, new_price, replaced_stock)`` triple. The
+        caller MUST already hold the target's lock — this helper does NOT
+        re-enter ``locked()`` (the trade methods take both actor + target
+        locks at the top of their critical section; the lock is non-reentrant
+        per Phase 7).
+
+        Mirrors :meth:`PriceTickService._rmw_price`: on a real price change
+        the helper appends a :class:`PricePoint` to history and ratchets
+        ``all_time_high`` (never lowered). A no-op (``new_price == current``)
+        skips both the upsert and the history append.
+        """
+        min_price = Decimal(str(self._settings.min_price))
+        k = self._settings.price_impact_k
+        old_price = stock.current
+        new_price = apply_trade_impact(old_price, shares, is_buy, k, min_price)
+        if new_price == old_price:
+            return old_price, new_price, stock
+        new_ath = max(stock.all_time_high, new_price)
+        replaced = replace(stock, current=new_price, all_time_high=new_ath)
+        await self._price_repo.upsert(self._guild_id, replaced)
+        await self._price_repo.append_history(
+            self._guild_id,
+            target_id,
+            PricePoint(price=new_price, timestamp=datetime.now(tz=UTC)),
+        )
+        return old_price, new_price, replaced
+
+    @staticmethod
+    def _validate_shares(shares: int) -> None:
+        """Reject non-positive share counts at the public-method boundary."""
+        if shares <= 0:
+            raise InvalidAmount(reason="shares must be positive")
+
+    @staticmethod
+    def _check_not_self(actor_id: str, target_id: str) -> None:
+        """Reject a trade whose actor and target are the same user."""
+        if actor_id == target_id:
+            raise SelfTrade()
+
+    @staticmethod
+    def _check_opt_in(target: UserAccount) -> None:
+        """Reject a trade whose target has opted out of being tradable."""
+        if not target.opt_in:
+            raise OptedOut(target_id=target.user_id)
+
+    # -- public use cases ---------------------------------------------------
+
+    async def buy(
+        self,
+        buyer_id: str,
+        target_id: str,
+        shares: int,
+    ) -> BuyResult:
+        """Open or add to a long position on ``target_id``.
+
+        Sunday is allowed (original spec exception); requires market open
+        otherwise, sufficient cash, target opted in, and ``buyer != target``.
+        Adding to an existing position recomputes the weighted-average entry
+        as ``((old_shares * old_avg) + (shares * px)) / new_shares``.
+        """
+        self._validate_shares(shares)
+        self._check_not_self(buyer_id, target_id)
+        self._check_market_open(allow_sunday=True)
+
+        async with self._locks.locked(
+            self._lock_key(buyer_id), self._lock_key(target_id)
+        ):
+            target = await self._get_or_create_user(target_id)
+            self._check_opt_in(target)
+            buyer = await self._get_or_create_user(buyer_id)
+            stock = await self._get_or_create_stock(target_id)
+            price = stock.current
+            cost = _quantise(price * Decimal(shares))
+            if buyer.cash_balance < cost:
+                raise InsufficientFunds(need=cost, have=buyer.cash_balance)
+
+            existing = buyer.long_positions.get(target_id)
+            if existing is None:
+                position = LongPosition(
+                    target_user_id=target_id, shares=shares, avg_entry=price
+                )
+            else:
+                new_shares = existing.shares + shares
+                new_avg = _quantise(
+                    (
+                        existing.avg_entry * Decimal(existing.shares)
+                        + price * Decimal(shares)
+                    )
+                    / Decimal(new_shares)
+                )
+                position = LongPosition(
+                    target_user_id=target_id,
+                    shares=new_shares,
+                    avg_entry=new_avg,
+                )
+
+            new_cash = _quantise(buyer.cash_balance - cost)
+            new_longs = {**buyer.long_positions, target_id: position}
+            updated_buyer = replace(
+                buyer, cash_balance=new_cash, long_positions=new_longs
+            )
+            # Persist the target stub first if it did not exist before, so the
+            # opt-in check above is sticky for the next call.
+            if await self._user_repo.get(self._guild_id, target_id) is None:
+                await self._user_repo.upsert(self._guild_id, target)
+            await self._user_repo.upsert(self._guild_id, updated_buyer)
+            # Make sure the stock row exists for `_apply_price_impact_unlocked`
+            # to upsert against (history append is keyed off the row).
+            if await self._price_repo.get(self._guild_id, target_id) is None:
+                await self._price_repo.upsert(self._guild_id, stock)
+            old_price, new_price, _ = await self._apply_price_impact_unlocked(
+                target_id, stock, shares, is_buy=True
+            )
+
+        return BuyResult(
+            buyer_id=buyer_id,
+            target_id=target_id,
+            shares=shares,
+            price_per_share=price,
+            total_cost=cost,
+            old_price=old_price,
+            new_price=new_price,
+            new_cash_balance=new_cash,
+            position_after=position,
+        )
+
+    async def sell(
+        self,
+        seller_id: str,
+        target_id: str,
+        shares: int,
+    ) -> SellResult:
+        """Close (some or all of) a long position on ``target_id``.
+
+        Requires market open (no Sunday exception), target opted in, seller
+        holds at least ``shares`` of the target's stock, and the actor is not
+        the target. Position is *deleted* when shares hit zero.
+        """
+        self._validate_shares(shares)
+        self._check_not_self(seller_id, target_id)
+        self._check_market_open(allow_sunday=False)
+
+        async with self._locks.locked(
+            self._lock_key(seller_id), self._lock_key(target_id)
+        ):
+            target = await self._get_or_create_user(target_id)
+            self._check_opt_in(target)
+            seller = await self._get_or_create_user(seller_id)
+            existing = seller.long_positions.get(target_id)
+            if existing is None or existing.shares < shares:
+                held = 0 if existing is None else existing.shares
+                raise InsufficientShares(requested=shares, held=held)
+            stock = await self._get_or_create_stock(target_id)
+            price = stock.current
+            revenue = _quantise(price * Decimal(shares))
+
+            remaining = existing.shares - shares
+            new_longs = dict(seller.long_positions)
+            position_after: LongPosition | None
+            if remaining == 0:
+                del new_longs[target_id]
+                position_after = None
+            else:
+                position_after = LongPosition(
+                    target_user_id=target_id,
+                    shares=remaining,
+                    avg_entry=existing.avg_entry,
+                )
+                new_longs[target_id] = position_after
+
+            new_cash = _quantise(seller.cash_balance + revenue)
+            updated_seller = replace(
+                seller, cash_balance=new_cash, long_positions=new_longs
+            )
+            if await self._user_repo.get(self._guild_id, target_id) is None:
+                await self._user_repo.upsert(self._guild_id, target)
+            await self._user_repo.upsert(self._guild_id, updated_seller)
+            if await self._price_repo.get(self._guild_id, target_id) is None:
+                await self._price_repo.upsert(self._guild_id, stock)
+            old_price, new_price, _ = await self._apply_price_impact_unlocked(
+                target_id, stock, shares, is_buy=False
+            )
+
+        return SellResult(
+            seller_id=seller_id,
+            target_id=target_id,
+            shares=shares,
+            price_per_share=price,
+            total_revenue=revenue,
+            old_price=old_price,
+            new_price=new_price,
+            new_cash_balance=new_cash,
+            position_after=position_after,
+        )
+
+    async def short(
+        self,
+        shorter_id: str,
+        target_id: str,
+        shares: int,
+    ) -> ShortResult:
+        """Open or add to a short position on ``target_id``.
+
+        Requires market open (no Sunday exception), target opted in, the
+        shorter is not the target, and that the actor is not currently on the
+        short/cover cooldown. Collateral splits across cash + 50% of the
+        shorter's personal hedge fund per the original spec. Adding to a
+        frozen short is rejected with :class:`PositionFrozen`.
+        """
+        self._validate_shares(shares)
+        self._check_not_self(shorter_id, target_id)
+        self._check_market_open(allow_sunday=False)
+        now = datetime.now(tz=UTC)
+        await self._check_cooldown(shorter_id, now)
+
+        async with self._locks.locked(
+            self._lock_key(shorter_id), self._lock_key(target_id)
+        ):
+            target = await self._get_or_create_user(target_id)
+            self._check_opt_in(target)
+            shorter = await self._get_or_create_user(shorter_id)
+            stock = await self._get_or_create_stock(target_id)
+            price = stock.current
+            notional = _quantise(price * Decimal(shares))
+
+            cash_available = shorter.cash_balance
+            fund_cash = await self._get_fund_cash(shorter_id)
+            fund_available = _quantise(fund_cash * _FUND_COLLATERAL_FRACTION)
+            total_collateral = cash_available + fund_available
+            if total_collateral < notional:
+                raise InsufficientFunds(need=notional, have=total_collateral)
+
+            locked_cash = min(cash_available, notional)
+            locked_fund = min(fund_available, notional - locked_cash)
+            locked_cash = _quantise(locked_cash)
+            locked_fund = _quantise(locked_fund)
+
+            existing = shorter.short_positions.get(target_id)
+            if existing is not None:
+                if existing.frozen:
+                    raise PositionFrozen(target_id=target_id)
+                new_shares = existing.shares + shares
+                new_entry = _quantise(
+                    (
+                        existing.entry_price * Decimal(existing.shares)
+                        + price * Decimal(shares)
+                    )
+                    / Decimal(new_shares)
+                )
+                position = ShortPosition(
+                    target_user_id=target_id,
+                    shares=new_shares,
+                    entry_price=new_entry,
+                    locked_cash=_quantise(existing.locked_cash + locked_cash),
+                    locked_fund=_quantise(existing.locked_fund + locked_fund),
+                    created_at=existing.created_at,
+                    frozen=False,
+                )
+            else:
+                position = ShortPosition(
+                    target_user_id=target_id,
+                    shares=shares,
+                    entry_price=price,
+                    locked_cash=locked_cash,
+                    locked_fund=locked_fund,
+                    created_at=now,
+                    frozen=False,
+                )
+
+            new_cash = _quantise(cash_available - locked_cash)
+            new_fund_cash = _quantise(fund_cash - locked_fund)
+            new_shorts = {**shorter.short_positions, target_id: position}
+            updated_shorter = replace(
+                shorter, cash_balance=new_cash, short_positions=new_shorts
+            )
+            if await self._user_repo.get(self._guild_id, target_id) is None:
+                await self._user_repo.upsert(self._guild_id, target)
+            await self._user_repo.upsert(self._guild_id, updated_shorter)
+            await self._write_fund_cash(shorter_id, new_fund_cash)
+            if await self._price_repo.get(self._guild_id, target_id) is None:
+                await self._price_repo.upsert(self._guild_id, stock)
+            old_price, new_price, _ = await self._apply_price_impact_unlocked(
+                target_id, stock, shares, is_buy=False
+            )
+
+        await self._set_cooldown(shorter_id, now)
+
+        return ShortResult(
+            shorter_id=shorter_id,
+            target_id=target_id,
+            shares=shares,
+            price_per_share=price,
+            notional=notional,
+            locked_cash=locked_cash,
+            locked_fund=locked_fund,
+            old_price=old_price,
+            new_price=new_price,
+            new_cash_balance=new_cash,
+            new_fund_balance=new_fund_cash,
+            position_after=position,
+        )
+
+    async def cover(
+        self,
+        coverer_id: str,
+        target_id: str,
+        shares: int,
+    ) -> CoverResult:
+        """Close (some or all of) a short position on ``target_id``.
+
+        Requires market open (no Sunday exception), target opted in, the
+        coverer holds at least ``shares`` of an unfrozen short on the target,
+        sufficient cash to pay the cover cost, the actor is not the target,
+        and that the actor is not currently on the short/cover cooldown.
+        Released collateral is proportional to the shares being covered;
+        positive P&L is credited to cash on top of the released cash. The
+        short position is *deleted* when shares hit zero.
+
+        **Phase 8c does NOT implement the liquidation bypass.** Frozen
+        positions always raise :class:`PositionFrozen` here. Phase 8f adds a
+        private ``_cover_internal(force=True)`` variant the liquidation
+        background loop uses to bypass the freeze guard.
+        """
+        self._validate_shares(shares)
+        self._check_not_self(coverer_id, target_id)
+        self._check_market_open(allow_sunday=False)
+        now = datetime.now(tz=UTC)
+        await self._check_cooldown(coverer_id, now)
+
+        async with self._locks.locked(
+            self._lock_key(coverer_id), self._lock_key(target_id)
+        ):
+            target = await self._get_or_create_user(target_id)
+            self._check_opt_in(target)
+            coverer = await self._get_or_create_user(coverer_id)
+            existing = coverer.short_positions.get(target_id)
+            if existing is None:
+                raise NoPosition(target_id=target_id, position_type="short")
+            if existing.shares < shares:
+                raise InsufficientShares(requested=shares, held=existing.shares)
+            if existing.frozen:
+                raise PositionFrozen(target_id=target_id)
+            stock = await self._get_or_create_stock(target_id)
+            price = stock.current
+            cost = _quantise(price * Decimal(shares))
+            if coverer.cash_balance < cost:
+                raise InsufficientFunds(need=cost, have=coverer.cash_balance)
+
+            proportion = Decimal(shares) / Decimal(existing.shares)
+            released_cash = _quantise(existing.locked_cash * proportion)
+            released_fund = _quantise(existing.locked_fund * proportion)
+            pnl = _quantise((existing.entry_price - price) * Decimal(shares))
+
+            remaining = existing.shares - shares
+            new_shorts = dict(coverer.short_positions)
+            position_after: ShortPosition | None
+            if remaining == 0:
+                del new_shorts[target_id]
+                position_after = None
+            else:
+                position_after = ShortPosition(
+                    target_user_id=target_id,
+                    shares=remaining,
+                    entry_price=existing.entry_price,
+                    locked_cash=_quantise(existing.locked_cash - released_cash),
+                    locked_fund=_quantise(existing.locked_fund - released_fund),
+                    created_at=existing.created_at,
+                    frozen=existing.frozen,
+                )
+                new_shorts[target_id] = position_after
+
+            cash_after_pay = _quantise(coverer.cash_balance - cost + released_cash)
+            if pnl > 0:
+                cash_after_pay = _quantise(cash_after_pay + pnl)
+
+            fund_cash = await self._get_fund_cash(coverer_id)
+            new_fund_cash = _quantise(fund_cash + released_fund)
+            updated_coverer = replace(
+                coverer, cash_balance=cash_after_pay, short_positions=new_shorts
+            )
+            if await self._user_repo.get(self._guild_id, target_id) is None:
+                await self._user_repo.upsert(self._guild_id, target)
+            await self._user_repo.upsert(self._guild_id, updated_coverer)
+            await self._write_fund_cash(coverer_id, new_fund_cash)
+            if await self._price_repo.get(self._guild_id, target_id) is None:
+                await self._price_repo.upsert(self._guild_id, stock)
+            old_price, new_price, _ = await self._apply_price_impact_unlocked(
+                target_id, stock, shares, is_buy=False
+            )
+
+        await self._set_cooldown(coverer_id, now)
+
+        return CoverResult(
+            coverer_id=coverer_id,
+            target_id=target_id,
+            shares=shares,
+            price_per_share=price,
+            cost=cost,
+            pnl=pnl,
+            released_cash=released_cash,
+            released_fund=released_fund,
+            old_price=old_price,
+            new_price=new_price,
+            new_cash_balance=cash_after_pay,
+            new_fund_balance=new_fund_cash,
+            position_after=position_after,
+        )
+
+    async def update_frozen_shorts(self) -> None:
+        """Freeze every short position older than ``short_freeze_minutes``.
+
+        Mirrors the original ``short_freeze_check`` task (5-min loop): walk
+        every account in the guild and, for any non-frozen short whose
+        ``created_at`` is at least ``settings.short_freeze_minutes`` in the
+        past, replace it with a copy that has ``frozen=True``. The sweep takes
+        the lock per-account (one user at a time, like the tick services) so
+        unrelated accounts never serialise.
+        """
+        threshold = timedelta(minutes=self._settings.short_freeze_minutes)
+        now = datetime.now(tz=UTC)
+        for account in await self._user_repo.list_all(self._guild_id):
+            async with self._locks.locked(self._lock_key(account.user_id)):
+                fresh = await self._user_repo.get(self._guild_id, account.user_id)
+                if fresh is None:
+                    continue
+                new_shorts: dict[str, ShortPosition] = {}
+                changed = False
+                for tid, position in fresh.short_positions.items():
+                    age = now - position.created_at
+                    if position.frozen or age < threshold:
+                        new_shorts[tid] = position
+                        continue
+                    new_shorts[tid] = replace(position, frozen=True)
+                    changed = True
+                if changed:
+                    await self._user_repo.upsert(
+                        self._guild_id, replace(fresh, short_positions=new_shorts)
+                    )
+
+    # -- fund-cash write (small enough to inline) ---------------------------
+
+    async def _write_fund_cash(self, user_id: str, new_cash: Decimal) -> None:
+        """Replace the user's personal hedge-fund cash balance.
+
+        Creates the fund row if it does not yet exist (a user shorting
+        without an explicit ``/fund create`` is supported; the personal fund
+        is keyed by ``fund_id == user_id``). No-ops when ``new_cash`` would
+        equal the existing balance and the row already exists.
+        """
+        fund = await self._fund_repo.get(self._guild_id, user_id)
+        if fund is None:
+            if new_cash == 0:
+                return
+            fund = HedgeFund(
+                fund_id=user_id,
+                name=user_id,
+                manager_id=user_id,
+                cash_balance=new_cash,
+                investors={},
+            )
+            await self._fund_repo.upsert(self._guild_id, fund)
+            return
+        if fund.cash_balance == new_cash:
+            return
+        await self._fund_repo.upsert(
+            self._guild_id, replace(fund, cash_balance=new_cash)
+        )
