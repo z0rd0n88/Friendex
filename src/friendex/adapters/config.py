@@ -90,6 +90,13 @@ class Settings(BaseSettings):
 
     # Activity tick
     activity_tick_minutes: int = 15
+    # Activity-tick price-return constant ``K`` for ``ΔP = K · ln(1 + score)``
+    # (see :func:`friendex.domain.price_engine.compute_activity_return`). Distinct
+    # from :attr:`price_impact_k` (which models the per-trade order-book bump).
+    activity_tick_k: float = 0.5
+    # Periodic price multiplier applied by :meth:`PriceTickService.vc_boost_tick`
+    # to extra VC responders still in voice (original spec hard-codes ``1.03``).
+    vc_extra_boost_multiplier: float = 1.03
 
     # VC ping
     #

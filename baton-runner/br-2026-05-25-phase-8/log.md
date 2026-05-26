@@ -16,4 +16,6 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T20:30Z  phase 2/7 FIX iter1  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8a/004-2026-05-25-guild-composite-lock-key.md  (composite _lock_key at 6 sites, RED-verified isolation test, 430 tests pass, 2 LOWs deferred)  units 5/75
 - 2026-05-25T20:32Z  phase 2/7 COMMIT  b56bca9 fix(phase-8a): address review findings (iter 1)
 - 2026-05-25T20:37Z  phase 2/7 REVIEW iter2  spawn python-pro -> VERDICT CLEAN  baton=pass-baton/phase-8a/005-2026-05-25-phase-8a-review-iter2-clean.md  digest=digest-phase-8a.md  units 6/75
-- 2026-05-25T20:37Z  phase 2/7 DONE  -> opening draft PR (base feat/phase-8-fakes)
+- 2026-05-25T20:37Z  phase 2/7 DONE  PR #43 (base feat/phase-8-fakes)
+- 2026-05-25T20:38Z  phase 3/7 (8b) branch feat/phase-8b-price-tick created from 8a tip
+- 2026-05-25T20:47Z  phase 3/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8b/001-2026-05-25-phase-8b-complete.md  (B1-B5 + 4 extras, 439/439 suite, +2 Settings, vc_boost takes Iterable[VcExtraBoost])  units 7/75
