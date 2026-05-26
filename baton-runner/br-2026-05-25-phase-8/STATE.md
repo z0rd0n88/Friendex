@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-25-phase-8
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-25-phase-8
-phase: 3 of 7  unit: REVIEW  review_iter: 2 of 3
-current_baton: pass-baton/phase-8b/003-2026-05-25-phase-8b-review-fixes.md
-units_used: 9
+phase: 4 of 7  unit: WORK  review_iter: 0 of 3
+current_baton: pass-baton/phase-8b/004-2026-05-25-phase-8b-review-iter2-clean.md
+units_used: 10
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -34,8 +34,8 @@ phases:
     units: 4  state: DONE  review: iter-1 ISSUES (1 HIGH lock-key omitted guild_id) -> fix iter-1 -> iter-2 CLEAN; 2 LOW deferred to Phase 12
   - id: phase-8b  spec: "docs/04-migration-plan.md §Phase 8b (price tick; reuses fakes)"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-8b-price-tick  base: feat/phase-8a-activity  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8b.md
-    units: 0  state: RUNNING
+    branch: feat/phase-8b-price-tick  base: feat/phase-8a-activity  pr: <pending-push>  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8b.md
+    units: 4  state: DONE  review: iter-1 ISSUES (1 HIGH RMW race, 2 MEDIUM, 3 LOW) -> fix iter-1 -> iter-2 CLEAN; M1 activity_tick_k=0.5 deferred-with-docstring (user decision)
   - id: phase-8c  spec: "docs/04-migration-plan.md §Phase 8c (trading)"  readiness: READY
     unit_agent: python-pro
     branch: feat/phase-8c-trading  base: feat/phase-8b-price-tick  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8c.md
