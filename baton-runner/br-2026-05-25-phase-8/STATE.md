@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-25-phase-8
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-25-phase-8
-phase: 4 of 7  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-8c/000-2026-05-25-trading-service-green.md
-units_used: 11
+phase: 5 of 7  unit: WORK  review_iter: 0 of 3
+current_baton: pass-baton/phase-8c/001-2026-05-25-review-iter-1-clean.md
+units_used: 12
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -38,8 +38,8 @@ phases:
     units: 4  state: DONE  review: iter-1 ISSUES (1 HIGH RMW race, 2 MEDIUM, 3 LOW) -> fix iter-1 -> iter-2 CLEAN; M1 activity_tick_k=0.5 deferred-with-docstring (user decision)
   - id: phase-8c  spec: "docs/04-migration-plan.md §Phase 8c (trading)"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-8c-trading  base: feat/phase-8b-price-tick  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8c.md
-    units: 0  state: RUNNING  note: "most complex; 90% cov gate; continuation-backed"
+    branch: feat/phase-8c-trading  base: feat/phase-8b-price-tick  pr: <pending-push>  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8c.md
+    units: 2  state: DONE  review: iter-1 CLEAN (one-shot); 2 MEDIUM (M1 cooldown after-boundary assertion; M2 ITradeCooldownRepo.get protocol drift -> 8d widens with now= kwarg) + 2 LOW
   - id: phase-8d  spec: "docs/04-migration-plan.md §Phase 8d (portfolio + stats)"  readiness: READY
     unit_agent: python-pro
     branch: feat/phase-8d-portfolio  base: feat/phase-8c-trading  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8d.md
