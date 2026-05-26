@@ -10,6 +10,7 @@ Latest entry per scope. Read the linked file for full context. **New sessions sh
 | phase-6-repos | [015](./phase-6-repos/015-2026-05-25-hardening-h1-h2-review.md) | 2026-05-25 | Independent review of hardening fixes H1 (N+1 batching) + H2 (MigrationError) — VERDICT CLEAN; gate green, both RED-verified under reversion; 1 LOW (weak ordering test) + 1 INFO, no CRITICAL/HIGH/MEDIUM |
 | phase-7-locks | [000](./phase-7-locks/000-2026-05-25-phase-7-merged-carryforward.md) | 2026-05-25 | Phase 7 LockManager merged (PR #38, `97b505e`); VERDICT CLEAN, 100% cov. Carry-forward: 1 MEDIUM (cancel-mid-acquire lock leak) to fix in Phase 8a + 1 LOW; conventions for service lock usage |
 | phase-8-fakes | [002](./phase-8-fakes/002-2026-05-25-review-clean.md) | 2026-05-25 | Independent review — VERDICT CLEAN; gate green, boundary tests RED-verified (non-tautological), semantics match real adapters + Phase 6 digests; 1 LOW (get returns mutable ref) + 1 INFO, no CRITICAL/HIGH/MEDIUM; digest written |
+| phase-8a | [002](./phase-8a/002-2026-05-25-phase-8a-complete.md) | 2026-05-25 | Phase 8a COMPLETE — ActivityService (A1-A6) + VoicePingService (A7-A10) + Phase-7 lock-leak fix (A11), all TDD RED-first; gate green (ruff/format/mypy/30 target tests, 429 full suite), 98.26% module coverage; 10 new Settings tunables declared, no new deps |
 
 *Top-level seed: [`000-2026-05-15-start-pass-baton.md`](./000-2026-05-15-start-pass-baton.md) (empty placeholder; establishes the sequence head).*
 
