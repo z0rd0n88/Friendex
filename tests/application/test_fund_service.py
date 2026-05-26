@@ -1,0 +1,606 @@
+"""Behavioural tests for :class:`FundService` (Phase 8e).
+
+The service mediates the ``/fund create``, ``/fund withdraw``,
+``/fund send_events``, ``/fund info`` Discord slash sub-commands, plus the
+monthly APY accrual called from the Phase 9 ``MonthlyRolloverTask``.
+
+Acceptance criteria pinned here (work-unit contract E1-E7):
+
+* **E1** — ``create_or_rename`` with no existing fund creates one with a
+  default name when ``name=None`` (or with the provided name).
+* **E2** — ``create_or_rename`` against an existing fund renames it.
+* **E3** — ``withdraw`` on the 1st of the month does NOT apply the
+  early-withdrawal penalty (the canonical "no-penalty" calendar day).
+* **E4** — ``withdraw`` on any other day applies
+  ``settings.early_withdraw_penalty`` (default ``0.05``) by upserting /
+  extending a :class:`FundPenalty` row with the configured penalty duration.
+* **E5** — ``send_to_events`` transfers from the user's fund to the
+  ``events_wallet`` pseudo-fund and SKIPS the early-withdrawal penalty even
+  mid-month (the events transfer is exempt by design).
+* **E6** — ``accrue_apy(now)`` credits each personal fund with the monthly
+  APY amount computed by :func:`fund_math.compute_apy_accrual`
+  (annual rate ``settings.hedge_fund_base_apy`` over the ``"monthly"``
+  period). The ``events_wallet`` pseudo-fund is skipped.
+* **E7** — ``invest(...)`` raises :class:`NotImplementedError` per the
+  §Open-Q5 deferral.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from typing import TYPE_CHECKING
+
+import pytest
+
+from friendex.application.fund_service import FundService
+from friendex.domain.errors import FundInsufficientBalance, InvalidAmount
+from friendex.domain.models import (
+    ActivityBucket,
+    DailyProgress,
+    FundPenalty,
+    HedgeFund,
+    UserAccount,
+)
+
+if TYPE_CHECKING:
+    from friendex.adapters.config import Settings
+    from friendex.application.lock_manager import LockManager
+    from tests.application.fakes.fake_repos import (
+        FakeFundRepo,
+        FakePenaltyRepo,
+        FakeUserRepo,
+    )
+
+
+GUILD = "100000000000000001"
+USER = "user-1"
+OTHER_USER = "user-2"
+EVENTS_WALLET_ID = "events_wallet"
+
+_NOW_DAY_1 = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+_NOW_MID_MONTH = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+
+
+# ---------------------------------------------------------------------------
+# Builders
+# ---------------------------------------------------------------------------
+
+
+def _account(
+    user_id: str,
+    *,
+    cash: Decimal = Decimal("0.00"),
+) -> UserAccount:
+    """Build a minimal valid :class:`UserAccount` for the fund tests."""
+    now = datetime.now(tz=UTC)
+    return UserAccount(
+        user_id=user_id,
+        cash_balance=cash,
+        net_worth=cash,
+        month_start_net_worth=cash,
+        long_positions={},
+        short_positions={},
+        today=ActivityBucket(bucket_start=now),
+        week=ActivityBucket(bucket_start=now),
+        daily=DailyProgress(last_claim=None, streak=0),
+        last_activity=now,
+    )
+
+
+def _fund(
+    user_id: str,
+    *,
+    name: str | None = None,
+    cash: Decimal = Decimal("1000.00"),
+) -> HedgeFund:
+    """Build a personal :class:`HedgeFund` for ``user_id``."""
+    return HedgeFund(
+        fund_id=user_id,
+        name=name if name is not None else f"Fund {user_id}",
+        manager_id=user_id,
+        cash_balance=cash,
+        investors={},
+    )
+
+
+def _make_service(
+    *,
+    user_repo: FakeUserRepo,
+    fund_repo: FakeFundRepo,
+    penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    settings: Settings,
+) -> FundService:
+    """Construct a :class:`FundService` wired to the shared fixtures."""
+    return FundService(
+        guild_id=GUILD,
+        user_repo=user_repo,
+        fund_repo=fund_repo,
+        penalty_repo=penalty_repo,
+        lock_manager=lock_manager,
+        settings=settings,
+    )
+
+
+# ---------------------------------------------------------------------------
+# E1 — create with no existing fund
+# ---------------------------------------------------------------------------
+
+
+async def test_e1_create_or_rename_creates_default_named_fund_when_absent(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Without a name, ``create_or_rename`` creates a fund with the default name."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    fund = await service.create_or_rename(USER)
+
+    assert fund.fund_id == USER
+    assert fund.manager_id == USER
+    assert fund.name == f"Fund {USER}"
+    assert fund.cash_balance == Decimal("0.00")
+
+    stored = await fake_fund_repo.get(GUILD, USER)
+    assert stored is not None
+    assert stored.name == f"Fund {USER}"
+
+
+async def test_e1_create_or_rename_accepts_provided_name(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """With ``name`` provided, the new fund carries it verbatim."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    fund = await service.create_or_rename(USER, name="Alpha Capital")
+
+    assert fund.name == "Alpha Capital"
+    stored = await fake_fund_repo.get(GUILD, USER)
+    assert stored is not None
+    assert stored.name == "Alpha Capital"
+
+
+# ---------------------------------------------------------------------------
+# E2 — rename existing fund
+# ---------------------------------------------------------------------------
+
+
+async def test_e2_create_or_rename_renames_existing_fund(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """An existing fund's name is updated; balance and investors are preserved."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    await fake_fund_repo.upsert(
+        GUILD, _fund(USER, name="Old Name", cash=Decimal("2500.00"))
+    )
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    fund = await service.create_or_rename(USER, name="New Name")
+
+    assert fund.name == "New Name"
+    assert fund.cash_balance == Decimal("2500.00")
+    stored = await fake_fund_repo.get(GUILD, USER)
+    assert stored is not None
+    assert stored.name == "New Name"
+    assert stored.cash_balance == Decimal("2500.00")
+
+
+# ---------------------------------------------------------------------------
+# E3 — withdraw on day 1 — NO penalty
+# ---------------------------------------------------------------------------
+
+
+async def test_e3_withdraw_on_day_1_does_not_apply_penalty(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Calendar day 1 is the canonical month-end rollover; no penalty applies."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("100.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("500.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.withdraw(USER, amount=Decimal("200.00"), now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    account_after = await fake_user_repo.get(GUILD, USER)
+    penalty_after = await fake_penalty_repo.get(GUILD, USER)
+
+    assert fund_after is not None
+    assert account_after is not None
+    assert fund_after.cash_balance == Decimal("300.00")
+    assert account_after.cash_balance == Decimal("300.00")
+    assert penalty_after is None  # NO penalty on day 1
+
+
+# ---------------------------------------------------------------------------
+# E4 — withdraw mid-month applies penalty
+# ---------------------------------------------------------------------------
+
+
+async def test_e4_withdraw_mid_month_applies_penalty(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """A non-day-1 withdrawal records a fresh penalty at the configured rate."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("100.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("500.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.withdraw(USER, amount=Decimal("200.00"), now=_NOW_MID_MONTH)
+
+    penalty_after = await fake_penalty_repo.get(GUILD, USER)
+    assert penalty_after is not None
+    assert penalty_after.user_id == USER
+    assert penalty_after.penalty_apr == Decimal(
+        str(default_settings.early_withdraw_penalty)
+    )
+    expected_until = _NOW_MID_MONTH + timedelta(
+        days=default_settings.penalty_duration_days
+    )
+    assert penalty_after.penalty_until == expected_until
+
+
+async def test_e4_withdraw_mid_month_stacks_existing_penalty(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Repeat withdrawals stack the APR penalty per spec line 614."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("100.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("500.00")))
+    # Pre-seed an active penalty.
+    await fake_penalty_repo.upsert(
+        GUILD,
+        FundPenalty(
+            user_id=USER,
+            penalty_apr=Decimal("0.05"),
+            penalty_until=_NOW_MID_MONTH + timedelta(days=2),
+        ),
+    )
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.withdraw(USER, amount=Decimal("100.00"), now=_NOW_MID_MONTH)
+
+    penalty_after = await fake_penalty_repo.get(GUILD, USER)
+    assert penalty_after is not None
+    # 0.05 stacked with the configured 0.05 -> 0.10.
+    assert penalty_after.penalty_apr == Decimal("0.05") + Decimal(
+        str(default_settings.early_withdraw_penalty)
+    )
+
+
+async def test_withdraw_zero_or_negative_raises_invalid_amount(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Defensive check: amount must be positive."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("0.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("500.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(InvalidAmount):
+        await service.withdraw(USER, amount=Decimal("0.00"), now=_NOW_MID_MONTH)
+    with pytest.raises(InvalidAmount):
+        await service.withdraw(USER, amount=Decimal("-1.00"), now=_NOW_MID_MONTH)
+
+
+async def test_withdraw_more_than_balance_raises(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Insufficient fund balance is caught and surfaced as a domain error."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("0.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(FundInsufficientBalance):
+        await service.withdraw(USER, amount=Decimal("200.00"), now=_NOW_MID_MONTH)
+
+
+# ---------------------------------------------------------------------------
+# E5 — send_to_events skips penalty
+# ---------------------------------------------------------------------------
+
+
+async def test_e5_send_to_events_transfers_and_skips_penalty(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """``send_to_events`` moves cash to ``events_wallet`` without any penalty."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("500.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.send_to_events(USER, amount=Decimal("150.00"))
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    events_after = await fake_fund_repo.get(GUILD, EVENTS_WALLET_ID)
+    penalty_after = await fake_penalty_repo.get(GUILD, USER)
+
+    assert fund_after is not None
+    assert events_after is not None
+    assert fund_after.cash_balance == Decimal("350.00")
+    assert events_after.cash_balance == Decimal("150.00")
+    assert penalty_after is None  # No penalty for events transfers
+
+
+async def test_send_to_events_zero_or_negative_raises(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Defensive check: send-to-events amount must be positive."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(InvalidAmount):
+        await service.send_to_events(USER, amount=Decimal("0.00"))
+
+
+async def test_send_to_events_insufficient_balance_raises(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Insufficient fund balance for send-to-events surfaces a domain error."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(FundInsufficientBalance):
+        await service.send_to_events(USER, amount=Decimal("200.00"))
+
+
+# ---------------------------------------------------------------------------
+# E6 — accrue_apy credits the monthly amount on each personal fund
+# ---------------------------------------------------------------------------
+
+
+async def test_e6_accrue_apy_credits_monthly_amount_to_each_personal_fund(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Each personal fund is credited ``balance * apy / 12`` (Decimal)."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    await fake_user_repo.upsert(GUILD, _account(OTHER_USER))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("1200.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(OTHER_USER, cash=Decimal("600.00")))
+    # Events wallet must be skipped (no APY on the treasury pseudo-fund).
+    await fake_fund_repo.ensure_events_wallet(GUILD)
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_user = await fake_fund_repo.get(GUILD, USER)
+    fund_other = await fake_fund_repo.get(GUILD, OTHER_USER)
+    events = await fake_fund_repo.get(GUILD, EVENTS_WALLET_ID)
+    assert fund_user is not None
+    assert fund_other is not None
+    assert events is not None
+
+    # apy=0.15, monthly => 0.15 / 12 = 0.0125
+    # 1200 * 0.0125 = 15.00, 600 * 0.0125 = 7.50
+    assert fund_user.cash_balance == Decimal("1215.00")
+    assert fund_other.cash_balance == Decimal("607.50")
+    # Events wallet untouched.
+    assert events.cash_balance == Decimal("0.00")
+
+
+async def test_accrue_apy_respects_active_penalty(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """An active :class:`FundPenalty` reduces the effective APY for accrual."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("1200.00")))
+    # Penalty cuts APY from 0.15 to 0.10 -> monthly 0.10/12 ≈ 0.008333
+    await fake_penalty_repo.upsert(
+        GUILD,
+        FundPenalty(
+            user_id=USER,
+            penalty_apr=Decimal("0.05"),
+            penalty_until=_NOW_DAY_1 + timedelta(days=7),
+        ),
+    )
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    assert fund_after is not None
+    # 1200 * (0.10 / 12) = 10.00
+    assert fund_after.cash_balance == Decimal("1210.00")
+
+
+# ---------------------------------------------------------------------------
+# E7 — invest scaffolded as NotImplementedError per §Open-Q5
+# ---------------------------------------------------------------------------
+
+
+async def test_e7_invest_raises_not_implemented(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """``invest`` is scaffolded per §Open-Q5; calling it raises."""
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(NotImplementedError):
+        await service.invest(
+            investor_id=USER, fund_id=OTHER_USER, amount=Decimal("100.00")
+        )
+
+
+# ---------------------------------------------------------------------------
+# fund_info read path
+# ---------------------------------------------------------------------------
+
+
+async def test_fund_info_returns_none_when_absent(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """``fund_info`` returns ``None`` for a user with no personal fund."""
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    assert await service.fund_info(USER) is None
+
+
+async def test_fund_info_returns_the_stored_fund(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """``fund_info`` round-trips the stored fund without mutation."""
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("777.77")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    info = await service.fund_info(USER)
+    assert info is not None
+    assert info.fund_id == USER
+    assert info.cash_balance == Decimal("777.77")

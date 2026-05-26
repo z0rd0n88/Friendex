@@ -126,3 +126,21 @@ class AlreadyOptedIn(DomainError):
 class AlreadyOptedOut(DomainError):
     def __init__(self) -> None:
         super().__init__("You are already opted out.")
+
+
+class AlreadyClaimedToday(DomainError):
+    """Raised by :meth:`DailyService.claim_daily` on a same-day repeat claim.
+
+    The original spec (``original-skeleton.md:960``) gates the daily reward on
+    a 24-hour cooldown from the previous ``last_claim``; a second claim inside
+    that window surfaces this domain error so the Discord error handler can
+    relay the user-facing copy directly.
+    """
+
+    def __init__(self, seconds_remaining: int) -> None:
+        hours, remainder = divmod(seconds_remaining, 3600)
+        minutes = remainder // 60
+        super().__init__(
+            f"You already claimed your daily reward! Next claim in {hours}h {minutes}m."
+        )
+        self.seconds_remaining = seconds_remaining
