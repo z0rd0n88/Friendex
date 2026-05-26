@@ -25,4 +25,6 @@ Append-only, one UTC-stamped line per action.
 - 2026-05-25T21:06Z  phase 3/7 FIX iter1  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8b/003-2026-05-25-phase-8b-review-fixes.md  (H1 RMW atomicity + RED barrier test; M2 history+ATH; L1 L2; M1 deferred w/ TBD docstring; 445 tests pass)  units 9/75
 - 2026-05-25T21:08Z  phase 3/7 COMMIT  5888801 fix(phase-8b): address review findings (iter 1)
 - 2026-05-25T21:12Z  phase 3/7 REVIEW iter2  spawn python-pro -> VERDICT CLEAN  baton=pass-baton/phase-8b/004-2026-05-25-phase-8b-review-iter2-clean.md  digest=digest-phase-8b.md  units 10/75
-- 2026-05-25T21:12Z  phase 3/7 DONE  -> opening draft PR (base feat/phase-8a-activity)
+- 2026-05-25T21:12Z  phase 3/7 DONE  PR #44 (base feat/phase-8a-activity)
+- 2026-05-25T21:14Z  phase 4/7 (8c) branch feat/phase-8c-trading from 8b tip
+- 2026-05-25T21:28Z  phase 4/7 WORK  spawn python-pro -> STATUS COMPLETE  baton=pass-baton/phase-8c/000-2026-05-25-trading-service-green.md  (14 ACs, 41 tests, 486 suite, 92.53% cov; flagged: ITradeCooldownRepo.get lacks now= kwarg, call-side dropped per scope)  units 11/75
