@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-25-phase-8
 status: RUNNING
 worktree: /home/alex/Friendex/.claude/worktrees/br-2026-05-25-phase-8
-phase: 3 of 7  unit: WORK  review_iter: 0 of 3
-current_baton: pass-baton/phase-8a/005-2026-05-25-phase-8a-review-iter2-clean.md
-units_used: 6
+phase: 3 of 7  unit: REVIEW  review_iter: 1 of 3
+current_baton: pass-baton/phase-8b/001-2026-05-25-phase-8b-complete.md
+units_used: 7
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -30,12 +30,12 @@ phases:
     units: 2  state: DONE  review: iter-1 CLEAN; 1 LOW (fakes return mutable refs vs fresh objects — convention in digest) + 1 INFO
   - id: phase-8a  spec: "docs/04-migration-plan.md §Phase 8a (+ lock-leak carry-forward)"  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-8a-activity  base: feat/phase-8-fakes  pr: <pending-push>  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8a.md
+    branch: feat/phase-8a-activity  base: feat/phase-8-fakes  pr: https://github.com/z0rd0n88/Friendex/pull/43  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8a.md
     units: 4  state: DONE  review: iter-1 ISSUES (1 HIGH lock-key omitted guild_id) -> fix iter-1 -> iter-2 CLEAN; 2 LOW deferred to Phase 12
   - id: phase-8b  spec: "docs/04-migration-plan.md §Phase 8b (price tick; reuses fakes)"  readiness: READY
     unit_agent: python-pro
     branch: feat/phase-8b-price-tick  base: feat/phase-8a-activity  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8b.md
-    units: 0  state: PENDING
+    units: 0  state: RUNNING
   - id: phase-8c  spec: "docs/04-migration-plan.md §Phase 8c (trading)"  readiness: READY
     unit_agent: python-pro
     branch: feat/phase-8c-trading  base: feat/phase-8b-price-tick  pr: -  digest: baton-runner/br-2026-05-25-phase-8/digest-phase-8c.md
