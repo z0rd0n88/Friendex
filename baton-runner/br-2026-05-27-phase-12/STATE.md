@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-27-phase-12
 status: RUNNING
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-12
-phase: 1 of 2  unit: WORK  review_iter: 0 of 3
-current_baton: -
-units_used: 0
+phase: 2 of 2  unit: WORK  review_iter: 0 of 3
+current_baton: pass-baton/phase-12a/003-2026-05-27-phase-12a-review.md
+units_used: 3
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -59,7 +59,8 @@ phases:
     unit_agent: python-pro
     branch: feat/phase-12a-listeners-simple  base: origin/main@ea4b7b2
     pr: -  digest: baton-runner/br-2026-05-27-phase-12/digest-phase-12a.md
-    units: 0  state: PENDING
+    work_commit: 22494bc  review_clean_baton: pass-baton/phase-12a/003-2026-05-27-phase-12a-review.md
+    units: 3  state: DONE (work + invalid-iter1 + iter1-retry CLEAN)
     acceptance_criteria: |
       A1. src/friendex/adapters/discord_bot/listeners/__init__.py created (empty per the package convention from cogs/).
       A2. tests/adapters/discord_bot/listeners/__init__.py created (empty).
