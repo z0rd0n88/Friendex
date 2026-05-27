@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-27-phase-15
 status: RUNNING
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-15
-phase: 1 of 2  unit: WORK  review_iter: 0 of 3
-current_baton: -
-units_used: 0
+phase: 2 of 2  unit: WORK  review_iter: 0 of 3
+current_baton: pass-baton/phase-15a/002-2026-05-27-review-clean.md
+units_used: 2
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -33,8 +33,8 @@ phases:
   - id: phase-15a  spec: docs/04-migration-plan.md §Phase 15 (lines 793-824) — fixtures + test split
     readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-15a-fixtures   pr: -   digest: baton-runner/br-2026-05-27-phase-15/digest-phase-15a.md
-    units: 0   state: PENDING
+    branch: feat/phase-15a-fixtures   pr: https://github.com/z0rd0n88/Friendex/pull/66   digest: baton-runner/br-2026-05-27-phase-15/digest-phase-15a.md
+    units: 2   state: DONE   (review CLEAN iter-1, 0 CRIT/HIGH/MED, 3 LOW non-blocking)
   - id: phase-15b  spec: docs/04-migration-plan.md §Phase 15 (lines 793-824) — migrator flags + orphan check split
     readiness: READY
     unit_agent: python-pro
