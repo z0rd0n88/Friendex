@@ -161,6 +161,7 @@ class LiquidationService:
             )
 
         return LiquidationEvent(
+            guild_id=self._guild_id,
             holder_id=holder_id,
             target_id=target_id,
             shares=shares,

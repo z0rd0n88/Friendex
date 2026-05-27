@@ -653,6 +653,7 @@ def test_build_help_embed_lists_canonical_commands() -> None:
 
 def test_build_liquidation_notification_embed_uses_warning_color() -> None:
     event = LiquidationEvent(
+        guild_id="guild-1",
         holder_id="holder",
         target_id="target",
         shares=10,
@@ -669,6 +670,7 @@ def test_build_liquidation_notification_embed_uses_warning_color() -> None:
 
 def test_build_liquidation_notification_embed_renders_event_details() -> None:
     event = LiquidationEvent(
+        guild_id="guild-1",
         holder_id="holder-77",
         target_id="target-99",
         shares=10,

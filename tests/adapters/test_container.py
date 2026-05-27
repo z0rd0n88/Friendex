@@ -13,8 +13,12 @@ composition layer to bind ``_loop``).
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
+import discord
 import pytest
 
 from friendex.adapters.config import Settings
@@ -39,6 +43,7 @@ from friendex.adapters.tasks.monthly_rollover_task import MonthlyRolloverTask
 from friendex.adapters.tasks.vc_boost_task import VcBoostTask
 from friendex.adapters.tasks.weekly_reset_task import WeeklyResetTask
 from friendex.application.fund_service import FundService
+from friendex.application.liquidation_events import LiquidationEvent
 from friendex.application.portfolio_service import PortfolioService
 from friendex.application.trading_service import TradingService
 
@@ -228,3 +233,196 @@ async def test_register_with_installs_error_handler(
 
     assert bot.tree.on_error is not None
     assert callable(bot.tree.on_error)
+
+
+# ---------------------------------------------------------------------------
+# bind_runtime (Phase 14 AC2 / AC6)
+
+
+def _stub_bot_with_guilds(guild_ids: list[int]) -> MagicMock:
+    """Build a ``MagicMock`` bot whose ``.guilds`` is a list of stub guilds."""
+    bot = MagicMock(name="Bot")
+    bot.guilds = [MagicMock(name=f"Guild({gid})", id=gid) for gid in guild_ids]
+    return bot
+
+
+async def test_bind_runtime_swaps_iter_guild_ids_to_walk_bot_guilds(
+    settings: Settings, fake_sessionmaker: MagicMock
+) -> None:
+    """After ``bind_runtime``, every task yields ``[str(g.id) for g in bot.guilds]``."""
+    container = Container(settings, fake_sessionmaker)
+    bot = _stub_bot_with_guilds([1111, 2222])
+
+    container.bind_runtime(bot)
+
+    for task in container.tasks:
+        result = await task._iter_guild_ids()
+        assert list(result) == ["1111", "2222"], (
+            f"{type(task).__name__} did not pick up bot.guilds"
+        )
+
+
+async def test_bind_runtime_iter_guild_ids_reflects_live_bot_guilds(
+    settings: Settings, fake_sessionmaker: MagicMock
+) -> None:
+    """The closure must re-read ``bot.guilds`` on each call, not snapshot."""
+    container = Container(settings, fake_sessionmaker)
+    bot = _stub_bot_with_guilds([100])
+
+    container.bind_runtime(bot)
+    # Mutate after bind — the closure should see the new state.
+    bot.guilds = [MagicMock(name="Guild(200)", id=200)]
+
+    task = container.tasks[0]
+    result = await task._iter_guild_ids()
+    assert list(result) == ["200"]
+
+
+async def test_bind_runtime_replaces_liquidation_notifier(
+    settings: Settings, fake_sessionmaker: MagicMock
+) -> None:
+    """``LiquidationTask._notifier`` is no longer the no-op after bind_runtime."""
+    from friendex.adapters.container import _noop_notifier
+
+    container = Container(settings, fake_sessionmaker)
+    liquidation_task = next(
+        t for t in container.tasks if isinstance(t, LiquidationTask)
+    )
+    assert liquidation_task._notifier is _noop_notifier  # pre-condition
+
+    bot = _stub_bot_with_guilds([42])
+    container.bind_runtime(bot)
+
+    assert liquidation_task._notifier is not _noop_notifier
+
+
+async def test_bind_runtime_liquidation_notifier_dispatches_to_system_channel(
+    settings: Settings, fake_sessionmaker: MagicMock
+) -> None:
+    """Notifier sends the embed to ``bot.get_guild(...).system_channel``."""
+    container = Container(settings, fake_sessionmaker)
+
+    guild = MagicMock(name="Guild")
+    system_channel = MagicMock(name="SystemChannel")
+    system_channel.send = AsyncMock(name="send")
+    guild.system_channel = system_channel
+
+    bot = MagicMock(name="Bot")
+    bot.guilds = [guild]
+    bot.get_guild = MagicMock(return_value=guild)
+
+    container.bind_runtime(bot)
+    liquidation_task = next(
+        t for t in container.tasks if isinstance(t, LiquidationTask)
+    )
+
+    event = LiquidationEvent(
+        guild_id="42",
+        holder_id="holder",
+        target_id="target",
+        shares=5,
+        entry_price=Decimal("100.00"),
+        exit_price=Decimal("150.00"),
+        collateral_returned=Decimal("0.00"),
+        pnl=Decimal("-250.00"),
+        timestamp=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
+    )
+    await liquidation_task._notifier(event)
+
+    bot.get_guild.assert_called_once_with(42)
+    assert system_channel.send.await_count == 1
+    call = system_channel.send.await_args
+    assert "embed" in call.kwargs
+    assert isinstance(call.kwargs["embed"], discord.Embed)
+    allowed = call.kwargs["allowed_mentions"]
+    # AllowedMentions.none() means every flag is False / empty.
+    assert allowed.everyone is False
+    assert allowed.users is False
+    assert allowed.roles is False
+
+
+async def test_bind_runtime_liquidation_notifier_skips_when_guild_missing(
+    settings: Settings,
+    fake_sessionmaker: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When ``bot.get_guild`` returns None, the notifier logs WARNING and skips."""
+    container = Container(settings, fake_sessionmaker)
+    bot = MagicMock(name="Bot")
+    bot.guilds = []
+    bot.get_guild = MagicMock(return_value=None)
+
+    container.bind_runtime(bot)
+    liquidation_task = next(
+        t for t in container.tasks if isinstance(t, LiquidationTask)
+    )
+
+    event = LiquidationEvent(
+        guild_id="999",
+        holder_id="holder",
+        target_id="target",
+        shares=1,
+        entry_price=Decimal("100.00"),
+        exit_price=Decimal("150.00"),
+        collateral_returned=Decimal("0.00"),
+        pnl=Decimal("-50.00"),
+        timestamp=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
+    )
+    # ``caplog.set_level`` attaches caplog's handler directly to the named
+    # logger — robust against ``logging.basicConfig(force=True)`` calls in
+    # other tests (``configure_logging`` invokes that on every run).
+    # ``alembic.env`` calls ``logging.config.fileConfig`` with the default
+    # ``disable_existing_loggers=True`` when test_migrations runs in the
+    # same session, which silently disables this logger. Re-enable it
+    # explicitly so the WARNING emission isn't swallowed.
+    logging.getLogger("friendex.adapters.container").disabled = False
+    caplog.set_level(logging.WARNING, logger="friendex.adapters.container")
+    await liquidation_task._notifier(event)
+
+    bot.get_guild.assert_called_once_with(999)
+    assert any(record.levelno == logging.WARNING for record in caplog.records), (
+        "Expected a WARNING log when guild is missing"
+    )
+
+
+async def test_bind_runtime_liquidation_notifier_skips_when_no_system_channel(
+    settings: Settings,
+    fake_sessionmaker: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When ``guild.system_channel`` is None, the notifier logs WARNING and skips."""
+    container = Container(settings, fake_sessionmaker)
+    guild = MagicMock(name="Guild")
+    guild.system_channel = None
+
+    bot = MagicMock(name="Bot")
+    bot.guilds = [guild]
+    bot.get_guild = MagicMock(return_value=guild)
+
+    container.bind_runtime(bot)
+    liquidation_task = next(
+        t for t in container.tasks if isinstance(t, LiquidationTask)
+    )
+
+    event = LiquidationEvent(
+        guild_id="55",
+        holder_id="holder",
+        target_id="target",
+        shares=1,
+        entry_price=Decimal("100.00"),
+        exit_price=Decimal("150.00"),
+        collateral_returned=Decimal("0.00"),
+        pnl=Decimal("-50.00"),
+        timestamp=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
+    )
+    # ``alembic.env`` calls ``logging.config.fileConfig`` with the default
+    # ``disable_existing_loggers=True`` when test_migrations runs in the
+    # same session, which silently disables this logger. Re-enable it
+    # explicitly so the WARNING emission isn't swallowed.
+    logging.getLogger("friendex.adapters.container").disabled = False
+    caplog.set_level(logging.WARNING, logger="friendex.adapters.container")
+    await liquidation_task._notifier(event)
+
+    assert any(record.levelno == logging.WARNING for record in caplog.records), (
+        "Expected a WARNING log when system_channel is None"
+    )
