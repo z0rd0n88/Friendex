@@ -20,16 +20,17 @@ All units operate inside that worktree. Phases share one linear, accumulating
 history — phase N's agent sees phase N-1's code because the files are physically
 there. "Stacked branches" are just labels on that history:
 
-| Phase | Branch (created in the SAME worktree) | Draft PR base |
+| Phase | Branch (created in the SAME worktree) | PR base |
 |---|---|---|
 | 1 | `feat/<run-id>/phase-1` | `main` |
 | N | `feat/<run-id>/phase-N` (`git switch -c` from phase-(N-1) tip) | `feat/<run-id>/phase-(N-1)` |
 
-**The manager opens draft PRs and merges nothing.** Push the phase branch, then
-`gh pr create --draft --base <prev-branch> --head feat/<run-id>/phase-N
---body-file <tmp>`. The body states: "machine-gated (`scripts/gate.sh`) +
-agent-reviewed; **not yet human-reviewed**", plus `Refs #<issue>` when the phase
-maps to one. The user merges the stack **in order** afterward. A `gh` failure is
+**The manager opens ready-for-review PRs and merges nothing.** Push the phase
+branch, then `gh pr create --base <prev-branch> --head feat/<run-id>/phase-N
+--body-file <tmp>` (no `--draft` — open as ready, matching the harness default).
+The body states: "machine-gated (`scripts/gate.sh`) + agent-reviewed; **not yet
+human-reviewed**", plus `Refs #<issue>` when the phase maps to one. The user
+merges the stack **in order** afterward. A `gh` failure is
 a fatal pause. Note in the final summary: post-run edits to an early PR require
 rebasing the downstream stack.
 
