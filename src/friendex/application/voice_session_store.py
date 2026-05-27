@@ -17,6 +17,7 @@ them.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -54,11 +55,22 @@ class VoiceSessionStore:
 
         No-op if the user has no live session (matches the original
         ``setdefault`` guard that only linked a ping for users already tracked).
+
+        **Immutable rebuild.** The stored :class:`VoiceSession` is replaced via
+        :func:`dataclasses.replace` with a *fresh* ``set`` rather than mutating
+        ``from_ping_message_ids`` in place. Volatile in-memory state still
+        obeys the project-wide immutability rule (Phase 3.1 invariant) so a
+        caller holding a reference to the original session sees an unchanged
+        snapshot — matches the dataclass-replace pattern used everywhere else
+        in the application layer.
         """
         async with self._lock:
             session = self._sessions.get(user_id)
             if session is not None:
-                session.from_ping_message_ids.add(message_id)
+                self._sessions[user_id] = replace(
+                    session,
+                    from_ping_message_ids=session.from_ping_message_ids | {message_id},
+                )
 
 
 class VoicePingSessionStore:
