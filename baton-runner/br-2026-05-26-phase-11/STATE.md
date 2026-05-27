@@ -2,7 +2,7 @@
 status: RUNNING
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-26-phase-11
 phase: 1 of 3  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-11a/002-2026-05-26-phase-11a-complete.md
+current_baton: baton-pass/phase-11a/002-2026-05-26-phase-11a-complete.md
 units_used: 1
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
@@ -50,7 +50,7 @@ phases:
     pr: -  digest: baton-runner/br-2026-05-26-phase-11/digest-phase-11a.md
     units: 1  state: RUNNING (review pending)
     work_commit: 035e99a
-    work_baton: pass-baton/phase-11a/002-2026-05-26-phase-11a-complete.md
+    work_baton: baton-pass/phase-11a/002-2026-05-26-phase-11a-complete.md
     acceptance_criteria: |
       A1. tests/adapters/discord_bot/cogs/__init__.py created (empty).
       A2. tests/adapters/discord_bot/cogs/conftest.py exposes a `fake_interaction()`

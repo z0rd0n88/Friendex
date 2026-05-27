@@ -2,7 +2,7 @@
 status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-12
 phase: 2 of 2  unit: DONE  review_iter: 1 of 3 (CLEAN)
-current_baton: pass-baton/phase-12b/003-2026-05-27-phase-12b-review.md
+current_baton: baton-pass/phase-12b/003-2026-05-27-phase-12b-review.md
 units_used: 6
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
@@ -59,7 +59,7 @@ phases:
     unit_agent: python-pro
     branch: feat/phase-12a-listeners-simple  base: origin/main@ea4b7b2
     pr: -  digest: baton-runner/br-2026-05-27-phase-12/digest-phase-12a.md
-    work_commit: 22494bc  review_clean_baton: pass-baton/phase-12a/003-2026-05-27-phase-12a-review.md
+    work_commit: 22494bc  review_clean_baton: baton-pass/phase-12a/003-2026-05-27-phase-12a-review.md
     units: 3  state: DONE (work + invalid-iter1 + iter1-retry CLEAN)
     acceptance_criteria: |
       A1. src/friendex/adapters/discord_bot/listeners/__init__.py created (empty per the package convention from cogs/).
@@ -92,7 +92,7 @@ phases:
     unit_agent: python-pro
     branch: feat/phase-12b-listeners-voice  base: feat/phase-12a-listeners-simple
     pr: -  digest: baton-runner/br-2026-05-27-phase-12/digest-phase-12b.md
-    work_commit: 38b58e4  review_clean_baton: pass-baton/phase-12b/003-2026-05-27-phase-12b-review.md
+    work_commit: 38b58e4  review_clean_baton: baton-pass/phase-12b/003-2026-05-27-phase-12b-review.md
     units: 2  state: DONE (work respawned after 529, iter-1 CLEAN)
     acceptance_criteria: |
       B1. message_listener.py registers MessageListener(commands.Cog) with on_message.

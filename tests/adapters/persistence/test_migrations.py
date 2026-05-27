@@ -14,7 +14,7 @@ about:
    ``compare_metadata`` autogenerate diff noisy (it round-trips our
    ``TypeDecorator``-backed columns through generic affinities), so we assert
    the **table set and per-table column-name set** match exactly, which is the
-   contract that actually matters for the cutover. See the pass-baton for the
+   contract that actually matters for the cutover. See the baton-pass for the
    rationale behind this choice.
 
 The temp DB lives under pytest's ``tmp_path`` and the async ``DATABASE_URL`` is

@@ -2,7 +2,7 @@
 status: DONE (incl. post-run hardening)
 worktree: /home/alex/Friendex/.claude/worktrees/phase-6-repos
 phase: hardening  unit: -  review_iter: -
-current_baton: pass-baton/phase-6-repos/015-2026-05-25-hardening-h1-h2-review.md
+current_baton: baton-pass/phase-6-repos/015-2026-05-25-hardening-h1-h2-review.md
 units_used: 15
 
 ## Post-run hardening (user-requested 2026-05-25, before merging PR #37)
@@ -29,7 +29,7 @@ Migrator") is split into 6 ordered sub-units, all committed to a single branch
 single-branch / 7-commit intent). Each sub-unit: WORK -> commit -> REVIEW
 (gate + code-review + ecc-security-review) -> FIX (<=3) -> phase-exit digest.
 
-- Work agent: general-purpose (has Skill tool for tdd/pass-baton).
+- Work agent: general-purpose (has Skill tool for tdd/baton-pass).
 - Spec: docs/04-migration-plan.md Section "Phase 6"; ADR-0002 (FK enforcement).
 - Maps to GitHub issue #2 (Phase 6 box) -> PR body carries `Refs #2`.
 

@@ -1,6 +1,6 @@
 # Phase 8a exit digest — `ActivityService` + `VoicePingService`
 
-Source: code @ `b56bca9`; review `pass-baton/phase-8a/005-...-iter2-clean.md`.
+Source: code @ `b56bca9`; review `baton-pass/phase-8a/005-...-iter2-clean.md`.
 
 ## Public surface
 ```python

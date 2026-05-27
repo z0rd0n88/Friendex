@@ -14,7 +14,7 @@ Commands).  They guarantee that:
   per-step frozen dataclass.
 
 The TDD red baseline for these tests is captured in the Phase 16
-pass-baton (``pass-baton/phase-16/``).
+baton-pass (``baton-pass/phase-16/``).
 """
 
 from __future__ import annotations

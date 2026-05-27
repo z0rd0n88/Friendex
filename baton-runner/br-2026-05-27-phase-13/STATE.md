@@ -2,7 +2,7 @@
 status: RUNNING
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-13
 phase: 1 of 1  unit: REVIEW  review_iter: 1 of 3
-current_baton: pass-baton/phase-13/001-2026-05-27-gate-green-red-backfill.md
+current_baton: baton-pass/phase-13/001-2026-05-27-gate-green-red-backfill.md
 units_used: 2
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
