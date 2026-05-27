@@ -36,6 +36,7 @@ dist/
 
 # Worktrees (local dev convenience; not the canonical work area)
 .worktrees/
+.claude/worktrees/
 
 # memsearch search-index cache (build artifact)
 .memsearch/
