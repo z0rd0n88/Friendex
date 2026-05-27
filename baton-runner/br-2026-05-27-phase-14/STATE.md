@@ -102,6 +102,6 @@ budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 
 phases:
   - id: phase-14  spec: docs/04-migration-plan.md §Phase 14  readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-14-bot-factory  pr: -
+    branch: feat/phase-14-bot-factory  pr: https://github.com/z0rd0n88/Friendex/pull/65
     digest: baton-runner/br-2026-05-27-phase-14/digest-phase-14.md
     units: 2  state: DONE
