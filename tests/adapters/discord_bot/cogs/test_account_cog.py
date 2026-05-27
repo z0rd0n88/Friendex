@@ -65,7 +65,7 @@ async def test_balance_calls_portfolio_snapshot_for_invoking_user(
     )
     interaction = fake_interaction(user_id=4242, guild_id=1010)
     await AccountCog.balance.callback(cog, interaction)
-    portfolio_service.portfolio_snapshot.assert_awaited_once_with("4242")
+    portfolio_service.portfolio_snapshot.assert_awaited_once_with(user_id="4242")
 
 
 async def test_balance_routes_through_per_guild_factory(
