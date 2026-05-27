@@ -1,0 +1,423 @@
+"""Composition root for Friendex — the single DI :class:`Container` (Phase 13).
+
+This module wires the whole hexagonal graph together in one place:
+
+1. Construct every SQL repository over the shared ``async_sessionmaker``.
+2. Construct one shared :class:`~friendex.application.lock_manager.LockManager`
+   (Phase 7 contract: process-local singleton; **never** per-call).
+3. Expose **per-guild service factories** (``Callable[[str], TService]``) for
+   every application service whose ctor takes ``guild_id`` (Phase 8/9 cog +
+   listener convention). Each factory closes over the shared repos +
+   LockManager + sessionmaker and produces a fresh service when called with
+   a string ``guild_id``.
+4. Construct **single-instance** background tasks for all 8 Phase-9 tasks.
+   Tasks are **not started** here — Phase 14's composition layer binds
+   ``_loop`` and calls :meth:`start` after the event loop is running.
+5. Construct all 7 cogs and all 4 listeners with the appropriate factories.
+6. Expose :meth:`register_with` to add every cog/listener to a passed
+   :class:`discord.ext.commands.Bot` and install the central error handler
+   on ``bot.tree.on_error``.
+
+**Volatile per-guild stores.** The Phase 12 voice listener takes a
+``voice_session_store_factory: Callable[[str], VoiceSessionStore]``. The
+ActivityService and VoicePingService each take one
+:class:`VoiceSessionStore` / :class:`VoicePingSessionStore` instance per
+guild — so the container owns one ``dict[guild_id, store]`` per kind and
+lazily constructs the per-guild store on first request, returning the same
+instance on subsequent calls (mirroring the original bot's volatile dicts).
+
+**LiquidationService composition.** ``LiquidationService(*, trading_service, ...)``
+depends on a :class:`TradingService` for the **same** ``guild_id`` (per
+Phase 8f's design (a): the private ``_cover_internal(force=True)`` is called
+on the trading service whose lock the liquidation already holds). The
+factory therefore builds the trading service first and threads it into the
+liquidation service.
+
+**Notifier.** The Phase-9 :class:`LiquidationTask` requires a notifier
+``Callable[[LiquidationEvent], Awaitable[None]]``. Phase 13 wires a no-op
+async callable — the task is never started in Phase 13, and Phase 14 will
+replace the notifier with one that renders + dispatches the actual Discord
+embed (per the Phase 9 digest's notifier contract).
+
+**``iter_guild_ids``.** Tasks need ``Callable[[], Awaitable[Iterable[str]]]``
+to walk the live guild set. Phase 13 wires a no-op coroutine that returns
+an empty iterable — tasks are constructed but never started here, so this
+is purely a wiring placeholder for Phase 14 to swap with
+``lambda: (str(g.id) for g in bot.guilds)`` (or similar) at start time.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from friendex.adapters.discord_bot.cogs.account_cog import AccountCog
+from friendex.adapters.discord_bot.cogs.admin_cog import AdminCog
+from friendex.adapters.discord_bot.cogs.daily_cog import DailyCog
+from friendex.adapters.discord_bot.cogs.fund_cog import FundCog
+from friendex.adapters.discord_bot.cogs.portfolio_cog import PortfolioCog
+from friendex.adapters.discord_bot.cogs.stats_cog import StatsCog
+from friendex.adapters.discord_bot.cogs.trading_cog import TradingCog
+from friendex.adapters.discord_bot.error_handler import register_error_handler
+from friendex.adapters.discord_bot.listeners.member_listener import MemberListener
+from friendex.adapters.discord_bot.listeners.message_listener import MessageListener
+from friendex.adapters.discord_bot.listeners.reaction_listener import ReactionListener
+from friendex.adapters.discord_bot.listeners.voice_listener import VoiceListener
+from friendex.adapters.persistence.cooldown_repo import SqlTradeCooldownRepository
+from friendex.adapters.persistence.fund_repo import SqlFundRepository
+from friendex.adapters.persistence.penalty_repo import SqlPenaltyRepository
+from friendex.adapters.persistence.price_repo import SqlPriceRepository
+from friendex.adapters.persistence.system_state_repo import SqlSystemStateRepository
+from friendex.adapters.persistence.user_repo import SqlUserRepository
+from friendex.adapters.tasks.activity_tick_task import ActivityTickTask
+from friendex.adapters.tasks.daily_reset_task import DailyResetTask
+from friendex.adapters.tasks.freeze_check_task import FreezeCheckTask
+from friendex.adapters.tasks.inactivity_decay_task import InactivityDecayTask
+from friendex.adapters.tasks.liquidation_task import LiquidationTask
+from friendex.adapters.tasks.monthly_rollover_task import MonthlyRolloverTask
+from friendex.adapters.tasks.vc_boost_task import VcBoostTask
+from friendex.adapters.tasks.weekly_reset_task import WeeklyResetTask
+from friendex.application.activity_service import ActivityService
+from friendex.application.daily_service import DailyService
+from friendex.application.discipline_service import DisciplineService
+from friendex.application.fund_service import FundService
+from friendex.application.liquidation_service import LiquidationService
+from friendex.application.lock_manager import LockManager
+from friendex.application.portfolio_service import PortfolioService
+from friendex.application.price_tick_service import PriceTickService
+from friendex.application.stats_service import StatsService
+from friendex.application.trading_service import TradingService
+from friendex.application.voice_ping_service import VoicePingService
+from friendex.application.voice_session_store import (
+    VoicePingSessionStore,
+    VoiceSessionStore,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+    from discord.ext import commands
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from friendex.adapters.config import Settings
+    from friendex.adapters.tasks.base_task import BackgroundTask
+    from friendex.application.liquidation_events import LiquidationEvent
+
+
+async def _empty_guild_ids() -> Iterable[str]:
+    """Phase-13 placeholder for ``iter_guild_ids``.
+
+    Returns the empty iterable so any accidental call yields no work. Phase 14
+    swaps this with ``lambda: (str(g.id) for g in bot.guilds)`` at startup.
+    """
+    return ()
+
+
+async def _noop_notifier(_event: LiquidationEvent) -> None:
+    """Phase-13 placeholder for the :class:`LiquidationTask` notifier.
+
+    Tasks are not started in Phase 13, so this is unreachable; Phase 14 will
+    replace it with a real Discord-embed dispatcher.
+    """
+
+
+class Container:
+    """Process-wide composition root.
+
+    Parameters
+    ----------
+    settings :
+        The validated :class:`~friendex.adapters.config.Settings`.
+    sessionmaker :
+        An async sessionmaker bound to the engine the container will share
+        across every repo.
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        sessionmaker: async_sessionmaker[AsyncSession],
+    ) -> None:
+        self._settings = settings
+        self._sessionmaker = sessionmaker
+
+        # --- Repositories -------------------------------------------------
+        self._user_repo = SqlUserRepository(sessionmaker)
+        self._fund_repo = SqlFundRepository(sessionmaker)
+        self._price_repo = SqlPriceRepository(sessionmaker)
+        self._cooldown_repo = SqlTradeCooldownRepository(sessionmaker)
+        self._penalty_repo = SqlPenaltyRepository(sessionmaker)
+        self._system_state_repo = SqlSystemStateRepository(sessionmaker)
+
+        # --- Concurrency primitives --------------------------------------
+        self._lock_manager = LockManager()
+
+        # --- Volatile per-guild stores (lazy, per Phase 8a/12b contract).
+        self._voice_sessions: dict[str, VoiceSessionStore] = {}
+        self._ping_sessions: dict[str, VoicePingSessionStore] = {}
+
+        # --- Per-guild service factories ---------------------------------
+        # Each factory closes over the shared repos + LockManager + per-guild
+        # store dict, returning a fresh service per call (mirrors Phase 9
+        # service_factory convention; cogs/listeners must not cache).
+        self.activity_service_factory = self._make_activity_factory()
+        self.voice_ping_service_factory = self._make_voice_ping_factory()
+        self.price_tick_service_factory = self._make_price_tick_factory()
+        self.trading_service_factory = self._make_trading_factory()
+        self.portfolio_service_factory = self._make_portfolio_factory()
+        self.stats_service_factory = self._make_stats_factory()
+        self.fund_service_factory = self._make_fund_factory()
+        self.daily_service_factory = self._make_daily_factory()
+        self.liquidation_service_factory = self._make_liquidation_factory()
+        self.discipline_service_factory = self._make_discipline_factory()
+        self.voice_session_store_factory = self._voice_session_store_for
+
+        # --- Tasks (single-instance, not started) -------------------------
+        # Phase 14 binds ``_loop`` + calls ``start()``. Phase 13 only
+        # constructs.
+        self._vc_boost_task = VcBoostTask(
+            service_factory=self.price_tick_service_factory,
+            iter_guild_ids=_empty_guild_ids,
+        )
+        self.tasks: tuple[BackgroundTask, ...] = (
+            ActivityTickTask(
+                service_factory=self.price_tick_service_factory,
+                iter_guild_ids=_empty_guild_ids,
+            ),
+            DailyResetTask(
+                service_factory=self.activity_service_factory,
+                iter_guild_ids=_empty_guild_ids,
+                system_state_repo=self._system_state_repo,
+            ),
+            FreezeCheckTask(
+                service_factory=self.trading_service_factory,
+                iter_guild_ids=_empty_guild_ids,
+            ),
+            InactivityDecayTask(
+                service_factory=self.price_tick_service_factory,
+                iter_guild_ids=_empty_guild_ids,
+            ),
+            LiquidationTask(
+                service_factory=self.liquidation_service_factory,
+                iter_guild_ids=_empty_guild_ids,
+                notifier=_noop_notifier,
+            ),
+            MonthlyRolloverTask(
+                portfolio_service_factory=self.portfolio_service_factory,
+                fund_service_factory=self.fund_service_factory,
+                iter_guild_ids=_empty_guild_ids,
+            ),
+            self._vc_boost_task,
+            WeeklyResetTask(
+                service_factory=self.activity_service_factory,
+                iter_guild_ids=_empty_guild_ids,
+                system_state_repo=self._system_state_repo,
+            ),
+        )
+
+        # --- Cogs ---------------------------------------------------------
+        self.cogs: tuple[commands.Cog, ...] = (
+            AccountCog(
+                portfolio_service_factory=self.portfolio_service_factory,
+                activity_service_factory=self.activity_service_factory,
+            ),
+            AdminCog(),
+            DailyCog(daily_service_factory=self.daily_service_factory),
+            FundCog(
+                fund_service_factory=self.fund_service_factory,
+                settings=self._settings,
+            ),
+            PortfolioCog(portfolio_service_factory=self.portfolio_service_factory),
+            StatsCog(stats_service_factory=self.stats_service_factory),
+            TradingCog(trading_service_factory=self.trading_service_factory),
+        )
+
+        # --- Listeners ----------------------------------------------------
+        self.listeners: tuple[commands.Cog, ...] = (
+            MessageListener(
+                activity_service_factory=self.activity_service_factory,
+                voice_ping_service_factory=self.voice_ping_service_factory,
+                settings=self._settings,
+            ),
+            VoiceListener(
+                activity_service_factory=self.activity_service_factory,
+                voice_ping_service_factory=self.voice_ping_service_factory,
+                voice_session_store_factory=self.voice_session_store_factory,
+                vc_boost_task=self._vc_boost_task,
+            ),
+            ReactionListener(activity_service_factory=self.activity_service_factory),
+            MemberListener(discipline_service_factory=self.discipline_service_factory),
+        )
+
+    # ------------------------------------------------------------------
+    # Per-guild store accessors
+    # ------------------------------------------------------------------
+
+    def _voice_session_store_for(self, guild_id: str) -> VoiceSessionStore:
+        store = self._voice_sessions.get(guild_id)
+        if store is None:
+            store = VoiceSessionStore()
+            self._voice_sessions[guild_id] = store
+        return store
+
+    def _ping_session_store_for(self, guild_id: str) -> VoicePingSessionStore:
+        store = self._ping_sessions.get(guild_id)
+        if store is None:
+            store = VoicePingSessionStore()
+            self._ping_sessions[guild_id] = store
+        return store
+
+    # ------------------------------------------------------------------
+    # Factory builders — each closes over ``self`` and returns a callable
+    # ------------------------------------------------------------------
+
+    def _make_activity_factory(self) -> Callable[[str], ActivityService]:
+        def factory(guild_id: str) -> ActivityService:
+            return ActivityService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                price_repo=self._price_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+                voice_sessions=self._voice_session_store_for(guild_id),
+            )
+
+        return factory
+
+    def _make_voice_ping_factory(self) -> Callable[[str], VoicePingService]:
+        def factory(guild_id: str) -> VoicePingService:
+            return VoicePingService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                price_repo=self._price_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+                ping_sessions=self._ping_session_store_for(guild_id),
+            )
+
+        return factory
+
+    def _make_price_tick_factory(self) -> Callable[[str], PriceTickService]:
+        def factory(guild_id: str) -> PriceTickService:
+            return PriceTickService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                price_repo=self._price_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+                voice_sessions=self._voice_session_store_for(guild_id),
+            )
+
+        return factory
+
+    def _make_trading_factory(self) -> Callable[[str], TradingService]:
+        def factory(guild_id: str) -> TradingService:
+            return TradingService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                price_repo=self._price_repo,
+                fund_repo=self._fund_repo,
+                cooldown_repo=self._cooldown_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+            )
+
+        return factory
+
+    def _make_portfolio_factory(self) -> Callable[[str], PortfolioService]:
+        def factory(guild_id: str) -> PortfolioService:
+            return PortfolioService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                price_repo=self._price_repo,
+                fund_repo=self._fund_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+            )
+
+        return factory
+
+    def _make_stats_factory(self) -> Callable[[str], StatsService]:
+        def factory(guild_id: str) -> StatsService:
+            return StatsService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                price_repo=self._price_repo,
+                settings=self._settings,
+            )
+
+        return factory
+
+    def _make_fund_factory(self) -> Callable[[str], FundService]:
+        def factory(guild_id: str) -> FundService:
+            return FundService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                fund_repo=self._fund_repo,
+                penalty_repo=self._penalty_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+            )
+
+        return factory
+
+    def _make_daily_factory(self) -> Callable[[str], DailyService]:
+        def factory(guild_id: str) -> DailyService:
+            return DailyService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+            )
+
+        return factory
+
+    def _make_liquidation_factory(self) -> Callable[[str], LiquidationService]:
+        # Liquidation needs a per-guild TradingService instance (Phase 8f
+        # design (a)): the trading service exposes ``_cover_internal``
+        # which the liquidation service calls while holding the lock.
+        trading_factory = self.trading_service_factory
+
+        def factory(guild_id: str) -> LiquidationService:
+            return LiquidationService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                price_repo=self._price_repo,
+                fund_repo=self._fund_repo,
+                cooldown_repo=self._cooldown_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+                trading_service=trading_factory(guild_id),
+            )
+
+        return factory
+
+    def _make_discipline_factory(self) -> Callable[[str], DisciplineService]:
+        def factory(guild_id: str) -> DisciplineService:
+            return DisciplineService(
+                guild_id=guild_id,
+                user_repo=self._user_repo,
+                price_repo=self._price_repo,
+                lock_manager=self._lock_manager,
+                settings=self._settings,
+            )
+
+        return factory
+
+    # ------------------------------------------------------------------
+    # Bot integration
+    # ------------------------------------------------------------------
+
+    async def register_with(self, bot: commands.Bot) -> None:
+        """Attach every cog + listener to ``bot`` and install the error handler.
+
+        :meth:`commands.Bot.add_cog` is the sanctioned discord.py entry point;
+        it dispatches both ``app_commands`` (slash commands defined on the
+        cog) and ``commands.Cog.listener()`` decorators. Listeners are added
+        via the same call — they are :class:`commands.Cog` subclasses by
+        Phase-12 convention.
+        """
+        for cog in self.cogs:
+            await bot.add_cog(cog)
+        for listener in self.listeners:
+            await bot.add_cog(listener)
+        register_error_handler(bot, self._settings)
