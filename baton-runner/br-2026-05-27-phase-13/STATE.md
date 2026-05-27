@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-27-phase-13
 status: RUNNING
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-13
-phase: 1 of 1  unit: WORK  review_iter: 0 of 3
-current_baton: -
-units_used: 0
+phase: 1 of 1  unit: REVIEW  review_iter: 1 of 3
+current_baton: pass-baton/phase-13/001-2026-05-27-gate-green-red-backfill.md
+units_used: 2
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -105,5 +105,6 @@ phases:
     branch: feat/phase-13-container  base: origin/main@85bb0fc
     pr: -
     digest: baton-runner/br-2026-05-27-phase-13/digest-phase-13.md
-    units: 0
-    state: RUNNING
+    units: 2
+    state: REVIEWING
+    commits: d3ae862 (error handler) → 1ccb05e (container) → e1f86f1 (main)
