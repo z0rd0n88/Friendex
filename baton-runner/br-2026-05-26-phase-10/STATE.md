@@ -2,7 +2,7 @@
 status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-26-phase-10
 phase: 1 of 1  unit: DONE  review_iter: 1 of 3 (CLEAN)
-current_baton: pass-baton/phase-10/001-2026-05-26-phase-10-review-clean.md
+current_baton: baton-pass/phase-10/001-2026-05-26-phase-10-review-clean.md
 units_used: 2
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }

@@ -1,6 +1,6 @@
 ---
 name: baton-runner
-description: Sequentially build an ordered list of specs/PRDs/issues as implement→review→fix subagent units with pass-baton handoffs in a fresh worktree. User-invoked; use to drive multi-phase builds.
+description: Sequentially build an ordered list of specs/PRDs/issues as implement→review→fix subagent units with baton-pass handoffs in a fresh worktree. User-invoked; use to drive multi-phase builds.
 ---
 
 # baton-runner
@@ -36,11 +36,11 @@ fresh manager session resumes from `STATE.md` indistinguishably.
 | **work-unit** | Implements a phase's acceptance criteria via `tdd`, capturing RED test output as evidence. |
 | **review-unit** | Independent of the implementer. Runs `scripts/gate.sh`, then `code-review` + `ecc-security-review` + intent check; emits `VERDICT`; on `CLEAN` writes the phase-exit digest. |
 | **fix-unit** | Implements the review-unit's findings via `tdd`. |
-| **baton / digest** | `pass-baton` file carrying unit state (updated incrementally) / terse map of public surface + decisions threaded to later phases. |
+| **baton / digest** | `baton-pass` file carrying unit state (updated incrementally) / terse map of public surface + decisions threaded to later phases. |
 
 ## Pre-flight — before work unit 1
 
-- [ ] **Fresh single worktree**; confirm `pass-baton`, `tdd`, `code-review`,
+- [ ] **Fresh single worktree**; confirm `baton-pass`, `tdd`, `code-review`,
       `ecc-security-review`, and `scripts/gate.sh` resolve there.
 - [ ] **Parse + right-size** the phase list (each phase ≤ ~5 acceptance criteria
       / ~10 files; split larger into ordered sub-units).
@@ -48,7 +48,7 @@ fresh manager session resumes from `STATE.md` indistinguishably.
       criteria for `THIN`).
 - [ ] **Unit agent (project default `python-pro`)** — this project runs **all**
       units (work, review, fix) as `python-pro`, which carries the `Skill` tool
-      and so can invoke the `tdd`/`pass-baton`/`code-review`/`ecc-security-review`
+      and so can invoke the `tdd`/`baton-pass`/`code-review`/`ecc-security-review`
       skills the contracts require. The user may still override per phase; any
       alternative must support file edits + Bash + the `Skill` tool (see REFERENCE
       → "Unit agent"). Record per phase in STATE.
@@ -96,4 +96,4 @@ stacked-merge order, any waivers).
 
 [REFERENCE.md](REFERENCE.md) — state schema, prompt templates, gate script,
 branch/PR mechanics, budgets, failure & containment detail, fatal errors.
-Depends on `pass-baton`, `tdd`, `code-review`, `ecc-security-review`.
+Depends on `baton-pass`, `tdd`, `code-review`, `ecc-security-review`.

@@ -31,7 +31,7 @@ liquidation notifier in Phase 11/14):
   string instead of a wall-clock ISO string for a different timezone.
 
 See ``docs/04-migration-plan.md`` §Phase 10 for the spec and the design
-notes in the matching pass-baton for the per-builder signature choices.
+notes in the matching baton-pass for the per-builder signature choices.
 """
 
 from __future__ import annotations

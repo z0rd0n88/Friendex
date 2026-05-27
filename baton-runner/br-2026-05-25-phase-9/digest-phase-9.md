@@ -40,7 +40,7 @@ Common ctor shapes:
 1. **Task scheduling binding point** (Phase 14): for each task, read its
    `interval_minutes` / `interval_hours` class attribute and bind
    `task._loop = discord_tasks.loop(...)(task._run)`. Snippet at
-   `pass-baton/phase-9/002-2026-05-25-phase-9-complete.md` L33-40. This is the
+   `baton-pass/phase-9/002-2026-05-25-phase-9-complete.md` L33-40. This is the
    ONLY place in the codebase that imports `discord.ext.tasks` for these
    loops — keeps `adapters/tasks/` package free of any `discord` import.
 2. **Notifier callback contract** (Phase 14 Liquidation wiring): provide a

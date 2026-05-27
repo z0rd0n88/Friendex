@@ -83,7 +83,7 @@ the unit is not done.
 
 Every spawn: `model: opus` (forced — overrides the agent's own default). **All
 units (work, review, fix) spawn as the phase's unit-agent, `python-pro` by
-default** — it carries the `Skill` tool, so it can run the `tdd`, `pass-baton`,
+default** — it carries the `Skill` tool, so it can run the `tdd`, `baton-pass`,
 `code-review`, and `ecc-security-review` skills every contract needs. Fill the
 `<...>`.
 
@@ -103,9 +103,9 @@ If you need anything outside this contract, return STATUS: NEEDS_USER and stop.
 ```
 RETURN CONTRACT — your final message MUST be exactly these lines:
   STATUS: COMPLETE | INCOMPLETE | NEEDS_USER | FATAL
-  BATON: <path to the pass-baton file you wrote/updated>
+  BATON: <path to the baton-pass file you wrote/updated>
   NOTES: <=3 lines: done / remaining / blocking question
-Write/update the baton via the pass-baton skill BEFORE returning. Update it
+Write/update the baton via the baton-pass skill BEFORE returning. Update it
 incrementally — after each acceptance criterion and at least every ~10 tool
 calls — so it is always a current resumable checkpoint. If you exceed ~50 tool
 calls OR ~10 files touched (checked only at a stable point, never mid-edit), OR
@@ -148,7 +148,7 @@ Acceptance criteria / intent to verify against: <criteria / spec ref>.
    Flag any criterion lacking RED evidence in the baton.
 4. Flag every newly added dependency for the user's visibility.
 
-Write a review baton via pass-baton: findings by severity (CRITICAL/HIGH/MEDIUM/
+Write a review baton via baton-pass: findings by severity (CRITICAL/HIGH/MEDIUM/
 LOW) with file:line + a concrete fix each. Set VERDICT CLEAN only if the gate is
 green, there are no CRITICAL/HIGH findings, and intent is met.
 ON CLEAN, also write the phase-exit digest to
@@ -187,10 +187,10 @@ criteria**, (3) explicit scope/non-goals. Classify each phase:
 
 This project runs **every** unit — work, review, and fix — as the `python-pro`
 agent. python-pro carries `Read/Write/Edit/Bash/Glob/Grep` **and `Skill`**, so it
-can edit files, run Bash, and invoke the `tdd`, `pass-baton`, `code-review`, and
+can edit files, run Bash, and invoke the `tdd`, `baton-pass`, `code-review`, and
 `ecc-security-review` skills every contract requires. (The `Skill` tool was added
 to this project's `python-pro` specifically so it can serve as a baton-runner
-unit — without it the agent could not run `/tdd` or `/pass-baton`.)
+unit — without it the agent could not run `/tdd` or `/baton-pass`.)
 
 - **Independence is preserved by instances, not types.** Each unit is a fresh
   spawn with its own context, so the review unit is still an independent reviewer
@@ -242,7 +242,7 @@ When a phase exhausts the 3-iteration cap (or a unit returns `FATAL`):
 
 ## Fatal errors (→ PAUSE; status PAUSED, or FAILED if unrecoverable)
 
-- A required skill (`pass-baton`/`tdd`/`code-review`/`ecc-security-review`) or
+- A required skill (`baton-pass`/`tdd`/`code-review`/`ecc-security-review`) or
   `scripts/gate.sh` is missing in the worktree.
 - Test infrastructure cannot run at all (not "tests fail" — that is normal work).
 - A unit returns `FATAL`, or `INCOMPLETE` ≥3× with no progress.

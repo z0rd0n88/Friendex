@@ -1,7 +1,7 @@
 # Phase 10 digest — Discord embed builders
 
 **Status:** CLEAN. **Branch:** `feat/phase-10-embeds`. **HEAD:** `e04f6c8`.
-Full review: `pass-baton/phase-10/001-2026-05-26-phase-10-review-clean.md`.
+Full review: `baton-pass/phase-10/001-2026-05-26-phase-10-review-clean.md`.
 
 ## Public surface (in `src/friendex/adapters/discord_bot/embeds.py`)
 

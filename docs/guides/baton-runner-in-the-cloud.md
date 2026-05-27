@@ -27,7 +27,7 @@ in order, then tick the relevant box on issue #2.
 A cloud session is no different from a local one *in protocol*, but you need to
 prepare its sandbox so the prerequisites resolve: a writable clone, `gh` auth,
 `uv`, the project's Skill tooling, and the four required skills the units
-invoke (`tdd`, `pass-baton`, `code-review`, `ecc-security-review`). The bulk of
+invoke (`tdd`, `baton-pass`, `code-review`, `ecc-security-review`). The bulk of
 this guide is that preparation, the first message you send the manager, the
 signoff handshake, and what to do when something pauses.
 
@@ -93,7 +93,7 @@ one of these is a fatal-pause trigger if missing once units start.
 | Python ≥ 3.11 available to `uv` | Project pins `python>=3.11` | `uv run python -V` |
 | `.claude/skills/baton-runner/` resolves | The manager invokes its own skill | `ls .claude/skills/baton-runner/SKILL.md` |
 | `.claude/skills/baton-runner/scripts/gate.sh` exists & executable | Review unit runs the gate | `test -x .claude/skills/baton-runner/scripts/gate.sh` |
-| `pass-baton`, `tdd`, `code-review`, `ecc-security-review` skills available | Every unit invokes them | They appear in the session's skill list |
+| `baton-pass`, `tdd`, `code-review`, `ecc-security-review` skills available | Every unit invokes them | They appear in the session's skill list |
 | `python-pro` agent available with the `Skill` tool | Default unit-agent for work/review/fix | The agent list includes `python-pro` |
 | `DISCORD_TOKEN` is *not* required | We never run the bot; tests cover everything | — |
 
@@ -277,7 +277,7 @@ reports `STATE = DONE`:
    ```
 
 > A documentation-only PR pattern is also supported: after a complex phase,
-> you may want to land a `pass-baton/` follow-up PR documenting any carry-
+> you may want to land a `baton-pass/` follow-up PR documenting any carry-
 > forwards for the next run. See the existing Phase 7 → Phase 8 handoff
 > (PR #39) for a worked example.
 
@@ -344,7 +344,7 @@ What cron *is* good for, around the edges:
 - **Inventory / `ARCH.md` refresh.** Already handled by the repo's commit
   hook, but a daily off-hours sanity check doesn't hurt.
 - **Carry-forward review.** A weekly job that lists open items in
-  `pass-baton/INDEX.md` is a cheap nudge for not letting follow-ups rot.
+  `baton-pass/INDEX.md` is a cheap nudge for not letting follow-ups rot.
 
 If you do schedule any of these, keep the prompts short and read-only — they
 shouldn't touch the repo or open PRs without you in the loop.
@@ -410,9 +410,9 @@ Three things are worth knowing:
 2. **The gate logs are evidence, not noise.** When a review unit returns
    `VERDICT: ISSUES`, the gate logs are how you (or a guide-resume fix-unit)
    reconstruct what actually failed.
-3. **The `pass-baton/<phase-N>/` files live elsewhere.** They're per-unit
-   batons under the top-level `pass-baton/` tree, indexed by
-   `pass-baton/INDEX.md`. The manager records only their paths in `STATE.md`;
+3. **The `baton-pass/<phase-N>/` files live elsewhere.** They're per-unit
+   batons under the top-level `baton-pass/` tree, indexed by
+   `baton-pass/INDEX.md`. The manager records only their paths in `STATE.md`;
    you read them directly when you want the unit's reasoning.
 
 ---
@@ -423,6 +423,6 @@ Three things are worth knowing:
   [`.claude/skills/baton-runner/REFERENCE.md`](../../.claude/skills/baton-runner/REFERENCE.md)
 - Phase plan → [`docs/04-migration-plan.md`](../04-migration-plan.md)
 - Live phase status → GitHub issue #2 (never duplicate it in the repo)
-- Pass-baton conventions → [`pass-baton/CLAUDE.md`](../../pass-baton/CLAUDE.md),
-  [`pass-baton/INDEX.md`](../../pass-baton/INDEX.md)
+- Pass-baton conventions → [`baton-pass/CLAUDE.md`](../../baton-pass/CLAUDE.md),
+  [`baton-pass/INDEX.md`](../../baton-pass/INDEX.md)
 - Testing strategy → [`docs/05-testing-strategy.md`](../05-testing-strategy.md)

@@ -15,7 +15,7 @@ Weights, soft-cap saturation points, and tier percentile cuts are lifted
 verbatim from the original monolith (``docs/spec/original-skeleton.md``
 §ENGAGEMENT / TRENDING) so the rebuilt economy behaves identically. They are
 game-tuning numbers; a follow-up may promote them to ``Settings`` (recorded in
-the Phase 4 pass-baton as a deferred note).
+the Phase 4 baton-pass as a deferred note).
 """
 
 from __future__ import annotations

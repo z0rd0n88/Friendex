@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Resuming Work
 
-If you are joining an in-flight effort, **start by reading [`pass-baton/INDEX.md`](./pass-baton/INDEX.md)** — it lists the most recent pass-baton per feature/epic so you can pick up without re-deriving context. Every write to `pass-baton/` is mediated by the project-scoped `pass-baton` skill (`.claude/skills/pass-baton/SKILL.md`); see `pass-baton/CLAUDE.md` for the directory's hard rules.
+If you are joining an in-flight effort, **start by reading [`baton-pass/INDEX.md`](./baton-pass/INDEX.md)** — it lists the most recent baton-pass per feature/epic so you can pick up without re-deriving context. Every write to `baton-pass/` is mediated by the project-scoped `baton-pass` skill (`.claude/skills/baton-pass/SKILL.md`); see `baton-pass/CLAUDE.md` for the directory's hard rules.
 
 ## Python Code Style — Mandatory Skill
 

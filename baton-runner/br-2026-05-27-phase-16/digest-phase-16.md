@@ -57,6 +57,6 @@
 ## References
 
 - Spec: `docs/04-migration-plan.md` §Phase 16 (lines 828-854)
-- Implementation baton: `pass-baton/phase-16/000-2026-05-27-smoke-test-driver-implemented.md`
-- Review baton: `pass-baton/phase-16/001-2026-05-27-review-clean.md`
+- Implementation baton: `baton-pass/phase-16/000-2026-05-27-smoke-test-driver-implemented.md`
+- Review baton: `baton-pass/phase-16/001-2026-05-27-review-clean.md`
 - Phase tracker: GitHub issue #2

@@ -2,7 +2,7 @@
 status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-15
 phase: 2 of 2  unit: -  review_iter: 1 of 3 (CLEAN)
-current_baton: pass-baton/phase-15b/001-2026-05-27-migrate-flags-review-clean.md
+current_baton: baton-pass/phase-15b/001-2026-05-27-migrate-flags-review-clean.md
 units_used: 4
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
