@@ -277,15 +277,17 @@ async def test_fund_withdraw_calls_service_with_decimal_and_utc_now(
     """Float amount converted via ``Decimal(str(amount))``; ``now`` UTC-aware."""
     group = _build_group(fund_service_factory)
     interaction = fake_interaction(user_id=42, guild_id=99)
-    await FundGroup.withdraw.callback(group, interaction, amount=100.50)
+    await FundGroup.withdraw.callback(group, interaction, amount=100.10)
     fund_service.withdraw.assert_awaited_once()
     args, _kwargs = fund_service.withdraw.await_args
     assert args[0] == "42"
-    assert args[1] == Decimal("100.50")
-    # ``Decimal(str(100.50)) == Decimal('100.5')`` — but ``str(100.50)`` is
-    # ``'100.5'``, so the comparison above is intentional. The cog MUST use
-    # ``Decimal(str(amount))``; ``Decimal(100.50)`` directly would carry
-    # IEEE-754 noise (Phase 3.1 + 8e convention).
+    assert args[1] == Decimal("100.10")
+    # ``100.10`` is intentionally NOT a dyadic fraction: ``Decimal(100.10)``
+    # carries IEEE-754 noise (``Decimal('100.099999…')``), while
+    # ``Decimal(str(100.10)) == Decimal('100.1') == Decimal('100.10')``.
+    # The literal makes this assertion load-bearing for the Phase 3.1 / 8e
+    # ``Decimal(str(amount))`` convention — a regression to ``Decimal(amount)``
+    # fails here.
     now = args[2]
     assert isinstance(now, datetime)
     assert now.tzinfo is UTC
@@ -332,8 +334,8 @@ async def test_fund_send_events_calls_service_with_decimal(
 ) -> None:
     group = _build_group(fund_service_factory)
     interaction = fake_interaction(user_id=42, guild_id=99)
-    await FundGroup.send_events.callback(group, interaction, amount=75.25)
-    fund_service.send_to_events.assert_awaited_once_with("42", Decimal("75.25"))
+    await FundGroup.send_events.callback(group, interaction, amount=75.10)
+    fund_service.send_to_events.assert_awaited_once_with("42", Decimal("75.10"))
 
 
 async def test_fund_send_events_reply_is_public_with_allowed_mentions_none(

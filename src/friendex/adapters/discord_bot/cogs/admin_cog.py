@@ -8,6 +8,7 @@ the help-text noise stays on the requester's side.
 ``/game_intro`` posts the static intro embed (
 :func:`~friendex.adapters.discord_bot.embeds.build_intro_embed`) publicly —
 moderators run it once per server when on-boarding. The command is gated by
+``@app_commands.checks.has_permissions(manage_guild=True)``, so only members
 with the *Manage Server* permission can broadcast the intro.
 
 The cog needs no application-service deps; the embeds are static so we have

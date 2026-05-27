@@ -66,7 +66,9 @@ class AccountCog(commands.Cog):
     async def balance(self, interaction: discord.Interaction) -> None:
         """Reply ephemerally with the invoker's portfolio snapshot."""
         portfolio_service = self._portfolio_factory(guild_id_of(interaction))
-        snapshot = await portfolio_service.portfolio_snapshot(str(interaction.user.id))
+        snapshot = await portfolio_service.portfolio_snapshot(
+            user_id=str(interaction.user.id)
+        )
         if snapshot is None:
             embed = discord.Embed(
                 title="Account Balance",
