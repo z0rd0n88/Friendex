@@ -1,0 +1,257 @@
+{
+  "events_wallet": {
+    "cash_balance": 1250.0,
+    "investors": {},
+    "manager_id": "events_wallet",
+    "name": "Events Wallet"
+  },
+  "fund_00": {
+    "cash_balance": 14828.62,
+    "investors": {
+      "1003": 879.09,
+      "1027": 3383.06,
+      "1033": 3931.69
+    },
+    "manager_id": "1004",
+    "name": "Fund 00"
+  },
+  "fund_01": {
+    "cash_balance": 49158.2,
+    "investors": {
+      "1001": 2577.43,
+      "1021": 527.49
+    },
+    "manager_id": "1007",
+    "name": "Fund 01"
+  },
+  "fund_02": {
+    "cash_balance": 10044.16,
+    "investors": {
+      "1031": 2247.91,
+      "1035": 2132.69,
+      "1036": 3837.22,
+      "1043": 4226.59
+    },
+    "manager_id": "1027",
+    "name": "Fund 02"
+  },
+  "fund_03": {
+    "cash_balance": 36070.61,
+    "investors": {
+      "1011": 2934.87,
+      "1023": 3303.48
+    },
+    "manager_id": "1022",
+    "name": "Fund 03"
+  },
+  "fund_04": {
+    "cash_balance": 37985.5,
+    "investors": {
+      "1022": 2576.63,
+      "1049": 3568.92
+    },
+    "manager_id": "1046",
+    "name": "Fund 04"
+  },
+  "fund_05": {
+    "cash_balance": 33628.16,
+    "investors": {
+      "1026": 435.98,
+      "1041": 3730.1,
+      "1042": 2343.0
+    },
+    "manager_id": "1031",
+    "name": "Fund 05"
+  },
+  "fund_06": {
+    "cash_balance": 22613.41,
+    "investors": {
+      "1009": 4214.42,
+      "1021": 1756.91,
+      "1031": 80.39
+    },
+    "manager_id": "1049",
+    "name": "Fund 06"
+  },
+  "fund_07": {
+    "cash_balance": 33555.41,
+    "investors": {
+      "1021": 1213.91,
+      "1023": 2599.3,
+      "1039": 1650.01,
+      "1048": 1101.55
+    },
+    "manager_id": "1009",
+    "name": "Fund 07"
+  },
+  "fund_08": {
+    "cash_balance": 47061.46,
+    "investors": {
+      "1012": 4000.72,
+      "1021": 4157.82,
+      "1027": 3475.79,
+      "1034": 2892.27,
+      "1045": 3121.79
+    },
+    "manager_id": "1001",
+    "name": "Fund 08"
+  },
+  "fund_09": {
+    "cash_balance": 27687.11,
+    "investors": {
+      "1009": 2745.54,
+      "1015": 3377.42,
+      "1031": 1900.51,
+      "1041": 731.68
+    },
+    "manager_id": "1036",
+    "name": "Fund 09"
+  },
+  "fund_10": {
+    "cash_balance": 18408.35,
+    "investors": {
+      "1015": 2388.5,
+      "1017": 2400.37,
+      "1036": 2701.37,
+      "1044": 3553.8,
+      "1050": 3077.52
+    },
+    "manager_id": "1011",
+    "name": "Fund 10"
+  },
+  "fund_11": {
+    "cash_balance": 27064.68,
+    "investors": {
+      "1004": 4067.85,
+      "1036": 949.6
+    },
+    "manager_id": "1048",
+    "name": "Fund 11"
+  },
+  "fund_12": {
+    "cash_balance": 16741.82,
+    "investors": {},
+    "manager_id": "1045",
+    "name": "Fund 12"
+  },
+  "fund_13": {
+    "cash_balance": 35987.44,
+    "investors": {
+      "1008": 3077.31
+    },
+    "manager_id": "1038",
+    "name": "Fund 13"
+  },
+  "fund_14": {
+    "cash_balance": 22551.39,
+    "investors": {
+      "1006": 4050.06
+    },
+    "manager_id": "1013",
+    "name": "Fund 14"
+  },
+  "fund_15": {
+    "cash_balance": 22944.9,
+    "investors": {},
+    "manager_id": "1019",
+    "name": "Fund 15"
+  },
+  "fund_16": {
+    "cash_balance": 28160.46,
+    "investors": {
+      "1031": 2559.4
+    },
+    "manager_id": "1021",
+    "name": "Fund 16"
+  },
+  "fund_17": {
+    "cash_balance": 13095.63,
+    "investors": {
+      "1048": 146.88
+    },
+    "manager_id": "1035",
+    "name": "Fund 17"
+  },
+  "fund_18": {
+    "cash_balance": 37417.32,
+    "investors": {},
+    "manager_id": "1050",
+    "name": "Fund 18"
+  },
+  "fund_19": {
+    "cash_balance": 2741.85,
+    "investors": {},
+    "manager_id": "1030",
+    "name": "Fund 19"
+  },
+  "fund_20": {
+    "cash_balance": 49709.12,
+    "investors": {
+      "1046": 333.73
+    },
+    "manager_id": "1025",
+    "name": "Fund 20"
+  },
+  "fund_21": {
+    "cash_balance": 49313.79,
+    "investors": {},
+    "manager_id": "1003",
+    "name": "Fund 21"
+  },
+  "fund_22": {
+    "cash_balance": 9409.08,
+    "investors": {
+      "1003": 1327.55
+    },
+    "manager_id": "1034",
+    "name": "Fund 22"
+  },
+  "fund_23": {
+    "cash_balance": 38408.47,
+    "investors": {},
+    "manager_id": "1033",
+    "name": "Fund 23"
+  },
+  "fund_24": {
+    "cash_balance": 19432.74,
+    "investors": {
+      "1025": 4468.21
+    },
+    "manager_id": "1008",
+    "name": "Fund 24"
+  },
+  "fund_25": {
+    "cash_balance": 48225.15,
+    "investors": {
+      "1026": 407.11
+    },
+    "manager_id": "1018",
+    "name": "Fund 25"
+  },
+  "fund_26": {
+    "cash_balance": 32849.94,
+    "investors": {},
+    "manager_id": "1024",
+    "name": "Fund 26"
+  },
+  "fund_27": {
+    "cash_balance": 27094.3,
+    "investors": {
+      "1009": 844.21
+    },
+    "manager_id": "1002",
+    "name": "Fund 27"
+  },
+  "fund_28": {
+    "cash_balance": 36528.98,
+    "investors": {},
+    "manager_id": "1006",
+    "name": "Fund 28"
+  },
+  "fund_29": {
+    "cash_balance": 41823.67,
+    "investors": {},
+    "manager_id": "1014",
+    "name": "Fund 29"
+  }
+}
