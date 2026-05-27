@@ -20,6 +20,17 @@ every row by ``(guild_id, user_id)``, so the migration targets exactly one
 guild: ``--guild-id`` says which. All migrated rows are written under that one
 guild.
 
+**Dry-run, report, and orphan check (Phase 15b).** ``--dry-run`` parses every
+fixture and exercises the full mapping pipeline but writes into a throwaway
+in-memory engine — the target URL is left untouched, so a dry-run against a
+live database has zero side effects. ``--report`` prints the per-table row
+counts (the keys of :func:`migrate`'s return dict) to stdout in a stable,
+sortable ``<table>: <count>`` form, with or without ``--dry-run``. After every
+run — real *or* dry — the migrator walks every long / short position's
+``target_user_id`` and logs ``WARNING`` for each one that does not resolve to a
+known ``UserAccount``; the check is advisory and never raises, so an orphan
+does not block the cutover.
+
 **Decimal, not float (Phase 3.1 invariant).** Numbers are decoded with
 ``parse_float=Decimal`` so a JSON literal like ``9876.54`` becomes
 ``Decimal('9876.54')`` directly from its text — never via a lossy intermediate
@@ -484,6 +495,43 @@ async def migrate(
 
 
 # ---------------------------------------------------------------------------
+# Post-migration orphan-warning check
+# ---------------------------------------------------------------------------
+
+
+def _warn_orphan_positions(source: Path) -> None:
+    """Log a ``WARNING`` for every long / short position with no matching account.
+
+    Walks ``users.json`` once and checks every ``LongPosition.target_user_id``
+    and ``ShortPosition.target_user_id`` against the set of known user ids.
+    The check is purely advisory — per the Phase 15 spec it warns rather than
+    fails, so a corrupt position reference does not block the cutover. Both
+    the real-run and ``--dry-run`` paths invoke it so an operator gets the
+    same diagnostic without having to commit to a write.
+
+    Source-side rather than DB-side: every migrated row originates in
+    ``users.json``, so the source carries the same orphan set as the
+    persisted state but is also available on the dry-run path (where nothing
+    is persisted).
+    """
+    users = _load_json_object(source / _USERS_FILE)
+    known_user_ids = set(users.keys())
+    for owner_id, raw in users.items():
+        portfolio = raw.get("portfolio", {})
+        for side, key in (("long", "long"), ("short", "short")):
+            positions: Mapping[str, Any] = portfolio.get(key, {})
+            for target_id in positions:
+                if target_id not in known_user_ids:
+                    logger.warning(
+                        "orphan %s position: owner=%s target=%s has no matching "
+                        "UserAccount",
+                        side,
+                        owner_id,
+                        target_id,
+                    )
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -513,21 +561,68 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Discord guild id every migrated row is written under (ADR-0001).",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Parse every fixture and exercise the full mapping pipeline against "
+            "a throwaway in-memory engine; the target URL is not touched."
+        ),
+    )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help=(
+            "After the run, print per-table row counts to stdout as '<table>: "
+            "<count>' lines, sorted by table name. Composes with --dry-run."
+        ),
+    )
     return parser
 
 
-async def _run(source: Path, target: str, guild_id: str) -> dict[str, int]:
-    """Build the target engine/schema and run the migration once."""
+# When --dry-run is set, the migration runs against this throwaway URL instead
+# of the operator-supplied --target. Each ``create_async_engine`` call with
+# ``:memory:`` allocates its own independent database, so the target URL is
+# never opened, schema-created, or written.
+_DRY_RUN_TARGET = "sqlite+aiosqlite:///:memory:"
+
+
+async def _run(
+    source: Path, target: str, guild_id: str, *, dry_run: bool = False
+) -> dict[str, int]:
+    """Build the engine/schema and run the migration once.
+
+    :param dry_run: when ``True``, the migration runs against a throwaway
+        in-memory engine instead of ``target`` so nothing is persisted. The
+        target URL is not opened, so a dry-run against a live database has
+        zero side effects.
+    """
     from friendex.adapters.persistence.db import Base
 
-    engine = build_engine(target)
+    effective_target = _DRY_RUN_TARGET if dry_run else target
+    engine = build_engine(effective_target)
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         maker = build_sessionmaker(engine)
-        return await migrate(source, maker, guild_id=guild_id)
+        counts = await migrate(source, maker, guild_id=guild_id)
     finally:
         await engine.dispose()
+
+    # Orphan check is advisory and runs on both real and dry-run paths so the
+    # operator gets the same diagnostic regardless of whether they committed.
+    _warn_orphan_positions(source)
+    return counts
+
+
+def _print_report(counts: Mapping[str, int]) -> None:
+    """Print ``<table>: <count>`` lines for ``counts`` to stdout, sorted by table.
+
+    Sorting is deterministic so the CLI output is reliable for downstream
+    tooling and tests (no flaky ordering between dict-iteration orders).
+    """
+    for table in sorted(counts):
+        print(f"{table}: {counts[table]}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -548,7 +643,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        counts = asyncio.run(_run(source, args.target, args.guild_id))
+        counts = asyncio.run(
+            _run(source, args.target, args.guild_id, dry_run=args.dry_run)
+        )
     except MigrationError as exc:
         # Corrupt-but-parseable source data: the message already names the file,
         # record, and field, so report it plainly without a raw traceback.
@@ -559,8 +656,20 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("migration failed — I/O error: %s", exc)
         return 1
 
+    if args.report:
+        _print_report(counts)
+
     total = sum(counts.values())
-    logger.info("migration complete: %d row(s) across %d tables", total, len(counts))
+    if args.dry_run:
+        logger.info(
+            "dry-run complete: %d row(s) across %d tables (no writes persisted)",
+            total,
+            len(counts),
+        )
+    else:
+        logger.info(
+            "migration complete: %d row(s) across %d tables", total, len(counts)
+        )
     return 0
 
 

@@ -1,0 +1,96 @@
+{
+  "2001": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 0,
+        "reply_count": 0,
+        "role_ping_join_minutes": 0,
+        "role_ping_joins": 0,
+        "text_msgs": 0,
+        "timestamp": "2026-05-27T00:00:00",
+        "voice_minutes": 0,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 0,
+        "reaction_count": 0,
+        "reply_count": 0,
+        "role_ping_join_minutes": 0,
+        "role_ping_joins": 0,
+        "text_msgs": 0,
+        "timestamp": "2026-05-20T00:00:00",
+        "voice_minutes": 0,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 10000.0,
+    "daily": {
+      "last_claim": null,
+      "streak": 0
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-27T00:00:00",
+    "month_start_net_worth": 10000.0,
+    "net_worth": 10000.0,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "9999": {
+          "avg_entry": 100.0,
+          "shares": 1
+        }
+      },
+      "short": {}
+    }
+  },
+  "2002": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 0,
+        "reply_count": 0,
+        "role_ping_join_minutes": 0,
+        "role_ping_joins": 0,
+        "text_msgs": 0,
+        "timestamp": "2026-05-27T00:00:00",
+        "voice_minutes": 0,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 0,
+        "reaction_count": 0,
+        "reply_count": 0,
+        "role_ping_join_minutes": 0,
+        "role_ping_joins": 0,
+        "text_msgs": 0,
+        "timestamp": "2026-05-20T00:00:00",
+        "voice_minutes": 0,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 10000.0,
+    "daily": {
+      "last_claim": null,
+      "streak": 0
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-27T00:00:00",
+    "month_start_net_worth": 10000.0,
+    "net_worth": 10000.0,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {
+        "2001": {
+          "created_at": "2026-05-27T00:00:00",
+          "entry_price": 100.0,
+          "frozen": false,
+          "locked_cash": 100.0,
+          "locked_fund": 0,
+          "shares": 1
+        }
+      }
+    }
+  }
+}
