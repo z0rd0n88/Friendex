@@ -1,0 +1,2872 @@
+{
+  "1001": {
+    "activity": {
+      "today": {
+        "media_msgs": 6,
+        "reaction_count": 27,
+        "reply_count": 2,
+        "role_ping_join_minutes": 48.65,
+        "role_ping_joins": 3.9,
+        "text_msgs": 35,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 87.65,
+        "voice_unique_channels": [
+          "c3"
+        ]
+      },
+      "week": {
+        "media_msgs": 1,
+        "reaction_count": 8,
+        "reply_count": 2,
+        "role_ping_join_minutes": 6.49,
+        "role_ping_joins": 3.15,
+        "text_msgs": 125,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 16.14,
+        "voice_unique_channels": [
+          "c6",
+          "c3"
+        ]
+      }
+    },
+    "cash_balance": 17099.36,
+    "daily": {
+      "last_claim": "2026-05-22T07:54:00",
+      "streak": 10
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T10:14:00",
+    "month_start_net_worth": 9061.04,
+    "net_worth": 22434.83,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1038": {
+          "avg_entry": 89.42,
+          "shares": 7
+        }
+      },
+      "short": {}
+    }
+  },
+  "1002": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 10,
+        "reply_count": 4,
+        "role_ping_join_minutes": 58.01,
+        "role_ping_joins": 3.46,
+        "text_msgs": 14,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 2.13,
+        "voice_unique_channels": [
+          "c6"
+        ]
+      },
+      "week": {
+        "media_msgs": 11,
+        "reaction_count": 3,
+        "reply_count": 4,
+        "role_ping_join_minutes": 57.75,
+        "role_ping_joins": 0.71,
+        "text_msgs": 91,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 57.73,
+        "voice_unique_channels": [
+          "c8",
+          "c5",
+          "c0"
+        ]
+      }
+    },
+    "cash_balance": 20442.18,
+    "daily": {
+      "last_claim": "2026-05-21T14:02:00",
+      "streak": 7
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:38:00",
+    "month_start_net_worth": 8915.57,
+    "net_worth": 24124.61,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1007": {
+          "avg_entry": 160.67,
+          "shares": 2
+        },
+        "1025": {
+          "avg_entry": 123.54,
+          "shares": 9
+        },
+        "1035": {
+          "avg_entry": 119.18,
+          "shares": 9
+        }
+      },
+      "short": {}
+    }
+  },
+  "1003": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 1,
+        "reply_count": 11,
+        "role_ping_join_minutes": 31.2,
+        "role_ping_joins": 1.74,
+        "text_msgs": 32,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 34.67,
+        "voice_unique_channels": [
+          "c4"
+        ]
+      },
+      "week": {
+        "media_msgs": 12,
+        "reaction_count": 30,
+        "reply_count": 10,
+        "role_ping_join_minutes": 37.39,
+        "role_ping_joins": 3.68,
+        "text_msgs": 157,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 32.78,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 8740.32,
+    "daily": {
+      "last_claim": "2026-05-20T09:46:00",
+      "streak": 1
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T10:32:00",
+    "month_start_net_worth": 9309.18,
+    "net_worth": 15031.75,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1004": {
+          "avg_entry": 95.59,
+          "shares": 6
+        },
+        "1032": {
+          "avg_entry": 107.98,
+          "shares": 11
+        }
+      },
+      "short": {}
+    }
+  },
+  "1004": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 17,
+        "reply_count": 0,
+        "role_ping_join_minutes": 12.61,
+        "role_ping_joins": 1.22,
+        "text_msgs": 35,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 17.27,
+        "voice_unique_channels": [
+          "c2",
+          "c4",
+          "c6"
+        ]
+      },
+      "week": {
+        "media_msgs": 38,
+        "reaction_count": 16,
+        "reply_count": 7,
+        "role_ping_join_minutes": 57.59,
+        "role_ping_joins": 3.17,
+        "text_msgs": 168,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 58.92,
+        "voice_unique_channels": [
+          "c7",
+          "c9",
+          "c3"
+        ]
+      }
+    },
+    "cash_balance": 16722.29,
+    "daily": {
+      "last_claim": "2026-05-19T11:42:00",
+      "streak": 21
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T09:18:00",
+    "month_start_net_worth": 10091.63,
+    "net_worth": 19331.75,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1024": {
+          "avg_entry": 104.07,
+          "shares": 2
+        }
+      },
+      "short": {}
+    }
+  },
+  "1005": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 0,
+        "reply_count": 0,
+        "role_ping_join_minutes": 28.51,
+        "role_ping_joins": 0.98,
+        "text_msgs": 15,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 20.22,
+        "voice_unique_channels": [
+          "c2"
+        ]
+      },
+      "week": {
+        "media_msgs": 4,
+        "reaction_count": 15,
+        "reply_count": 6,
+        "role_ping_join_minutes": 39.36,
+        "role_ping_joins": 0.98,
+        "text_msgs": 216,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 40.99,
+        "voice_unique_channels": [
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 16646.77,
+    "daily": {
+      "last_claim": "2026-05-18T06:57:00",
+      "streak": 7
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:49:00",
+    "month_start_net_worth": 8280.16,
+    "net_worth": 21600.86,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1008": {
+          "avg_entry": 122.78,
+          "shares": 6
+        },
+        "1042": {
+          "avg_entry": 84.41,
+          "shares": 6
+        },
+        "1044": {
+          "avg_entry": 140.37,
+          "shares": 10
+        }
+      },
+      "short": {}
+    }
+  },
+  "1006": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 14,
+        "reply_count": 2,
+        "role_ping_join_minutes": 40.05,
+        "role_ping_joins": 3.21,
+        "text_msgs": 29,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 50.17,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 38,
+        "reaction_count": 26,
+        "reply_count": 8,
+        "role_ping_join_minutes": 9.55,
+        "role_ping_joins": 1.78,
+        "text_msgs": 163,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 28.56,
+        "voice_unique_channels": [
+          "c9",
+          "c8",
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 5588.2,
+    "daily": {
+      "last_claim": "2026-05-17T21:28:00",
+      "streak": 30
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T10:48:00",
+    "month_start_net_worth": 10087.74,
+    "net_worth": 12021.08,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1013": {
+          "avg_entry": 116.5,
+          "shares": 12
+        },
+        "1031": {
+          "avg_entry": 138.59,
+          "shares": 2
+        },
+        "1045": {
+          "avg_entry": 147.47,
+          "shares": 3
+        }
+      },
+      "short": {}
+    }
+  },
+  "1007": {
+    "activity": {
+      "today": {
+        "media_msgs": 3,
+        "reaction_count": 22,
+        "reply_count": 4,
+        "role_ping_join_minutes": 20.15,
+        "role_ping_joins": 0.94,
+        "text_msgs": 31,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 24.71,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 5,
+        "reaction_count": 22,
+        "reply_count": 2,
+        "role_ping_join_minutes": 3.85,
+        "role_ping_joins": 2.83,
+        "text_msgs": 158,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 12.45,
+        "voice_unique_channels": [
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 21020.59,
+    "daily": {
+      "last_claim": "2026-05-16T19:21:00",
+      "streak": 1
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:29:00",
+    "month_start_net_worth": 10333.02,
+    "net_worth": 23239.08,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1003": {
+          "avg_entry": 76.07,
+          "shares": 4
+        },
+        "1020": {
+          "avg_entry": 154.38,
+          "shares": 4
+        }
+      },
+      "short": {}
+    }
+  },
+  "1008": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 9,
+        "reply_count": 12,
+        "role_ping_join_minutes": 53.5,
+        "role_ping_joins": 1.56,
+        "text_msgs": 37,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 77.11,
+        "voice_unique_channels": [
+          "c7",
+          "c0",
+          "c5"
+        ]
+      },
+      "week": {
+        "media_msgs": 14,
+        "reaction_count": 0,
+        "reply_count": 6,
+        "role_ping_join_minutes": 40.75,
+        "role_ping_joins": 1.34,
+        "text_msgs": 127,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 43.94,
+        "voice_unique_channels": [
+          "c6",
+          "c7"
+        ]
+      }
+    },
+    "cash_balance": 1697.3,
+    "daily": {
+      "last_claim": "2026-05-15T18:46:00",
+      "streak": 3
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:53:00",
+    "month_start_net_worth": 9168.43,
+    "net_worth": 8360.43,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1021": {
+          "avg_entry": 163.99,
+          "shares": 7
+        },
+        "1034": {
+          "avg_entry": 116.03,
+          "shares": 9
+        }
+      },
+      "short": {}
+    }
+  },
+  "1009": {
+    "activity": {
+      "today": {
+        "media_msgs": 4,
+        "reaction_count": 2,
+        "reply_count": 10,
+        "role_ping_join_minutes": 52.01,
+        "role_ping_joins": 1.71,
+        "text_msgs": 25,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 50.8,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 1,
+        "reaction_count": 10,
+        "reply_count": 5,
+        "role_ping_join_minutes": 22.75,
+        "role_ping_joins": 3.04,
+        "text_msgs": 66,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 23.41,
+        "voice_unique_channels": [
+          "c3",
+          "c7"
+        ]
+      }
+    },
+    "cash_balance": 23000.61,
+    "daily": {
+      "last_claim": "2026-05-22T19:16:00",
+      "streak": 1
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:30:00",
+    "month_start_net_worth": 9602.37,
+    "net_worth": 30846.39,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1050": {
+          "avg_entry": 89.77,
+          "shares": 11
+        }
+      },
+      "short": {}
+    }
+  },
+  "1010": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 24,
+        "reply_count": 0,
+        "role_ping_join_minutes": 11.96,
+        "role_ping_joins": 3.8,
+        "text_msgs": 14,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 70.31,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 4,
+        "reaction_count": 21,
+        "reply_count": 1,
+        "role_ping_join_minutes": 13.08,
+        "role_ping_joins": 2.26,
+        "text_msgs": 25,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 13.71,
+        "voice_unique_channels": [
+          "c7"
+        ]
+      }
+    },
+    "cash_balance": 18763.25,
+    "daily": {
+      "last_claim": "2026-05-21T14:49:00",
+      "streak": 5
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T10:10:00",
+    "month_start_net_worth": 10855.76,
+    "net_worth": 19179.93,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1004": {
+          "avg_entry": 97.41,
+          "shares": 6
+        },
+        "1043": {
+          "avg_entry": 112.64,
+          "shares": 6
+        }
+      },
+      "short": {}
+    }
+  },
+  "1011": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 29,
+        "reply_count": 4,
+        "role_ping_join_minutes": 54.48,
+        "role_ping_joins": 2.3,
+        "text_msgs": 10,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 9.73,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 12,
+        "reaction_count": 18,
+        "reply_count": 11,
+        "role_ping_join_minutes": 14.57,
+        "role_ping_joins": 3.32,
+        "text_msgs": 116,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 84.73,
+        "voice_unique_channels": [
+          "c1"
+        ]
+      }
+    },
+    "cash_balance": 15240.1,
+    "daily": {
+      "last_claim": "2026-05-20T15:54:00",
+      "streak": 14
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T11:38:00",
+    "month_start_net_worth": 8343.6,
+    "net_worth": 21223.51,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1030": {
+          "avg_entry": 118.15,
+          "shares": 3
+        },
+        "1049": {
+          "avg_entry": 103.53,
+          "shares": 7
+        }
+      },
+      "short": {
+        "1009": {
+          "created_at": "2026-05-20T16:41:00",
+          "entry_price": 128.01,
+          "frozen": true,
+          "locked_cash": 384.03,
+          "locked_fund": 0.0,
+          "shares": 3
+        },
+        "1042": {
+          "created_at": "2026-05-21T05:42:00",
+          "entry_price": 126.43,
+          "frozen": true,
+          "locked_cash": 252.86,
+          "locked_fund": 0.0,
+          "shares": 2
+        }
+      }
+    }
+  },
+  "1012": {
+    "activity": {
+      "today": {
+        "media_msgs": 4,
+        "reaction_count": 20,
+        "reply_count": 5,
+        "role_ping_join_minutes": 25.2,
+        "role_ping_joins": 0.05,
+        "text_msgs": 22,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 38.55,
+        "voice_unique_channels": [
+          "c1",
+          "c8"
+        ]
+      },
+      "week": {
+        "media_msgs": 6,
+        "reaction_count": 13,
+        "reply_count": 2,
+        "role_ping_join_minutes": 57.93,
+        "role_ping_joins": 2.94,
+        "text_msgs": 145,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 39.02,
+        "voice_unique_channels": [
+          "c7",
+          "c2"
+        ]
+      }
+    },
+    "cash_balance": 3158.22,
+    "daily": {
+      "last_claim": "2026-05-19T14:39:00",
+      "streak": 1
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:49:00",
+    "month_start_net_worth": 10347.91,
+    "net_worth": 11028.97,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1025": {
+          "avg_entry": 146.51,
+          "shares": 5
+        },
+        "1035": {
+          "avg_entry": 111.48,
+          "shares": 12
+        }
+      },
+      "short": {
+        "1003": {
+          "created_at": "2026-05-20T15:56:00",
+          "entry_price": 114.16,
+          "frozen": true,
+          "locked_cash": 570.8,
+          "locked_fund": 0.0,
+          "shares": 5
+        },
+        "1038": {
+          "created_at": "2026-05-22T20:13:00",
+          "entry_price": 90.69,
+          "frozen": true,
+          "locked_cash": 90.69,
+          "locked_fund": 0.0,
+          "shares": 1
+        }
+      }
+    }
+  },
+  "1013": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 8,
+        "reply_count": 7,
+        "role_ping_join_minutes": 27.88,
+        "role_ping_joins": 0.98,
+        "text_msgs": 20,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 74.77,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 42,
+        "reaction_count": 15,
+        "reply_count": 5,
+        "role_ping_join_minutes": 12.73,
+        "role_ping_joins": 0.73,
+        "text_msgs": 176,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 34.11,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 11702.11,
+    "daily": {
+      "last_claim": "2026-05-18T14:21:00",
+      "streak": 3
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T10:56:00",
+    "month_start_net_worth": 9777.42,
+    "net_worth": 18307.99,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1012": {
+          "avg_entry": 79.45,
+          "shares": 2
+        },
+        "1040": {
+          "avg_entry": 99.32,
+          "shares": 9
+        }
+      },
+      "short": {
+        "1021": {
+          "created_at": "2026-05-21T14:26:00",
+          "entry_price": 133.2,
+          "frozen": true,
+          "locked_cash": 133.2,
+          "locked_fund": 0.0,
+          "shares": 1
+        },
+        "1043": {
+          "created_at": "2026-05-23T09:29:00",
+          "entry_price": 102.14,
+          "frozen": true,
+          "locked_cash": 408.56,
+          "locked_fund": 0.0,
+          "shares": 4
+        }
+      }
+    }
+  },
+  "1014": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 22,
+        "reply_count": 7,
+        "role_ping_join_minutes": 29.45,
+        "role_ping_joins": 2.58,
+        "text_msgs": 12,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 21.72,
+        "voice_unique_channels": [
+          "c7",
+          "c8",
+          "c3"
+        ]
+      },
+      "week": {
+        "media_msgs": 0,
+        "reaction_count": 15,
+        "reply_count": 8,
+        "role_ping_join_minutes": 25.53,
+        "role_ping_joins": 2.12,
+        "text_msgs": 24,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 26.48,
+        "voice_unique_channels": [
+          "c3",
+          "c4",
+          "c5"
+        ]
+      }
+    },
+    "cash_balance": 17574.42,
+    "daily": {
+      "last_claim": "2026-05-17T16:22:00",
+      "streak": 21
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:29:00",
+    "month_start_net_worth": 8030.45,
+    "net_worth": 19784.57,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1020": {
+          "avg_entry": 138.74,
+          "shares": 10
+        },
+        "1021": {
+          "avg_entry": 136.15,
+          "shares": 3
+        },
+        "1030": {
+          "avg_entry": 113.58,
+          "shares": 6
+        }
+      },
+      "short": {
+        "1015": {
+          "created_at": "2026-05-22T12:08:00",
+          "entry_price": 154.16,
+          "frozen": false,
+          "locked_cash": 924.96,
+          "locked_fund": 0.0,
+          "shares": 6
+        },
+        "1031": {
+          "created_at": "2026-05-22T22:20:00",
+          "entry_price": 127.47,
+          "frozen": false,
+          "locked_cash": 382.41,
+          "locked_fund": 0.0,
+          "shares": 3
+        }
+      }
+    }
+  },
+  "1015": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 6,
+        "reply_count": 11,
+        "role_ping_join_minutes": 43.48,
+        "role_ping_joins": 1.94,
+        "text_msgs": 20,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 66.86,
+        "voice_unique_channels": [
+          "c3"
+        ]
+      },
+      "week": {
+        "media_msgs": 33,
+        "reaction_count": 26,
+        "reply_count": 3,
+        "role_ping_join_minutes": 21.65,
+        "role_ping_joins": 1.18,
+        "text_msgs": 214,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 53.71,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 7769.58,
+    "daily": {
+      "last_claim": "2026-05-16T15:00:00",
+      "streak": 1
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:34:00",
+    "month_start_net_worth": 10163.85,
+    "net_worth": 9613.88,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1024": {
+          "avg_entry": 131.47,
+          "shares": 5
+        },
+        "1029": {
+          "avg_entry": 109.78,
+          "shares": 11
+        },
+        "1041": {
+          "avg_entry": 78.98,
+          "shares": 1
+        }
+      },
+      "short": {
+        "1034": {
+          "created_at": "2026-05-23T03:17:00",
+          "entry_price": 107.34,
+          "frozen": false,
+          "locked_cash": 107.34,
+          "locked_fund": 0.0,
+          "shares": 1
+        },
+        "1037": {
+          "created_at": "2026-05-20T01:18:00",
+          "entry_price": 102.35,
+          "frozen": false,
+          "locked_cash": 409.4,
+          "locked_fund": 0.0,
+          "shares": 4
+        }
+      }
+    }
+  },
+  "1016": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 15,
+        "reply_count": 7,
+        "role_ping_join_minutes": 11.06,
+        "role_ping_joins": 1.76,
+        "text_msgs": 8,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 78.16,
+        "voice_unique_channels": [
+          "c1",
+          "c0",
+          "c4"
+        ]
+      },
+      "week": {
+        "media_msgs": 4,
+        "reaction_count": 15,
+        "reply_count": 1,
+        "role_ping_join_minutes": 41.19,
+        "role_ping_joins": 2.31,
+        "text_msgs": 33,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 84.7,
+        "voice_unique_channels": [
+          "c1",
+          "c9",
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 6966.64,
+    "daily": {
+      "last_claim": "2026-05-15T10:09:00",
+      "streak": 1
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:19:00",
+    "month_start_net_worth": 9660.08,
+    "net_worth": 14761.0,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1011": {
+          "avg_entry": 75.24,
+          "shares": 8
+        },
+        "1045": {
+          "avg_entry": 135.06,
+          "shares": 10
+        },
+        "1049": {
+          "avg_entry": 85.28,
+          "shares": 1
+        }
+      },
+      "short": {
+        "1028": {
+          "created_at": "2026-05-21T05:31:00",
+          "entry_price": 135.48,
+          "frozen": false,
+          "locked_cash": 677.4,
+          "locked_fund": 0.0,
+          "shares": 5
+        },
+        "1041": {
+          "created_at": "2026-05-21T10:59:00",
+          "entry_price": 152.39,
+          "frozen": false,
+          "locked_cash": 304.78,
+          "locked_fund": 0.0,
+          "shares": 2
+        }
+      }
+    }
+  },
+  "1017": {
+    "activity": {
+      "today": {
+        "media_msgs": 9,
+        "reaction_count": 12,
+        "reply_count": 7,
+        "role_ping_join_minutes": 17.84,
+        "role_ping_joins": 3.63,
+        "text_msgs": 38,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 71.17,
+        "voice_unique_channels": [
+          "c8"
+        ]
+      },
+      "week": {
+        "media_msgs": 27,
+        "reaction_count": 19,
+        "reply_count": 11,
+        "role_ping_join_minutes": 45.76,
+        "role_ping_joins": 0.4,
+        "text_msgs": 170,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 27.48,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 24848.87,
+    "daily": {
+      "last_claim": "2026-05-22T12:16:00",
+      "streak": 2
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:05:00",
+    "month_start_net_worth": 10293.33,
+    "net_worth": 25796.48,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1016": {
+          "avg_entry": 106.07,
+          "shares": 11
+        }
+      },
+      "short": {
+        "1021": {
+          "created_at": "2026-05-22T01:03:00",
+          "entry_price": 100.06,
+          "frozen": false,
+          "locked_cash": 200.12,
+          "locked_fund": 0.0,
+          "shares": 2
+        },
+        "1033": {
+          "created_at": "2026-05-23T16:29:00",
+          "entry_price": 86.62,
+          "frozen": false,
+          "locked_cash": 346.48,
+          "locked_fund": 0.0,
+          "shares": 4
+        }
+      }
+    }
+  },
+  "1018": {
+    "activity": {
+      "today": {
+        "media_msgs": 3,
+        "reaction_count": 9,
+        "reply_count": 11,
+        "role_ping_join_minutes": 51.58,
+        "role_ping_joins": 1.13,
+        "text_msgs": 26,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 62.04,
+        "voice_unique_channels": [
+          "c4",
+          "c0",
+          "c3"
+        ]
+      },
+      "week": {
+        "media_msgs": 3,
+        "reaction_count": 3,
+        "reply_count": 8,
+        "role_ping_join_minutes": 8.94,
+        "role_ping_joins": 0.9,
+        "text_msgs": 38,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 83.15,
+        "voice_unique_channels": [
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 6110.65,
+    "daily": {
+      "last_claim": "2026-05-21T14:52:00",
+      "streak": 5
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:04:00",
+    "month_start_net_worth": 8469.6,
+    "net_worth": 10526.59,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1003": {
+          "avg_entry": 160.24,
+          "shares": 8
+        },
+        "1038": {
+          "avg_entry": 86.27,
+          "shares": 10
+        }
+      },
+      "short": {
+        "1033": {
+          "created_at": "2026-05-22T17:00:00",
+          "entry_price": 132.08,
+          "frozen": false,
+          "locked_cash": 792.48,
+          "locked_fund": 0.0,
+          "shares": 6
+        },
+        "1040": {
+          "created_at": "2026-05-22T23:23:00",
+          "entry_price": 115.16,
+          "frozen": false,
+          "locked_cash": 115.16,
+          "locked_fund": 0.0,
+          "shares": 1
+        }
+      }
+    }
+  },
+  "1019": {
+    "activity": {
+      "today": {
+        "media_msgs": 4,
+        "reaction_count": 16,
+        "reply_count": 8,
+        "role_ping_join_minutes": 4.83,
+        "role_ping_joins": 1.98,
+        "text_msgs": 36,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 39.52,
+        "voice_unique_channels": [
+          "c4",
+          "c6",
+          "c9"
+        ]
+      },
+      "week": {
+        "media_msgs": 6,
+        "reaction_count": 7,
+        "reply_count": 10,
+        "role_ping_join_minutes": 34.51,
+        "role_ping_joins": 3.34,
+        "text_msgs": 30,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 66.11,
+        "voice_unique_channels": [
+          "c0",
+          "c1"
+        ]
+      }
+    },
+    "cash_balance": 4273.18,
+    "daily": {
+      "last_claim": "2026-05-20T06:48:00",
+      "streak": 5
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:52:00",
+    "month_start_net_worth": 10246.87,
+    "net_worth": 6734.07,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1030": {
+          "avg_entry": 125.37,
+          "shares": 2
+        },
+        "1050": {
+          "avg_entry": 106.13,
+          "shares": 9
+        }
+      },
+      "short": {
+        "1003": {
+          "created_at": "2026-05-23T17:17:00",
+          "entry_price": 90.15,
+          "frozen": false,
+          "locked_cash": 270.45,
+          "locked_fund": 0.0,
+          "shares": 3
+        },
+        "1025": {
+          "created_at": "2026-05-21T11:35:00",
+          "entry_price": 88.58,
+          "frozen": false,
+          "locked_cash": 354.32,
+          "locked_fund": 0.0,
+          "shares": 4
+        }
+      }
+    }
+  },
+  "1020": {
+    "activity": {
+      "today": {
+        "media_msgs": 7,
+        "reaction_count": 13,
+        "reply_count": 10,
+        "role_ping_join_minutes": 58.14,
+        "role_ping_joins": 3.26,
+        "text_msgs": 33,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 82.45,
+        "voice_unique_channels": [
+          "c9"
+        ]
+      },
+      "week": {
+        "media_msgs": 22,
+        "reaction_count": 10,
+        "reply_count": 6,
+        "role_ping_join_minutes": 17.29,
+        "role_ping_joins": 2.77,
+        "text_msgs": 140,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 36.75,
+        "voice_unique_channels": [
+          "c1",
+          "c2"
+        ]
+      }
+    },
+    "cash_balance": 14469.74,
+    "daily": {
+      "last_claim": "2026-05-19T18:52:00",
+      "streak": 30
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:02:00",
+    "month_start_net_worth": 8525.57,
+    "net_worth": 20574.61,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1018": {
+          "avg_entry": 140.42,
+          "shares": 1
+        },
+        "1043": {
+          "avg_entry": 161.33,
+          "shares": 4
+        }
+      },
+      "short": {
+        "1009": {
+          "created_at": "2026-05-22T17:23:00",
+          "entry_price": 112.57,
+          "frozen": false,
+          "locked_cash": 112.57,
+          "locked_fund": 0.0,
+          "shares": 1
+        }
+      }
+    }
+  },
+  "1021": {
+    "activity": {
+      "today": {
+        "media_msgs": 6,
+        "reaction_count": 21,
+        "reply_count": 8,
+        "role_ping_join_minutes": 3.25,
+        "role_ping_joins": 1.85,
+        "text_msgs": 25,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 46.31,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 23,
+        "reaction_count": 8,
+        "reply_count": 8,
+        "role_ping_join_minutes": 17.28,
+        "role_ping_joins": 0.52,
+        "text_msgs": 152,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 56.04,
+        "voice_unique_channels": [
+          "c7",
+          "c0",
+          "c3"
+        ]
+      }
+    },
+    "cash_balance": 2338.29,
+    "daily": {
+      "last_claim": "2026-05-18T21:07:00",
+      "streak": 5
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T09:40:00",
+    "month_start_net_worth": 8347.76,
+    "net_worth": 4357.48,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1026": {
+          "avg_entry": 137.48,
+          "shares": 5
+        },
+        "1035": {
+          "avg_entry": 82.95,
+          "shares": 9
+        }
+      },
+      "short": {
+        "1013": {
+          "created_at": "2026-05-20T01:02:00",
+          "entry_price": 120.64,
+          "frozen": false,
+          "locked_cash": 603.2,
+          "locked_fund": 0.0,
+          "shares": 5
+        }
+      }
+    }
+  },
+  "1022": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 14,
+        "reply_count": 1,
+        "role_ping_join_minutes": 9.24,
+        "role_ping_joins": 2.59,
+        "text_msgs": 0,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 8.39,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 18,
+        "reaction_count": 15,
+        "reply_count": 3,
+        "role_ping_join_minutes": 8.68,
+        "role_ping_joins": 1.83,
+        "text_msgs": 203,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 45.8,
+        "voice_unique_channels": [
+          "c6",
+          "c7"
+        ]
+      }
+    },
+    "cash_balance": 20012.95,
+    "daily": {
+      "last_claim": "2026-05-17T12:58:00",
+      "streak": 0
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T11:32:00",
+    "month_start_net_worth": 8932.25,
+    "net_worth": 25691.21,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1041": {
+          "avg_entry": 136.54,
+          "shares": 5
+        }
+      },
+      "short": {
+        "1047": {
+          "created_at": "2026-05-23T04:38:00",
+          "entry_price": 141.28,
+          "frozen": false,
+          "locked_cash": 423.84,
+          "locked_fund": 0.0,
+          "shares": 3
+        }
+      }
+    }
+  },
+  "1023": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 23,
+        "reply_count": 4,
+        "role_ping_join_minutes": 34.8,
+        "role_ping_joins": 3.35,
+        "text_msgs": 26,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 84.08,
+        "voice_unique_channels": [
+          "c0",
+          "c4"
+        ]
+      },
+      "week": {
+        "media_msgs": 31,
+        "reaction_count": 10,
+        "reply_count": 8,
+        "role_ping_join_minutes": 22.63,
+        "role_ping_joins": 3.05,
+        "text_msgs": 188,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 77.87,
+        "voice_unique_channels": [
+          "c8",
+          "c7",
+          "c5"
+        ]
+      }
+    },
+    "cash_balance": 22001.26,
+    "daily": {
+      "last_claim": "2026-05-16T16:55:00",
+      "streak": 5
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:44:00",
+    "month_start_net_worth": 8828.74,
+    "net_worth": 28913.48,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1008": {
+          "avg_entry": 88.06,
+          "shares": 8
+        },
+        "1013": {
+          "avg_entry": 151.31,
+          "shares": 3
+        }
+      },
+      "short": {
+        "1021": {
+          "created_at": "2026-05-23T19:47:00",
+          "entry_price": 107.3,
+          "frozen": false,
+          "locked_cash": 536.5,
+          "locked_fund": 0.0,
+          "shares": 5
+        }
+      }
+    }
+  },
+  "1024": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 30,
+        "reply_count": 0,
+        "role_ping_join_minutes": 57.92,
+        "role_ping_joins": 0.5,
+        "text_msgs": 2,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 67.02,
+        "voice_unique_channels": [
+          "c6",
+          "c2",
+          "c7"
+        ]
+      },
+      "week": {
+        "media_msgs": 3,
+        "reaction_count": 0,
+        "reply_count": 11,
+        "role_ping_join_minutes": 52.26,
+        "role_ping_joins": 0.58,
+        "text_msgs": 104,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 78.68,
+        "voice_unique_channels": [
+          "c1",
+          "c8",
+          "c7"
+        ]
+      }
+    },
+    "cash_balance": 14359.17,
+    "daily": {
+      "last_claim": "2026-05-15T10:04:00",
+      "streak": 30
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T10:50:00",
+    "month_start_net_worth": 10326.63,
+    "net_worth": 16227.67,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1006": {
+          "avg_entry": 78.04,
+          "shares": 12
+        },
+        "1030": {
+          "avg_entry": 134.11,
+          "shares": 6
+        },
+        "1045": {
+          "avg_entry": 99.0,
+          "shares": 9
+        }
+      },
+      "short": {
+        "1022": {
+          "created_at": "2026-05-20T11:21:00",
+          "entry_price": 118.24,
+          "frozen": false,
+          "locked_cash": 354.72,
+          "locked_fund": 0.0,
+          "shares": 3
+        },
+        "1039": {
+          "created_at": "2026-05-23T22:36:00",
+          "entry_price": 142.98,
+          "frozen": false,
+          "locked_cash": 714.9,
+          "locked_fund": 0.0,
+          "shares": 5
+        }
+      }
+    }
+  },
+  "1025": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 19,
+        "reply_count": 1,
+        "role_ping_join_minutes": 41.06,
+        "role_ping_joins": 0.94,
+        "text_msgs": 5,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 76.71,
+        "voice_unique_channels": [
+          "c5",
+          "c7",
+          "c0"
+        ]
+      },
+      "week": {
+        "media_msgs": 7,
+        "reaction_count": 5,
+        "reply_count": 11,
+        "role_ping_join_minutes": 1.74,
+        "role_ping_joins": 1.2,
+        "text_msgs": 93,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 67.21,
+        "voice_unique_channels": [
+          "c1",
+          "c9",
+          "c7"
+        ]
+      }
+    },
+    "cash_balance": 6735.82,
+    "daily": {
+      "last_claim": "2026-05-22T16:50:00",
+      "streak": 3
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:18:00",
+    "month_start_net_worth": 9192.45,
+    "net_worth": 11721.9,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1011": {
+          "avg_entry": 158.24,
+          "shares": 12
+        },
+        "1047": {
+          "avg_entry": 88.19,
+          "shares": 11
+        }
+      },
+      "short": {
+        "1028": {
+          "created_at": "2026-05-20T19:30:00",
+          "entry_price": 106.54,
+          "frozen": false,
+          "locked_cash": 532.7,
+          "locked_fund": 0.0,
+          "shares": 5
+        }
+      }
+    }
+  },
+  "1026": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 19,
+        "reply_count": 6,
+        "role_ping_join_minutes": 14.45,
+        "role_ping_joins": 2.48,
+        "text_msgs": 36,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 15.3,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 9,
+        "reaction_count": 21,
+        "reply_count": 0,
+        "role_ping_join_minutes": 27.92,
+        "role_ping_joins": 3.6,
+        "text_msgs": 169,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 20.9,
+        "voice_unique_channels": [
+          "c7",
+          "c4"
+        ]
+      }
+    },
+    "cash_balance": 9464.8,
+    "daily": {
+      "last_claim": "2026-05-21T15:43:00",
+      "streak": 21
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:10:00",
+    "month_start_net_worth": 9593.5,
+    "net_worth": 10629.36,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1015": {
+          "avg_entry": 94.02,
+          "shares": 3
+        },
+        "1034": {
+          "avg_entry": 163.62,
+          "shares": 2
+        }
+      },
+      "short": {
+        "1039": {
+          "created_at": "2026-05-23T04:52:00",
+          "entry_price": 121.7,
+          "frozen": false,
+          "locked_cash": 243.4,
+          "locked_fund": 0.0,
+          "shares": 2
+        },
+        "1043": {
+          "created_at": "2026-05-20T18:30:00",
+          "entry_price": 100.93,
+          "frozen": false,
+          "locked_cash": 504.65,
+          "locked_fund": 0.0,
+          "shares": 5
+        }
+      }
+    }
+  },
+  "1027": {
+    "activity": {
+      "today": {
+        "media_msgs": 6,
+        "reaction_count": 27,
+        "reply_count": 7,
+        "role_ping_join_minutes": 22.88,
+        "role_ping_joins": 0.43,
+        "text_msgs": 40,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 62.13,
+        "voice_unique_channels": [
+          "c4",
+          "c3",
+          "c6"
+        ]
+      },
+      "week": {
+        "media_msgs": 18,
+        "reaction_count": 8,
+        "reply_count": 0,
+        "role_ping_join_minutes": 41.15,
+        "role_ping_joins": 2.26,
+        "text_msgs": 111,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 26.63,
+        "voice_unique_channels": [
+          "c0",
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 11126.99,
+    "daily": {
+      "last_claim": "2026-05-20T07:58:00",
+      "streak": 1
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:47:00",
+    "month_start_net_worth": 9762.72,
+    "net_worth": 13891.51,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1002": {
+          "avg_entry": 125.22,
+          "shares": 9
+        },
+        "1024": {
+          "avg_entry": 146.74,
+          "shares": 8
+        }
+      },
+      "short": {
+        "1003": {
+          "created_at": "2026-05-20T06:01:00",
+          "entry_price": 151.37,
+          "frozen": false,
+          "locked_cash": 756.85,
+          "locked_fund": 0.0,
+          "shares": 5
+        }
+      }
+    }
+  },
+  "1028": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 8,
+        "reply_count": 10,
+        "role_ping_join_minutes": 46.05,
+        "role_ping_joins": 3.02,
+        "text_msgs": 14,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 19.71,
+        "voice_unique_channels": [
+          "c9"
+        ]
+      },
+      "week": {
+        "media_msgs": 8,
+        "reaction_count": 9,
+        "reply_count": 12,
+        "role_ping_join_minutes": 34.77,
+        "role_ping_joins": 1.76,
+        "text_msgs": 194,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 56.54,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 20846.05,
+    "daily": {
+      "last_claim": "2026-05-19T10:05:00",
+      "streak": 7
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T10:20:00",
+    "month_start_net_worth": 10327.22,
+    "net_worth": 28069.53,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1006": {
+          "avg_entry": 110.2,
+          "shares": 9
+        },
+        "1009": {
+          "avg_entry": 100.76,
+          "shares": 2
+        },
+        "1041": {
+          "avg_entry": 138.85,
+          "shares": 12
+        }
+      },
+      "short": {
+        "1021": {
+          "created_at": "2026-05-21T13:32:00",
+          "entry_price": 113.91,
+          "frozen": false,
+          "locked_cash": 227.82,
+          "locked_fund": 0.0,
+          "shares": 2
+        },
+        "1027": {
+          "created_at": "2026-05-20T22:08:00",
+          "entry_price": 149.44,
+          "frozen": false,
+          "locked_cash": 747.2,
+          "locked_fund": 0.0,
+          "shares": 5
+        }
+      }
+    }
+  },
+  "1029": {
+    "activity": {
+      "today": {
+        "media_msgs": 4,
+        "reaction_count": 29,
+        "reply_count": 7,
+        "role_ping_join_minutes": 17.71,
+        "role_ping_joins": 3.87,
+        "text_msgs": 23,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 45.16,
+        "voice_unique_channels": [
+          "c2",
+          "c4"
+        ]
+      },
+      "week": {
+        "media_msgs": 25,
+        "reaction_count": 4,
+        "reply_count": 12,
+        "role_ping_join_minutes": 51.61,
+        "role_ping_joins": 3.87,
+        "text_msgs": 106,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 10.37,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 10475.25,
+    "daily": {
+      "last_claim": "2026-05-18T18:54:00",
+      "streak": 30
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:23:00",
+    "month_start_net_worth": 10359.54,
+    "net_worth": 12081.61,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1005": {
+          "avg_entry": 78.9,
+          "shares": 11
+        },
+        "1038": {
+          "avg_entry": 162.43,
+          "shares": 3
+        }
+      },
+      "short": {
+        "1037": {
+          "created_at": "2026-05-23T16:24:00",
+          "entry_price": 154.87,
+          "frozen": false,
+          "locked_cash": 464.61,
+          "locked_fund": 0.0,
+          "shares": 3
+        }
+      }
+    }
+  },
+  "1030": {
+    "activity": {
+      "today": {
+        "media_msgs": 5,
+        "reaction_count": 26,
+        "reply_count": 10,
+        "role_ping_join_minutes": 6.5,
+        "role_ping_joins": 3.76,
+        "text_msgs": 29,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 60.55,
+        "voice_unique_channels": [
+          "c9",
+          "c6"
+        ]
+      },
+      "week": {
+        "media_msgs": 15,
+        "reaction_count": 20,
+        "reply_count": 1,
+        "role_ping_join_minutes": 27.86,
+        "role_ping_joins": 2.54,
+        "text_msgs": 79,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 2.25,
+        "voice_unique_channels": [
+          "c9",
+          "c3"
+        ]
+      }
+    },
+    "cash_balance": 19798.45,
+    "daily": {
+      "last_claim": "2026-05-17T15:41:00",
+      "streak": 5
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T10:07:00",
+    "month_start_net_worth": 9609.72,
+    "net_worth": 19909.8,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1035": {
+          "avg_entry": 131.5,
+          "shares": 9
+        },
+        "1045": {
+          "avg_entry": 83.94,
+          "shares": 6
+        }
+      },
+      "short": {
+        "1012": {
+          "created_at": "2026-05-22T21:49:00",
+          "entry_price": 108.96,
+          "frozen": false,
+          "locked_cash": 544.8,
+          "locked_fund": 0.0,
+          "shares": 5
+        },
+        "1031": {
+          "created_at": "2026-05-22T19:30:00",
+          "entry_price": 132.65,
+          "frozen": false,
+          "locked_cash": 795.9,
+          "locked_fund": 0.0,
+          "shares": 6
+        }
+      }
+    }
+  },
+  "1031": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 14,
+        "reply_count": 5,
+        "role_ping_join_minutes": 44.59,
+        "role_ping_joins": 2.68,
+        "text_msgs": 7,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 21.13,
+        "voice_unique_channels": [
+          "c6"
+        ]
+      },
+      "week": {
+        "media_msgs": 26,
+        "reaction_count": 20,
+        "reply_count": 1,
+        "role_ping_join_minutes": 36.94,
+        "role_ping_joins": 3.33,
+        "text_msgs": 158,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 52.86,
+        "voice_unique_channels": [
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 1276.87,
+    "daily": {
+      "last_claim": "2026-05-16T14:02:00",
+      "streak": 0
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:23:00",
+    "month_start_net_worth": 10987.78,
+    "net_worth": 1574.57,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1009": {
+          "avg_entry": 118.77,
+          "shares": 7
+        }
+      },
+      "short": {
+        "1016": {
+          "created_at": "2026-05-21T09:49:00",
+          "entry_price": 124.07,
+          "frozen": false,
+          "locked_cash": 372.21,
+          "locked_fund": 0.0,
+          "shares": 3
+        }
+      }
+    }
+  },
+  "1032": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 8,
+        "reply_count": 3,
+        "role_ping_join_minutes": 56.94,
+        "role_ping_joins": 3.87,
+        "text_msgs": 6,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 49.0,
+        "voice_unique_channels": [
+          "c0",
+          "c6"
+        ]
+      },
+      "week": {
+        "media_msgs": 5,
+        "reaction_count": 1,
+        "reply_count": 12,
+        "role_ping_join_minutes": 59.33,
+        "role_ping_joins": 1.33,
+        "text_msgs": 136,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 59.65,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 11168.07,
+    "daily": {
+      "last_claim": "2026-05-15T12:04:00",
+      "streak": 3
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T11:13:00",
+    "month_start_net_worth": 10566.35,
+    "net_worth": 18772.51,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1008": {
+          "avg_entry": 86.23,
+          "shares": 9
+        }
+      },
+      "short": {
+        "1014": {
+          "created_at": "2026-05-22T09:07:00",
+          "entry_price": 150.36,
+          "frozen": false,
+          "locked_cash": 751.8,
+          "locked_fund": 0.0,
+          "shares": 5
+        },
+        "1047": {
+          "created_at": "2026-05-22T15:22:00",
+          "entry_price": 134.35,
+          "frozen": false,
+          "locked_cash": 806.1,
+          "locked_fund": 0.0,
+          "shares": 6
+        }
+      }
+    }
+  },
+  "1033": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 17,
+        "reply_count": 4,
+        "role_ping_join_minutes": 6.6,
+        "role_ping_joins": 3.19,
+        "text_msgs": 9,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 0.26,
+        "voice_unique_channels": [
+          "c2"
+        ]
+      },
+      "week": {
+        "media_msgs": 1,
+        "reaction_count": 10,
+        "reply_count": 0,
+        "role_ping_join_minutes": 3.14,
+        "role_ping_joins": 0.7,
+        "text_msgs": 26,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 1.34,
+        "voice_unique_channels": [
+          "c9"
+        ]
+      }
+    },
+    "cash_balance": 5516.39,
+    "daily": {
+      "last_claim": "2026-05-22T19:33:00",
+      "streak": 5
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:47:00",
+    "month_start_net_worth": 8985.68,
+    "net_worth": 12473.95,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1011": {
+          "avg_entry": 158.93,
+          "shares": 6
+        }
+      },
+      "short": {
+        "1023": {
+          "created_at": "2026-05-22T23:30:00",
+          "entry_price": 149.68,
+          "frozen": false,
+          "locked_cash": 449.04,
+          "locked_fund": 0.0,
+          "shares": 3
+        },
+        "1026": {
+          "created_at": "2026-05-22T22:05:00",
+          "entry_price": 105.33,
+          "frozen": false,
+          "locked_cash": 210.66,
+          "locked_fund": 0.0,
+          "shares": 2
+        }
+      }
+    }
+  },
+  "1034": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 23,
+        "reply_count": 12,
+        "role_ping_join_minutes": 39.53,
+        "role_ping_joins": 3.64,
+        "text_msgs": 6,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 45.35,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 14,
+        "reaction_count": 1,
+        "reply_count": 7,
+        "role_ping_join_minutes": 25.58,
+        "role_ping_joins": 3.39,
+        "text_msgs": 97,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 57.9,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 11984.71,
+    "daily": {
+      "last_claim": "2026-05-21T09:31:00",
+      "streak": 21
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:58:00",
+    "month_start_net_worth": 9539.71,
+    "net_worth": 18208.85,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1023": {
+          "avg_entry": 155.23,
+          "shares": 9
+        }
+      },
+      "short": {
+        "1013": {
+          "created_at": "2026-05-22T04:06:00",
+          "entry_price": 103.98,
+          "frozen": false,
+          "locked_cash": 519.9,
+          "locked_fund": 0.0,
+          "shares": 5
+        }
+      }
+    }
+  },
+  "1035": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 9,
+        "reply_count": 7,
+        "role_ping_join_minutes": 25.81,
+        "role_ping_joins": 2.02,
+        "text_msgs": 4,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 24.75,
+        "voice_unique_channels": [
+          "c6",
+          "c8"
+        ]
+      },
+      "week": {
+        "media_msgs": 7,
+        "reaction_count": 14,
+        "reply_count": 3,
+        "role_ping_join_minutes": 49.65,
+        "role_ping_joins": 1.66,
+        "text_msgs": 199,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 76.75,
+        "voice_unique_channels": [
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 1976.24,
+    "daily": {
+      "last_claim": "2026-05-20T18:26:00",
+      "streak": 14
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:06:00",
+    "month_start_net_worth": 9824.89,
+    "net_worth": 2622.56,
+    "opt_in": true,
+    "portfolio": {
+      "long": {
+        "1017": {
+          "avg_entry": 131.06,
+          "shares": 4
+        }
+      },
+      "short": {
+        "1016": {
+          "created_at": "2026-05-21T20:14:00",
+          "entry_price": 131.89,
+          "frozen": false,
+          "locked_cash": 131.89,
+          "locked_fund": 0.0,
+          "shares": 1
+        }
+      }
+    }
+  },
+  "1036": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 2,
+        "reply_count": 1,
+        "role_ping_join_minutes": 5.79,
+        "role_ping_joins": 0.37,
+        "text_msgs": 9,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 83.07,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 23,
+        "reaction_count": 18,
+        "reply_count": 8,
+        "role_ping_join_minutes": 40.2,
+        "role_ping_joins": 2.25,
+        "text_msgs": 209,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 73.06,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 10755.09,
+    "daily": {
+      "last_claim": "2026-05-19T19:22:00",
+      "streak": 6
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:48:00",
+    "month_start_net_worth": 9122.9,
+    "net_worth": 16075.95,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1037": {
+    "activity": {
+      "today": {
+        "media_msgs": 4,
+        "reaction_count": 21,
+        "reply_count": 7,
+        "role_ping_join_minutes": 6.49,
+        "role_ping_joins": 0.9,
+        "text_msgs": 38,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 31.65,
+        "voice_unique_channels": [
+          "c2"
+        ]
+      },
+      "week": {
+        "media_msgs": 23,
+        "reaction_count": 25,
+        "reply_count": 6,
+        "role_ping_join_minutes": 58.47,
+        "role_ping_joins": 3.38,
+        "text_msgs": 162,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 10.34,
+        "voice_unique_channels": [
+          "c9",
+          "c3"
+        ]
+      }
+    },
+    "cash_balance": 21722.09,
+    "daily": {
+      "last_claim": "2026-05-18T06:38:00",
+      "streak": 21
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T11:53:00",
+    "month_start_net_worth": 10905.2,
+    "net_worth": 27490.58,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1038": {
+    "activity": {
+      "today": {
+        "media_msgs": 2,
+        "reaction_count": 18,
+        "reply_count": 10,
+        "role_ping_join_minutes": 8.51,
+        "role_ping_joins": 1.6,
+        "text_msgs": 19,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 31.59,
+        "voice_unique_channels": [
+          "c2"
+        ]
+      },
+      "week": {
+        "media_msgs": 1,
+        "reaction_count": 13,
+        "reply_count": 7,
+        "role_ping_join_minutes": 22.2,
+        "role_ping_joins": 1.36,
+        "text_msgs": 182,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 8.26,
+        "voice_unique_channels": [
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 6796.08,
+    "daily": {
+      "last_claim": "2026-05-17T16:49:00",
+      "streak": 2
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T11:38:00",
+    "month_start_net_worth": 10108.1,
+    "net_worth": 8239.41,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1039": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 8,
+        "reply_count": 3,
+        "role_ping_join_minutes": 6.83,
+        "role_ping_joins": 3.02,
+        "text_msgs": 3,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 24.49,
+        "voice_unique_channels": [
+          "c7",
+          "c9",
+          "c6"
+        ]
+      },
+      "week": {
+        "media_msgs": 7,
+        "reaction_count": 7,
+        "reply_count": 6,
+        "role_ping_join_minutes": 3.29,
+        "role_ping_joins": 3.94,
+        "text_msgs": 130,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 25.49,
+        "voice_unique_channels": [
+          "c8",
+          "c4",
+          "c0"
+        ]
+      }
+    },
+    "cash_balance": 22101.05,
+    "daily": {
+      "last_claim": "2026-05-16T12:19:00",
+      "streak": 7
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:49:00",
+    "month_start_net_worth": 10263.31,
+    "net_worth": 23345.69,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1040": {
+    "activity": {
+      "today": {
+        "media_msgs": 6,
+        "reaction_count": 2,
+        "reply_count": 6,
+        "role_ping_join_minutes": 2.54,
+        "role_ping_joins": 3.45,
+        "text_msgs": 31,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 15.81,
+        "voice_unique_channels": [
+          "c8",
+          "c3",
+          "c5"
+        ]
+      },
+      "week": {
+        "media_msgs": 3,
+        "reaction_count": 18,
+        "reply_count": 6,
+        "role_ping_join_minutes": 25.06,
+        "role_ping_joins": 2.84,
+        "text_msgs": 24,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 82.9,
+        "voice_unique_channels": [
+          "c9",
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 19139.4,
+    "daily": {
+      "last_claim": "2026-05-15T09:25:00",
+      "streak": 2
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:20:00",
+    "month_start_net_worth": 8359.95,
+    "net_worth": 21454.98,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1041": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 7,
+        "reply_count": 6,
+        "role_ping_join_minutes": 31.44,
+        "role_ping_joins": 2.36,
+        "text_msgs": 23,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 39.3,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 27,
+        "reaction_count": 24,
+        "reply_count": 2,
+        "role_ping_join_minutes": 37.99,
+        "role_ping_joins": 0.31,
+        "text_msgs": 121,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 27.92,
+        "voice_unique_channels": [
+          "c3",
+          "c5"
+        ]
+      }
+    },
+    "cash_balance": 20062.86,
+    "daily": {
+      "last_claim": "2026-05-22T22:32:00",
+      "streak": 21
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T09:57:00",
+    "month_start_net_worth": 10496.08,
+    "net_worth": 25007.86,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1042": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 19,
+        "reply_count": 2,
+        "role_ping_join_minutes": 39.33,
+        "role_ping_joins": 3.04,
+        "text_msgs": 9,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 9.25,
+        "voice_unique_channels": [
+          "c3",
+          "c2"
+        ]
+      },
+      "week": {
+        "media_msgs": 15,
+        "reaction_count": 4,
+        "reply_count": 7,
+        "role_ping_join_minutes": 26.53,
+        "role_ping_joins": 0.27,
+        "text_msgs": 65,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 41.76,
+        "voice_unique_channels": [
+          "c9",
+          "c5",
+          "c8"
+        ]
+      }
+    },
+    "cash_balance": 8831.98,
+    "daily": {
+      "last_claim": "2026-05-21T15:50:00",
+      "streak": 0
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T10:37:00",
+    "month_start_net_worth": 10456.85,
+    "net_worth": 14651.01,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1043": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 19,
+        "reply_count": 9,
+        "role_ping_join_minutes": 27.76,
+        "role_ping_joins": 2.03,
+        "text_msgs": 2,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 33.19,
+        "voice_unique_channels": [
+          "c1",
+          "c9"
+        ]
+      },
+      "week": {
+        "media_msgs": 2,
+        "reaction_count": 19,
+        "reply_count": 7,
+        "role_ping_join_minutes": 57.46,
+        "role_ping_joins": 2.01,
+        "text_msgs": 161,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 40.48,
+        "voice_unique_channels": [
+          "c5"
+        ]
+      }
+    },
+    "cash_balance": 8895.76,
+    "daily": {
+      "last_claim": "2026-05-20T20:06:00",
+      "streak": 3
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T10:45:00",
+    "month_start_net_worth": 9385.23,
+    "net_worth": 9489.29,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1044": {
+    "activity": {
+      "today": {
+        "media_msgs": 7,
+        "reaction_count": 11,
+        "reply_count": 4,
+        "role_ping_join_minutes": 46.47,
+        "role_ping_joins": 1.55,
+        "text_msgs": 28,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 47.17,
+        "voice_unique_channels": [
+          "c5"
+        ]
+      },
+      "week": {
+        "media_msgs": 38,
+        "reaction_count": 3,
+        "reply_count": 8,
+        "role_ping_join_minutes": 17.05,
+        "role_ping_joins": 2.71,
+        "text_msgs": 193,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 4.71,
+        "voice_unique_channels": [
+          "c1",
+          "c5"
+        ]
+      }
+    },
+    "cash_balance": 12688.04,
+    "daily": {
+      "last_claim": "2026-05-19T10:21:00",
+      "streak": 14
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T09:37:00",
+    "month_start_net_worth": 8743.23,
+    "net_worth": 14068.51,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1045": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 9,
+        "reply_count": 8,
+        "role_ping_join_minutes": 47.5,
+        "role_ping_joins": 1.51,
+        "text_msgs": 25,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 53.55,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 10,
+        "reaction_count": 20,
+        "reply_count": 10,
+        "role_ping_join_minutes": 21.71,
+        "role_ping_joins": 1.69,
+        "text_msgs": 52,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 63.25,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 3664.5,
+    "daily": {
+      "last_claim": "2026-05-18T17:19:00",
+      "streak": 14
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:13:00",
+    "month_start_net_worth": 10903.09,
+    "net_worth": 6463.07,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1046": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 16,
+        "reply_count": 12,
+        "role_ping_join_minutes": 44.32,
+        "role_ping_joins": 2.16,
+        "text_msgs": 8,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 6.94,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 2,
+        "reaction_count": 12,
+        "reply_count": 2,
+        "role_ping_join_minutes": 49.88,
+        "role_ping_joins": 0.65,
+        "text_msgs": 154,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 59.57,
+        "voice_unique_channels": [
+          "c9"
+        ]
+      }
+    },
+    "cash_balance": 23699.56,
+    "daily": {
+      "last_claim": "2026-05-17T11:46:00",
+      "streak": 5
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T10:02:00",
+    "month_start_net_worth": 8679.63,
+    "net_worth": 27589.73,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1047": {
+    "activity": {
+      "today": {
+        "media_msgs": 4,
+        "reaction_count": 9,
+        "reply_count": 12,
+        "role_ping_join_minutes": 54.24,
+        "role_ping_joins": 3.14,
+        "text_msgs": 39,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 67.72,
+        "voice_unique_channels": [
+          "c3",
+          "c8",
+          "c9"
+        ]
+      },
+      "week": {
+        "media_msgs": 11,
+        "reaction_count": 16,
+        "reply_count": 8,
+        "role_ping_join_minutes": 9.72,
+        "role_ping_joins": 1.67,
+        "text_msgs": 69,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 61.05,
+        "voice_unique_channels": [
+          "c7",
+          "c4",
+          "c6"
+        ]
+      }
+    },
+    "cash_balance": 9202.84,
+    "daily": {
+      "last_claim": "2026-05-16T12:51:00",
+      "streak": 7
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T11:08:00",
+    "month_start_net_worth": 10908.77,
+    "net_worth": 14959.53,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1048": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 9,
+        "reply_count": 1,
+        "role_ping_join_minutes": 16.37,
+        "role_ping_joins": 3.05,
+        "text_msgs": 35,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 64.03,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 9,
+        "reaction_count": 30,
+        "reply_count": 3,
+        "role_ping_join_minutes": 53.08,
+        "role_ping_joins": 3.27,
+        "text_msgs": 151,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 74.79,
+        "voice_unique_channels": []
+      }
+    },
+    "cash_balance": 6362.58,
+    "daily": {
+      "last_claim": "2026-05-15T06:26:00",
+      "streak": 7
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T09:25:00",
+    "month_start_net_worth": 10622.35,
+    "net_worth": 11492.01,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1049": {
+    "activity": {
+      "today": {
+        "media_msgs": 0,
+        "reaction_count": 26,
+        "reply_count": 11,
+        "role_ping_join_minutes": 47.48,
+        "role_ping_joins": 2.6,
+        "text_msgs": 14,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 28.68,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 0,
+        "reaction_count": 19,
+        "reply_count": 0,
+        "role_ping_join_minutes": 1.14,
+        "role_ping_joins": 3.62,
+        "text_msgs": 55,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 25.82,
+        "voice_unique_channels": [
+          "c2",
+          "c7",
+          "c8"
+        ]
+      }
+    },
+    "cash_balance": 9442.94,
+    "daily": {
+      "last_claim": "2026-05-22T12:53:00",
+      "streak": 2
+    },
+    "intro_shown": true,
+    "last_activity": "2026-05-23T09:35:00",
+    "month_start_net_worth": 8244.82,
+    "net_worth": 12532.27,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  },
+  "1050": {
+    "activity": {
+      "today": {
+        "media_msgs": 1,
+        "reaction_count": 7,
+        "reply_count": 6,
+        "role_ping_join_minutes": 37.37,
+        "role_ping_joins": 2.56,
+        "text_msgs": 18,
+        "timestamp": "2026-05-23T00:30:00",
+        "voice_minutes": 27.1,
+        "voice_unique_channels": []
+      },
+      "week": {
+        "media_msgs": 1,
+        "reaction_count": 20,
+        "reply_count": 8,
+        "role_ping_join_minutes": 43.11,
+        "role_ping_joins": 2.3,
+        "text_msgs": 36,
+        "timestamp": "2026-05-18T00:30:00",
+        "voice_minutes": 75.3,
+        "voice_unique_channels": [
+          "c9",
+          "c8",
+          "c0"
+        ]
+      }
+    },
+    "cash_balance": 18221.78,
+    "daily": {
+      "last_claim": "2026-05-21T15:27:00",
+      "streak": 30
+    },
+    "intro_shown": false,
+    "last_activity": "2026-05-23T09:39:00",
+    "month_start_net_worth": 8333.56,
+    "net_worth": 22443.95,
+    "opt_in": true,
+    "portfolio": {
+      "long": {},
+      "short": {}
+    }
+  }
+}
