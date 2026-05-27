@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-27-phase-16
-status: RUNNING
+status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-16
-phase: 1 of 1  unit: WORK  review_iter: 0 of 3
-current_baton: -
-units_used: 0
+phase: 1 of 1  unit: -  review_iter: 1 of 3 (CLEAN)
+current_baton: pass-baton/phase-16/001-2026-05-27-review-clean.md
+units_used: 2
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -126,5 +126,5 @@ phases:
   - id: phase-16   spec: docs/04-migration-plan.md §Phase 16 (lines 828-854)
     readiness: READY  (post-signoff)
     unit_agent: python-pro
-    branch: feat/phase-16-cutover  pr: -  digest: baton-runner/br-2026-05-27-phase-16/digest-phase-16.md
-    units: 0  state: PENDING
+    branch: feat/phase-16-cutover  pr: https://github.com/z0rd0n88/Friendex/pull/69  digest: baton-runner/br-2026-05-27-phase-16/digest-phase-16.md
+    units: 2  state: DONE   (review CLEAN iter-1, M1-M6 RED-under-mutation verified, 0 findings at any severity)
