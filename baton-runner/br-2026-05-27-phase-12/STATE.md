@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-27-phase-12
-status: RUNNING
+status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-12
-phase: 2 of 2  unit: WORK  review_iter: 0 of 3
-current_baton: pass-baton/phase-12a/003-2026-05-27-phase-12a-review.md
-units_used: 3
+phase: 2 of 2  unit: DONE  review_iter: 1 of 3 (CLEAN)
+current_baton: pass-baton/phase-12b/003-2026-05-27-phase-12b-review.md
+units_used: 6
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -92,7 +92,8 @@ phases:
     unit_agent: python-pro
     branch: feat/phase-12b-listeners-voice  base: feat/phase-12a-listeners-simple
     pr: -  digest: baton-runner/br-2026-05-27-phase-12/digest-phase-12b.md
-    units: 0  state: PENDING
+    work_commit: 38b58e4  review_clean_baton: pass-baton/phase-12b/003-2026-05-27-phase-12b-review.md
+    units: 2  state: DONE (work respawned after 529, iter-1 CLEAN)
     acceptance_criteria: |
       B1. message_listener.py registers MessageListener(commands.Cog) with on_message.
           - Skip ALL author.bot is True (incl. other bots and self)

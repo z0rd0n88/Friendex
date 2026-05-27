@@ -437,7 +437,7 @@ async def test_voice_session_store_set_get_pop_and_link_ping() -> None:
     assert fetched is not None
     assert fetched.channel_id == PLAIN_CHANNEL
 
-    # Linking a ping mutates the live session's set in place (volatile state).
+    # Linking a ping appears in a freshly fetched session.
     await store.link_ping(USER, 999)
     linked = await store.get(USER)
     assert linked is not None
@@ -450,6 +450,50 @@ async def test_voice_session_store_set_get_pop_and_link_ping() -> None:
     popped = await store.pop(USER)
     assert popped is not None
     assert await store.get(USER) is None
+
+
+async def test_link_ping_rebuilds_session_immutably() -> None:
+    """CF-1: ``link_ping`` must replace the session, not mutate its ``set``.
+
+    Volatile in-memory state still obeys the project-wide immutability rule
+    (Phase 3.1 invariant; reaffirmed in the Phase 8a digest LOWs).
+    A caller (or test) holding a reference to the original session — captured
+    *before* ``link_ping`` runs — must observe its ``from_ping_message_ids``
+    set unchanged after the call. The store must rebuild the session via
+    :func:`dataclasses.replace` instead of calling ``.add`` on the existing set.
+
+    Load-bearing: reverting the implementation to
+    ``session.from_ping_message_ids.add(message_id)`` makes this test fail
+    because the captured ``original_ids`` set would observe the new id.
+    """
+    store = VoiceSessionStore()
+    original_ids: set[int] = set()
+    session = VoiceSession(
+        user_id=USER,
+        channel_id=PLAIN_CHANNEL,
+        start=datetime.now(tz=UTC),
+        from_ping_message_ids=original_ids,
+    )
+    await store.set(session)
+
+    # Snapshot what the caller's reference looked like before the link.
+    snapshot_before = frozenset(original_ids)
+    snapshot_id_before = id(original_ids)
+
+    await store.link_ping(USER, 4242)
+
+    # The original set the caller passed in must remain unchanged.
+    assert frozenset(original_ids) == snapshot_before, (
+        "link_ping mutated the caller's set in place; expected immutable rebuild"
+    )
+    assert id(original_ids) == snapshot_id_before
+
+    # The freshly fetched session must carry the new ping id (new set, content + delta).
+    linked = await store.get(USER)
+    assert linked is not None
+    assert 4242 in linked.from_ping_message_ids
+    # And the stored set is a NEW object — not the caller's.
+    assert linked.from_ping_message_ids is not original_ids
 
 
 class _BarrierUserRepo:

@@ -29,7 +29,7 @@ replaced (never mutated in place) and round-tripped through ``upsert``.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -37,6 +37,7 @@ from friendex.domain.models import (
     ActivityBucket,
     DailyProgress,
     UserAccount,
+    VcExtraBoost,
     VoicePingSession,
 )
 from friendex.domain.price_engine import apply_floor_stall
@@ -92,6 +93,37 @@ class VoicePingService:
         )
         await self._ping_sessions.set(session)
         await self._credit(host_id, role_ping_joins=1.0)
+
+    async def collect_extra_boosts(self, now: datetime) -> list[VcExtraBoost]:
+        """Return one :class:`VcExtraBoost` per extra joiner across open pings.
+
+        The Phase 12 voice listener calls this after every voice join/switch
+        and pushes the result into
+        :meth:`~friendex.adapters.tasks.vc_boost_task.VcBoostTask.set_store_for_guild`
+        so the periodic boost loop has a fresh per-guild roster (Phase 9
+        digest §3 + Phase 12 STATE.md CF-4). Each boost entry is built from
+        the original spec recipe (``docs/spec/original-skeleton.md:559-563``):
+
+        * ``ping_time`` — the ping session's timestamp;
+        * ``last_boost`` — ``now`` (no boost has been applied yet);
+        * ``end_time`` — ``ping_time + voice_ping_window_seconds``.
+
+        Read-only: the ping-session store is not mutated.
+        """
+        window = timedelta(seconds=self._settings.voice_ping_window_seconds)
+        boosts: list[VcExtraBoost] = []
+        for session in await self._ping_sessions.list_all():
+            end_time = session.timestamp + window
+            for user_id in session.extra_joiners:
+                boosts.append(
+                    VcExtraBoost(
+                        user_id=user_id,
+                        ping_time=session.timestamp,
+                        last_boost=now,
+                        end_time=end_time,
+                    )
+                )
+        return boosts
 
     async def cleanup_expired_pings(self, now: datetime) -> int:
         """Evict ping sessions older than the response window; return the count.
@@ -153,21 +185,50 @@ class VoicePingService:
         responder_id: str,
         age: float,
     ) -> None:
-        """Apply the join placement, price boost, and engagement credit once."""
+        """Apply the join placement, price boost, and engagement credit once.
+
+        **RMW atomicity (CF-2 / Phase 8a LOW).** The cap-check + write is a
+        read-modify-write on the live ping session: two responders racing the
+        same ping must not both observe a stale ``first_10_joiners`` snapshot
+        and both pass the cap. The cap-check and the ``_ping_sessions.set``
+        write that records the placement are serialised under
+        ``lock_manager.locked(f"{guild_id}:ping:{message_id}")`` — a composite
+        per-ping key that does not contend with the per-user keys used
+        elsewhere. The downstream price-boost + engagement-credit calls run
+        outside this lock: they take their own per-user composite locks, and a
+        concurrent responder arriving after the placement write sees the fresh
+        ``first_10_joiners`` list and correctly falls through to ``extra_joiners``.
+        """
         cap = self._settings.voice_ping_first_n_joiners
-        if len(session.first_10_joiners) < cap:
-            updated = replace(
-                session,
-                first_10_joiners=[*session.first_10_joiners, responder_id],
-            )
+        placed_in_first_n = False
+        async with self._locks.locked(self._ping_lock_key(session.message_id)):
+            # Re-read under the lock so the second responder sees the first
+            # responder's just-committed placement instead of the stale snapshot.
+            current = await self._ping_sessions.get(session.message_id)
+            if current is None:
+                # Session was swept (cleanup_expired_pings) between the outer
+                # snapshot and the lock acquisition; drop silently.
+                return
+            if responder_id in current.first_10_joiners or (
+                responder_id in current.extra_joiners
+            ):
+                # Lost the race: already credited by another concurrent caller.
+                return
+            if len(current.first_10_joiners) < cap:
+                updated = replace(
+                    current,
+                    first_10_joiners=[*current.first_10_joiners, responder_id],
+                )
+                placed_in_first_n = True
+            else:
+                updated = replace(
+                    current,
+                    extra_joiners=[*current.extra_joiners, responder_id],
+                )
             await self._ping_sessions.set(updated)
+
+        if placed_in_first_n:
             await self._apply_join_boost(responder_id)
-        else:
-            updated = replace(
-                session,
-                extra_joiners=[*session.extra_joiners, responder_id],
-            )
-            await self._ping_sessions.set(updated)
 
         bonus = self._settings.voice_ping_base_points * self._speed_multiplier(age)
         await self._credit(responder_id, role_ping_join_minutes=bonus)
@@ -193,6 +254,17 @@ class VoicePingService:
         guild id into the key guarantees that.
         """
         return f"{self._guild_id}:{user_id}"
+
+    def _ping_lock_key(self, message_id: int) -> str:
+        """Return the ``LockManager`` key for a ping session's RMW critical section.
+
+        The cap-check + placement write in :meth:`_reward_for_session` is a
+        read-modify-write on the live ping session; a per-ping composite key
+        (``"<guild_id>:ping:<message_id>"``) keeps concurrent responders to
+        the *same* ping serialised without contending with the per-user keys
+        used by everything else in the service.
+        """
+        return f"{self._guild_id}:ping:{message_id}"
 
     async def _apply_join_boost(self, responder_id: str) -> None:
         """Apply the one-time first-N-joiner price boost to ``responder_id``."""

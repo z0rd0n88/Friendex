@@ -17,3 +17,13 @@ Append-only. One UTC line per action.
 2026-05-27T05:40:00Z spawn REVIEW 12a iter-1-retry · agent python-pro · agentId a05c8428086ecba78
 2026-05-27T05:46:21Z return REVIEW 12a iter-1-retry · STATUS COMPLETE · VERDICT CLEAN · baton pass-baton/phase-12a/003-2026-05-27-phase-12a-review.md · 72 tool uses · 6m21s · gate green (724 pytest, ruff/format/mypy) · M1/M2/M3 all RED-on-revert · 0 findings · digest written
 2026-05-27T05:46:30Z phase-12a state DONE · units_used 3/75 (work + invalid-iter1 + iter1-retry)
+2026-05-27T05:48:00Z manager push feat/phase-12a-listeners-simple · PR #61 opened ready-for-review against main · CI in_progress
+2026-05-27T05:48:30Z manager branch · git switch -c feat/phase-12b-listeners-voice (stacked on 12a tip f43ce67)
+2026-05-27T05:49:00Z spawn WORK 12b · agent python-pro · agentId ad62c9aee40b07b48
+2026-05-27T05:55:00Z return WORK 12b · STATUS ABORTED (API 529 Overloaded) · agent ad62c9aee40b07b48 · 35 tool uses · 5m28s · no baton written · no files touched in worktree (git status empty post-abort)
+2026-05-27T05:55:30Z manager respawn WORK 12b · same prompt; counts the prior attempt as units_used 4 but with zero progress (the 3-INCOMPLETE-no-progress fatal counter does NOT apply since this was an upstream 529, not a unit-side stall)
+2026-05-27T06:05:00Z return WORK 12b (respawn) · STATUS COMPLETE · baton pass-baton/phase-12b/002-2026-05-27-phase-12b-complete.md · 90 tool uses · 19m42s · 9 files (4 product + 4 test + 2 baton + INDEX; updates voice_session_store.py + voice_ping_service.py for CF-1/CF-2; touches tests/application/test_activity_service.py for CF-1 immutability test + stale-comment fix)
+2026-05-27T06:05:01Z commit 38b58e4 · feat(phase-12b): voice + message listeners + CF-1/CF-2/CF-4 fixes · 12 files · units_used 5/75
+2026-05-27T06:05:30Z spawn REVIEW 12b iter-1 · agent python-pro · agentId affe7eb6727a6f5da · M1-M4 prescribed, mutation-discipline hardened
+2026-05-27T06:15:00Z return REVIEW 12b iter-1 · STATUS COMPLETE · VERDICT CLEAN · baton pass-baton/phase-12b/003-2026-05-27-phase-12b-review.md · 82 tool uses · 8m07s · gate green (750 pytest, ruff/format/mypy) · M1-M4 all RED-on-revert · 0 CRITICAL/HIGH/MEDIUM · 2 LOW carry-forward · digest written
+2026-05-27T06:15:30Z phase-12b state DONE · units_used 6/75 · run DONE
