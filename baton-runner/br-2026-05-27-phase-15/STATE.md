@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-27-phase-15
-status: RUNNING
+status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-27-phase-15
-phase: 2 of 2  unit: WORK  review_iter: 0 of 3
-current_baton: pass-baton/phase-15a/002-2026-05-27-review-clean.md
-units_used: 2
+phase: 2 of 2  unit: -  review_iter: 1 of 3 (CLEAN)
+current_baton: pass-baton/phase-15b/001-2026-05-27-migrate-flags-review-clean.md
+units_used: 4
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -38,8 +38,8 @@ phases:
   - id: phase-15b  spec: docs/04-migration-plan.md §Phase 15 (lines 793-824) — migrator flags + orphan check split
     readiness: READY
     unit_agent: python-pro
-    branch: feat/phase-15b-migrate-flags  pr: -  digest: baton-runner/br-2026-05-27-phase-15/digest-phase-15b.md
-    units: 0   state: PENDING
+    branch: feat/phase-15b-migrate-flags  pr: https://github.com/z0rd0n88/Friendex/pull/67  digest: baton-runner/br-2026-05-27-phase-15/digest-phase-15b.md
+    units: 2   state: DONE   (review CLEAN iter-1, B1/B2/B3 RED-under-mutation verified, 0 CRIT/HIGH/MED)
 
 # Acceptance criteria locked at signoff:
 #
