@@ -331,6 +331,7 @@ async def test_liquidation_event_payload_correct(
     assert len(events) == 1
     event = events[0]
     assert isinstance(event, LiquidationEvent)
+    assert event.guild_id == GUILD
     assert event.holder_id == HOLDER
     assert event.target_id == TARGET
     assert event.shares == 10

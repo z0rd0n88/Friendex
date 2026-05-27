@@ -1,20 +1,15 @@
-"""Friendex CLI entry point (Phase 13).
+"""Friendex CLI entry point (Phase 14).
 
 This module exposes :func:`main` — the synchronous CLI shim — and
 :func:`amain` — the async core that loads settings, configures logging,
 builds the engine + sessionmaker, constructs the
-:class:`~friendex.adapters.container.Container`, and then raises
-:class:`NotImplementedError` at the bot-construction seam.
+:class:`~friendex.adapters.container.Container`, builds the bot via
+:func:`~friendex.adapters.discord_bot.bot.build_bot`, registers cogs and
+listeners (and the error handler), then starts the bot.
 
-Phase 14 will replace the ``NotImplementedError`` with the actual
-``build_bot`` + ``bot.start(settings.discord_token)`` call. The seam is
-deliberate: Phase 13 must ship a runnable composition root that exits
-cleanly (after disposing the engine) so the next phase only has to fill in
-the bot-factory + lifecycle bits.
-
-The engine disposal sits in a ``try ... finally`` — even when the
-``NotImplementedError`` propagates out of ``amain`` the engine is closed
-gracefully, so subsequent restarts don't inherit a stuck pool.
+The engine disposal sits in a ``try ... finally`` — even when the bot
+exits with an exception the engine is closed gracefully so subsequent
+restarts don't inherit a stuck pool.
 """
 
 from __future__ import annotations
@@ -25,6 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from friendex.adapters.config import Settings, configure_logging
 from friendex.adapters.container import Container
+from friendex.adapters.discord_bot.bot import build_bot
 
 
 async def amain() -> None:
@@ -36,7 +32,10 @@ async def amain() -> None:
     2. Configure structured logging.
     3. Build an async SQLAlchemy engine + sessionmaker.
     4. Construct the :class:`Container` over the sessionmaker.
-    5. Raise :class:`NotImplementedError` — Phase 14 fills in the bot.
+    5. Build the bot via :func:`build_bot` and start it. ``setup_hook`` runs
+       :meth:`Container.register_with`, :meth:`Container.bind_runtime`, then
+       :meth:`task.start` for every task, then a global tree sync (with an
+       optional dev-guild sync when ``settings.dev_guild_id`` is set).
     6. Always dispose the engine in ``finally``.
     """
     # ``Settings`` derives every field from environment / ``.env`` via
@@ -48,8 +47,9 @@ async def amain() -> None:
     engine = create_async_engine(settings.database_url)
     try:
         sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
-        Container(settings, sessionmaker)
-        raise NotImplementedError("Phase 14: build_bot + bot.start")
+        container = Container(settings, sessionmaker)
+        bot = build_bot(settings, container)
+        await bot.start(settings.discord_token)
     finally:
         await engine.dispose()
 

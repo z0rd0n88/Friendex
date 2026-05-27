@@ -48,7 +48,10 @@ is purely a wiring placeholder for Phase 14 to swap with
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
+
+import discord
 
 from friendex.adapters.discord_bot.cogs.account_cog import AccountCog
 from friendex.adapters.discord_bot.cogs.admin_cog import AdminCog
@@ -57,6 +60,9 @@ from friendex.adapters.discord_bot.cogs.fund_cog import FundCog
 from friendex.adapters.discord_bot.cogs.portfolio_cog import PortfolioCog
 from friendex.adapters.discord_bot.cogs.stats_cog import StatsCog
 from friendex.adapters.discord_bot.cogs.trading_cog import TradingCog
+from friendex.adapters.discord_bot.embeds import (
+    build_liquidation_notification_embed,
+)
 from friendex.adapters.discord_bot.error_handler import register_error_handler
 from friendex.adapters.discord_bot.listeners.member_listener import MemberListener
 from friendex.adapters.discord_bot.listeners.message_listener import MessageListener
@@ -93,7 +99,7 @@ from friendex.application.voice_session_store import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Awaitable, Callable, Iterable
 
     from discord.ext import commands
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -101,6 +107,9 @@ if TYPE_CHECKING:
     from friendex.adapters.config import Settings
     from friendex.adapters.tasks.base_task import BackgroundTask
     from friendex.application.liquidation_events import LiquidationEvent
+
+
+logger = logging.getLogger(__name__)
 
 
 async def _empty_guild_ids() -> Iterable[str]:
@@ -115,9 +124,47 @@ async def _empty_guild_ids() -> Iterable[str]:
 async def _noop_notifier(_event: LiquidationEvent) -> None:
     """Phase-13 placeholder for the :class:`LiquidationTask` notifier.
 
-    Tasks are not started in Phase 13, so this is unreachable; Phase 14 will
-    replace it with a real Discord-embed dispatcher.
+    Tasks are not started in Phase 13, so this is unreachable; Phase 14
+    replaces it via :func:`_make_liquidation_notifier`.
     """
+
+
+def _make_liquidation_notifier(
+    bot: commands.Bot,
+) -> Callable[[LiquidationEvent], Awaitable[None]]:
+    """Build the real :class:`LiquidationTask` notifier (Phase 14).
+
+    Closes over ``bot`` so the per-event coroutine can resolve the target
+    guild via :meth:`commands.Bot.get_guild` and dispatch the embed to its
+    ``system_channel``. A missing guild (``None`` return) or missing
+    ``system_channel`` is logged at WARNING and the event is dropped — both
+    states are operationally unusual but recoverable, so we never raise.
+
+    Every send passes :meth:`discord.AllowedMentions.none` per the
+    project-wide reply-hardening rule (Phase 13 digest item 5).
+    """
+
+    async def notify(event: LiquidationEvent) -> None:
+        guild = bot.get_guild(int(event.guild_id))
+        if guild is None:
+            logger.warning(
+                "liquidation_notifier_guild_missing",
+                extra={"guild_id": event.guild_id},
+            )
+            return
+        channel = guild.system_channel
+        if channel is None:
+            logger.warning(
+                "liquidation_notifier_system_channel_missing",
+                extra={"guild_id": event.guild_id},
+            )
+            return
+        await channel.send(
+            embed=build_liquidation_notification_embed(event),
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    return notify
 
 
 class Container:
@@ -178,6 +225,13 @@ class Container:
             service_factory=self.price_tick_service_factory,
             iter_guild_ids=_empty_guild_ids,
         )
+        # Stored reference so :meth:`bind_runtime` can swap the notifier
+        # without scanning ``self.tasks`` by ``isinstance``.
+        self._liquidation_task = LiquidationTask(
+            service_factory=self.liquidation_service_factory,
+            iter_guild_ids=_empty_guild_ids,
+            notifier=_noop_notifier,
+        )
         self.tasks: tuple[BackgroundTask, ...] = (
             ActivityTickTask(
                 service_factory=self.price_tick_service_factory,
@@ -196,11 +250,7 @@ class Container:
                 service_factory=self.price_tick_service_factory,
                 iter_guild_ids=_empty_guild_ids,
             ),
-            LiquidationTask(
-                service_factory=self.liquidation_service_factory,
-                iter_guild_ids=_empty_guild_ids,
-                notifier=_noop_notifier,
-            ),
+            self._liquidation_task,
             MonthlyRolloverTask(
                 portfolio_service_factory=self.portfolio_service_factory,
                 fund_service_factory=self.fund_service_factory,
@@ -406,6 +456,45 @@ class Container:
     # ------------------------------------------------------------------
     # Bot integration
     # ------------------------------------------------------------------
+
+    def bind_runtime(self, bot: commands.Bot) -> None:
+        """Swap Phase-13 wiring placeholders for live ``bot``-backed callables.
+
+        After Phase 13 every task was constructed with a no-op
+        ``iter_guild_ids`` and (for :class:`LiquidationTask`) a no-op
+        ``notifier``. Phase 14 calls this once inside ``setup_hook`` to:
+
+        1. Replace each task's ``iter_guild_ids`` with a closure that walks
+           ``bot.guilds`` on every tick (so newly-added guilds participate in
+           the next sweep without restart).
+        2. Replace :class:`LiquidationTask`'s notifier with a real Discord
+           dispatcher that renders the embed via
+           :func:`build_liquidation_notification_embed` and sends it to the
+           target guild's ``system_channel`` with
+           :meth:`discord.AllowedMentions.none` (defence-in-depth: the
+           embed body is built from validated event fields, but a hardened
+           reply path is the project-wide rule from Phase 13's digest).
+
+        The mutation is in-place on the single-instance task objects so the
+        Phase-13 "8 built, none started" invariant continues to hold —
+        ``bind_runtime`` is a separate call from construction and is invoked
+        only from the bot's ``setup_hook``.
+        """
+
+        async def iter_guild_ids() -> Iterable[str]:
+            # Re-read ``bot.guilds`` on every tick — guilds added after
+            # startup must participate in the next sweep without restart.
+            return [str(g.id) for g in bot.guilds]
+
+        # Each concrete task stores ``_iter_guild_ids`` as an instance
+        # attribute (set in its own ``__init__``); the abstract base does not
+        # declare it, so mypy cannot statically see the attribute through a
+        # ``BackgroundTask`` reference. ``setattr`` resolves dynamically at
+        # runtime and keeps the type-ignore budget at 4 (Phase 13 carry +
+        # ``setup_hook`` method-assign).
+        for task in self.tasks:
+            setattr(task, "_iter_guild_ids", iter_guild_ids)  # noqa: B010
+        self._liquidation_task._notifier = _make_liquidation_notifier(bot)
 
     async def register_with(self, bot: commands.Bot) -> None:
         """Attach every cog + listener to ``bot`` and install the error handler.

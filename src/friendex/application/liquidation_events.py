@@ -10,6 +10,10 @@ The event mirrors the post-cover information held by
 :class:`~friendex.application.trade_results.CoverResult` but is intentionally
 narrowed to the fields the notification path needs:
 
+* ``guild_id`` — the per-guild scope the liquidation belongs to. The Phase 14
+  notifier dispatches the embed to ``bot.get_guild(int(guild_id)).system_channel``,
+  so the event carries the guild explicitly rather than relying on the task to
+  thread it through.
 * ``holder_id`` / ``target_id`` — who got liquidated and on whose stock.
 * ``shares`` — how many shares were force-covered (always the full short
   size; partial liquidations are not modelled).
@@ -45,6 +49,7 @@ if TYPE_CHECKING:
 class LiquidationEvent:
     """An automatic short cover emitted by :class:`LiquidationService`."""
 
+    guild_id: str
     holder_id: str
     target_id: str
     shares: int

@@ -43,6 +43,7 @@ def _event(
     pnl: Decimal = Decimal("0.00"),
 ) -> LiquidationEvent:
     return LiquidationEvent(
+        guild_id="guild-1",
         holder_id=holder,
         target_id=target,
         shares=shares,
