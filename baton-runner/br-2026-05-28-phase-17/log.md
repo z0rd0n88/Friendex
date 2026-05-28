@@ -13,3 +13,5 @@ Budgets: global_ceiling=75, phase_thrash=20, bail_calls=50, bail_files=10.
 2026-05-28T00:18:00Z  REVIEW-RETURN  phase=17b iter=1 verdict=CLEAN baton=baton-pass/phase-17b/001-2026-05-28-review-clean.md digest=baton-runner/br-2026-05-28-phase-17/digest-phase-17b.md units=4/75 notes='1 LOW (M5 dict-aliasing test gap) + 3 INFO; zero CRIT/HIGH/MED'
 2026-05-28T00:28:00Z  WORK-RETURN  phase=17c status=COMPLETE baton=baton-pass/phase-17c/000-2026-05-28-intro-runbook-implemented.md units=5/75 notes='C1-C6 green; gate PASS; cog cov 100%; smoke md5=3843e386...; baton-pass skill not registered, INDEX hand-added (contract deviation flagged for review)'
 2026-05-28T00:28:15Z  CI-EVENT  pr=#72 phase=17b checks=queued
+2026-05-28T00:36:00Z  REVIEW-RETURN  phase=17c iter=1 verdict=CLEAN baton=baton-pass/phase-17c/001-2026-05-28-review-clean.md digest=baton-runner/br-2026-05-28-phase-17/digest-phase-17c.md units=6/75 notes='gate PASS; smoke md5 stable; 1 LOW (M2 ordering-pin gap) + 2 INFO; 0 CRIT/HIGH/MED'
+2026-05-28T00:36:30Z  RUN-DONE  status=DONE units=6/75 all phases CLEAN

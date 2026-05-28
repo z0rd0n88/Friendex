@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-28-phase-17
-status: RUNNING
+status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-28-phase-17
-phase: 3 of 3  unit: REVIEW  review_iter: 1 of 3
-current_baton: baton-pass/phase-17c/000-2026-05-28-intro-runbook-implemented.md
-units_used: 5
+phase: 3 of 3  unit: -  review_iter: 1 of 3 (CLEAN)
+current_baton: baton-pass/phase-17c/001-2026-05-28-review-clean.md
+units_used: 6
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -204,5 +204,5 @@ phases:
   - id: phase-17c  spec: docs/04-migration-plan.md §Phase 17 (lines 858-890) — intro DM + smoke pin + runbook
     readiness: READY  (post-signoff)
     unit_agent: python-pro
-    branch: feat/phase-17c-intro-runbook  pr: -  digest: baton-runner/br-2026-05-28-phase-17/digest-phase-17c.md
-    units: 0  state: PENDING
+    branch: feat/phase-17c-intro-runbook  pr: <pending>  digest: baton-runner/br-2026-05-28-phase-17/digest-phase-17c.md
+    units: 2  state: DONE  (review CLEAN iter-1, M1/M3/M4/M5/M6 RED-under-mutation, smoke md5 stable, 0 CRIT/HIGH/MED, 1 LOW (M2 ordering-pin gap) + 2 INFO)
