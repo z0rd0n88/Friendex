@@ -26,16 +26,25 @@ the persistence ports, plus the monthly APY accrual the Phase 9
   early-withdrawal penalty even mid-month (spec line 1475 — explicitly
   marked as "no APY penalty").
 * ``accrue_apy(now)`` sweeps every personal fund in the guild and credits
-  each one the monthly amount ``balance * effective_apy / 12`` computed by
+  the cadence-based accrual computed by
   :func:`friendex.domain.fund_math.compute_apy_accrual`. The ``effective_apy``
   reflects any active :class:`FundPenalty` via
-  :func:`friendex.domain.fund_math.compute_effective_apy`. The
+  :func:`friendex.domain.fund_math.compute_effective_apy`. Accrual is
+  **split per stake**: the manager's balance (``cash_balance -
+  sum(investors.values())``) earns its own accrual, and every investor
+  stake earns its own accrual; the resulting deltas are credited back to
+  the manager's balance share and to each investor's stake respectively
+  so the principal that belongs to investors stays accounted-for. The
   ``events_wallet`` pseudo-fund is skipped (treasury, not an investor).
-* ``invest(investor_id, fund_id, amount)`` is **scaffolded** per the
-  ``docs/02-target-architecture.md`` §Open-Questions Resolution Q5 deferral
-  — multi-investor funds are an open design question, so the method is
-  present to lock in the public contract but raises
-  :class:`NotImplementedError`.
+* ``invest(investor_id, fund_id, amount)`` moves ``amount`` from the
+  investor's trading cash into the target fund. The investor's account is
+  debited, the fund's ``cash_balance`` is credited, and the investor's
+  stake (``fund.investors[investor_id]``) is set or incremented. A
+  manager cannot invest in their own fund (Phase 17b §Q2:
+  :class:`InvalidAmount`), a non-positive amount is rejected as
+  :class:`InvalidAmount`, an absent fund is rejected as
+  :class:`InvalidAmount`, and an investor without enough cash gets an
+  :class:`InsufficientFunds` error.
 
 **Guild scoping (ADR-0001 / Phase 8a digest).** ``guild_id`` is a constructor
 argument captured once as ``self._guild_id``; domain models stay
@@ -65,7 +74,11 @@ from datetime import timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING
 
-from friendex.domain.errors import FundInsufficientBalance, InvalidAmount
+from friendex.domain.errors import (
+    FundInsufficientBalance,
+    InsufficientFunds,
+    InvalidAmount,
+)
 from friendex.domain.fund_math import (
     compute_apy_accrual,
     compute_effective_apy,
@@ -218,18 +231,23 @@ class FundService:
 
         async with self._locks.locked(self._lock_key(user_id)):
             fund = await self._get_or_create_fund(user_id)
+            # Phase 17b B2: cap the withdraw at the manager's own share —
+            # investor principal (``sum(investors.values())``) is untouchable.
+            manager_balance = _quantise(
+                fund.cash_balance - sum(fund.investors.values(), Decimal("0.00"))
+            )
             account = await self._user_repo.get(self._guild_id, user_id)
             if account is None:
                 # ``withdraw`` requires a real account — surface a stable
                 # error rather than auto-seed (the trading service owns the
                 # auto-seed flow).
                 raise FundInsufficientBalance(
-                    need=quantised_amount, have=fund.cash_balance
+                    need=quantised_amount, have=manager_balance
                 )
 
-            if fund.cash_balance < quantised_amount:
+            if manager_balance < quantised_amount:
                 raise FundInsufficientBalance(
-                    need=quantised_amount, have=fund.cash_balance
+                    need=quantised_amount, have=manager_balance
                 )
 
             new_fund = replace(
@@ -308,23 +326,30 @@ class FundService:
     # -- monthly APY accrual ------------------------------------------------
 
     async def accrue_apy(self, now: datetime) -> None:
-        """Credit the monthly APY amount to every personal fund in the guild.
+        """Credit the cadence-based APY accrual to every personal fund.
 
         Walks every fund via :meth:`IFundRepo.list_all`, skips the
         ``events_wallet`` pseudo-fund (treasury — never accrues), and
         per-fund takes ``self._locks.locked(self._lock_key(fund.fund_id))``,
         re-``get``s the fund inside the lock, computes the effective APY
         (factoring any active :class:`FundPenalty` via
-        :func:`compute_effective_apy`), and credits
-        :func:`compute_apy_accrual(balance, apy, "monthly")`. A skipped
-        fund (zero or sub-cent accrual) still upserts unchanged so the
-        write path is idempotent.
+        :func:`compute_effective_apy`), and runs a **per-stake split**:
+        the manager's balance (``cash_balance - sum(investors.values())``)
+        earns its own :func:`compute_apy_accrual`, and every investor
+        stake earns its own. New investor stakes carry the per-stake
+        accrual; the fund's new ``cash_balance`` is the sum of the
+        post-accrual manager balance plus every post-accrual investor
+        stake. A zero / sub-cent total accrual is skipped (idempotent
+        no-op).
 
         Called by the Phase 9 ``MonthlyRolloverTask`` on the 1st of each
         month at hour 0; safe to retry — accrual for one ``(fund, now)``
-        invocation is deterministic.
+        invocation is deterministic. The cadence is
+        :attr:`Settings.hedge_fund_base_apy_period` (Phase 17a Open-Q8
+        toggle — must thread through every ``compute_apy_accrual`` call).
         """
         funds = await self._fund_repo.list_all(self._guild_id)
+        period = self._settings.hedge_fund_base_apy_period
         for fund in funds:
             if fund.fund_id == _EVENTS_WALLET_ID:
                 continue
@@ -336,20 +361,39 @@ class FundService:
                 effective_apy = compute_effective_apy(
                     self._settings.hedge_fund_base_apy, penalty, now
                 )
-                accrual = compute_apy_accrual(
-                    fresh.cash_balance,
-                    effective_apy,
-                    period=self._settings.hedge_fund_base_apy_period,
+                manager_balance = fresh.cash_balance - sum(
+                    fresh.investors.values(), Decimal("0.00")
                 )
-                if accrual == _ZERO_CASH:
+                manager_accrual = compute_apy_accrual(
+                    manager_balance,
+                    effective_apy,
+                    period=period,
+                )
+                new_investors: dict[str, Decimal] = {}
+                total_investor_accrual = Decimal("0.00")
+                for investor_id, stake in fresh.investors.items():
+                    investor_accrual = compute_apy_accrual(
+                        stake,
+                        effective_apy,
+                        period=period,
+                    )
+                    total_investor_accrual += investor_accrual
+                    new_investors[investor_id] = _quantise(stake + investor_accrual)
+                if manager_accrual + total_investor_accrual < _CENT:
                     continue
+                new_cash = _quantise(
+                    manager_balance
+                    + manager_accrual
+                    + sum(new_investors.values(), Decimal("0.00"))
+                )
                 updated = replace(
                     fresh,
-                    cash_balance=_quantise(fresh.cash_balance + accrual),
+                    cash_balance=new_cash,
+                    investors=new_investors,
                 )
                 await self._fund_repo.upsert(self._guild_id, updated)
 
-    # -- invest (scaffold per §Open-Q5) -------------------------------------
+    # -- invest -------------------------------------------------------------
 
     async def invest(
         self,
@@ -357,14 +401,61 @@ class FundService:
         fund_id: str,
         amount: Decimal,
     ) -> None:
-        """Scaffolded multi-investor invest path — deferred per §Open-Q5.
+        """Move ``amount`` from ``investor_id``'s cash into ``fund_id``.
 
-        The ``docs/02-target-architecture.md`` Open-Questions Resolution Q5
-        leaves the multi-investor design open; this method exists so the
-        ``/fund invest`` cog has a stable contract to call, and raises
-        :class:`NotImplementedError` until the design is settled.
+        Semantics:
+
+        * ``amount <= 0`` raises :class:`InvalidAmount`.
+        * A missing target fund raises :class:`InvalidAmount` (re-uses the
+          existing taxonomy — no new error class).
+        * A manager may not invest in their own fund (Phase 17b §Q2):
+          raises :class:`InvalidAmount`.
+        * A missing investor account, or an account that cannot cover the
+          (quantised) amount, raises :class:`InsufficientFunds`.
+
+        Atomic body (single critical section): debit investor cash, credit
+        fund cash, set / increment ``fund.investors[investor_id]`` by the
+        same quantised amount. The investors dict is cloned before
+        mutation so the snapshot returned by :meth:`IFundRepo.get` is
+        never modified in place. Lock keys cover both the investor and
+        the fund in one ``self._locks.locked(...)`` call (the
+        :class:`LockManager` is non-reentrant — never nest ``locked``).
         """
-        raise NotImplementedError(
-            "FundService.invest is scaffolded per §Open-Q5; "
-            "multi-investor funds are deferred."
-        )
+        if amount <= _ZERO_CASH:
+            raise InvalidAmount("amount must be positive")
+        quantised_amount = _quantise(amount)
+
+        # Phase 17b §Q2 — a manager cannot invest in their own fund.
+        if investor_id == fund_id:
+            raise InvalidAmount("cannot invest in own fund")
+
+        async with self._locks.locked(
+            self._lock_key(investor_id),
+            self._lock_key(fund_id),
+        ):
+            fund = await self._fund_repo.get(self._guild_id, fund_id)
+            if fund is None:
+                raise InvalidAmount("fund does not exist")
+
+            account = await self._user_repo.get(self._guild_id, investor_id)
+            if account is None or account.cash_balance < quantised_amount:
+                have = account.cash_balance if account else Decimal("0.00")
+                raise InsufficientFunds(need=quantised_amount, have=have)
+
+            # Clone the investors dict — never mutate the snapshot the
+            # repo handed us.
+            new_investors = dict(fund.investors)
+            new_investors[investor_id] = _quantise(
+                new_investors.get(investor_id, Decimal("0.00")) + quantised_amount
+            )
+            new_fund = replace(
+                fund,
+                cash_balance=_quantise(fund.cash_balance + quantised_amount),
+                investors=new_investors,
+            )
+            new_account = replace(
+                account,
+                cash_balance=_quantise(account.cash_balance - quantised_amount),
+            )
+            await self._user_repo.upsert(self._guild_id, new_account)
+            await self._fund_repo.upsert(self._guild_id, new_fund)

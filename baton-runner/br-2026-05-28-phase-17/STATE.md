@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-28-phase-17
 status: RUNNING
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-28-phase-17
-phase: 2 of 3  unit: WORK  review_iter: 0 of 3
-current_baton: baton-pass/phase-17a/001-2026-05-28-review-clean.md
-units_used: 2
+phase: 3 of 3  unit: WORK  review_iter: 0 of 3
+current_baton: baton-pass/phase-17b/001-2026-05-28-review-clean.md
+units_used: 4
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
@@ -199,8 +199,8 @@ phases:
   - id: phase-17b  spec: docs/04-migration-plan.md §Phase 17 (lines 858-890) — /fund invest + APY split
     readiness: READY  (post-signoff)
     unit_agent: python-pro
-    branch: feat/phase-17b-invest  pr: -  digest: baton-runner/br-2026-05-28-phase-17/digest-phase-17b.md
-    units: 0  state: PENDING
+    branch: feat/phase-17b-invest  pr: <pending>  digest: baton-runner/br-2026-05-28-phase-17/digest-phase-17b.md
+    units: 2  state: DONE  (review CLEAN iter-1, M1-M4 RED-under-mutation verified, 1 LOW M5 test gap + 3 INFO non-blocking)
   - id: phase-17c  spec: docs/04-migration-plan.md §Phase 17 (lines 858-890) — intro DM + smoke pin + runbook
     readiness: READY  (post-signoff)
     unit_agent: python-pro
