@@ -289,6 +289,31 @@ class ActivityService:
         """Record that the one-time intro message was shown to ``user_id``."""
         await self._mutate(user_id, lambda acc: replace(acc, intro_shown=True))
 
+    async def opt_in_and_consume_intro(self, user_id: str) -> bool:
+        """Opt ``user_id`` in and atomically consume the one-time intro flag.
+
+        Returns ``True`` when the account had ``intro_shown=False`` before the
+        call — the cog interprets that as "fire the one-time intro DM" — and
+        also flips ``intro_shown`` to ``True`` in the same persisted write.
+        Returns ``False`` when the intro was already consumed; ``opt_in`` is
+        still set to ``True`` (idempotent) but no further mutation occurs.
+
+        An unknown user is auto-seeded by :meth:`_get_or_create` (mirroring
+        :meth:`set_opt_in` and :meth:`mark_intro_shown`) so a never-seen
+        member's first ``/optin`` still produces a single atomic write.
+
+        The read-modify-write happens under
+        ``self._locks.locked(self._lock_key(user_id))`` — the same composite
+        ``(guild_id, user_id)`` key every other mutation uses (ADR-0001
+        per-guild market isolation).
+        """
+        async with self._locks.locked(self._lock_key(user_id)):
+            account = await self._get_or_create(user_id)
+            should_show_intro = not account.intro_shown
+            updated = replace(account, opt_in=True, intro_shown=True)
+            await self._user_repo.upsert(self._guild_id, updated)
+            return should_show_intro
+
     # -- bucket resets (called by daily / weekly reset tasks) --------------
 
     async def reset_today_buckets(self) -> None:

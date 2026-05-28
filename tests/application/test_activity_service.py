@@ -421,6 +421,72 @@ async def test_set_opt_in_and_mark_intro_shown(
     assert account.intro_shown is True
 
 
+async def test_opt_in_and_consume_intro_first_time_flips_intro_and_returns_true(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """C1(a): a fresh account (``intro_shown=False``) gets opt_in=True AND
+    intro_shown=True flipped atomically; the call returns ``True`` so the
+    cog knows to fire the one-time intro DM.
+    """
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings)
+
+    result = await service.opt_in_and_consume_intro(USER)
+
+    assert result is True
+    account = await fake_user_repo.get(GUILD, USER)
+    assert account is not None
+    assert account.opt_in is True
+    assert account.intro_shown is True
+
+
+async def test_opt_in_and_consume_intro_when_already_shown_returns_false(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """C1(b): a repeat /optin on an account whose intro was already shown
+    must not re-fire the DM. Storage state stays consistent: opt_in flips
+    to True (idempotent) and intro_shown remains True.
+    """
+    from dataclasses import replace as _replace
+
+    seeded = _replace(_account(USER), opt_in=False, intro_shown=True)
+    await fake_user_repo.upsert(GUILD, seeded)
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings)
+
+    result = await service.opt_in_and_consume_intro(USER)
+
+    assert result is False
+    account = await fake_user_repo.get(GUILD, USER)
+    assert account is not None
+    assert account.opt_in is True
+    assert account.intro_shown is True
+
+
+async def test_opt_in_and_consume_intro_auto_seeds_unknown_user(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """C1(c): an unknown user is auto-seeded (mirroring ``set_opt_in`` /
+    ``mark_intro_shown``); the call returns ``True`` and intro_shown is
+    flipped on the freshly-created account.
+    """
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings)
+    assert await fake_user_repo.get(GUILD, "brand-new") is None
+
+    result = await service.opt_in_and_consume_intro("brand-new")
+
+    assert result is True
+    account = await fake_user_repo.get(GUILD, "brand-new")
+    assert account is not None
+    assert account.opt_in is True
+    assert account.intro_shown is True
+
+
 async def test_voice_session_store_set_get_pop_and_link_ping() -> None:
     """The volatile :class:`VoiceSessionStore` round-trips and links pings."""
     store = VoiceSessionStore()

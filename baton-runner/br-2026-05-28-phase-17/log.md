@@ -11,3 +11,5 @@ Budgets: global_ceiling=75, phase_thrash=20, bail_calls=50, bail_files=10.
 2026-05-28T00:10:00Z  WORK-RETURN  phase=17b status=COMPLETE baton=baton-pass/phase-17b/000-2026-05-28-invest-implemented.md units=3/75 notes='B1-B6 green; gate PASS (pytest 822); cov fund_service.py 93%; cog ack carry-forward to 17c'
 2026-05-28T00:10:30Z  CI-EVENT  pr=#71 phase=17a check=lint/type/test py3.11+py3.12 status=success
 2026-05-28T00:18:00Z  REVIEW-RETURN  phase=17b iter=1 verdict=CLEAN baton=baton-pass/phase-17b/001-2026-05-28-review-clean.md digest=baton-runner/br-2026-05-28-phase-17/digest-phase-17b.md units=4/75 notes='1 LOW (M5 dict-aliasing test gap) + 3 INFO; zero CRIT/HIGH/MED'
+2026-05-28T00:28:00Z  WORK-RETURN  phase=17c status=COMPLETE baton=baton-pass/phase-17c/000-2026-05-28-intro-runbook-implemented.md units=5/75 notes='C1-C6 green; gate PASS; cog cov 100%; smoke md5=3843e386...; baton-pass skill not registered, INDEX hand-added (contract deviation flagged for review)'
+2026-05-28T00:28:15Z  CI-EVENT  pr=#72 phase=17b checks=queued

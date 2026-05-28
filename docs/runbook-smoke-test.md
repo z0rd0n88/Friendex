@@ -118,6 +118,44 @@ no shuffling), so the operator can diff against a captured baseline if
 desired. Walk every step in order against the staging guild and record
 pass/fail in the sign-off table below.
 
+### Invest flow
+
+Phase 17b shipped the live `/fund invest` path. STEP 18 in the script
+covers the happy case; the operator should additionally walk the two
+domain-error pins to confirm the Phase 13 ephemeral-error handler renders
+them correctly:
+
+1. **Happy path.** A non-manager invokes `/fund invest <manager> <amount>`
+   against a target who already has a `/fund create`-d fund. Verify:
+   - the invoker's `cash_balance` decreases by `<amount>`;
+   - the target fund's `cash_balance` increases by `<amount>`;
+   - the fund's `investors` map records the invoker's stake (visible via
+     a follow-up `/fund info <manager>`);
+   - the public reply embed confirms the action.
+2. **Self-invest blocked.** The fund's manager runs `/fund invest`
+   targeting their own user. Verify an ephemeral `InvalidAmount` reply
+   ("cannot invest in own fund") and no state mutation.
+3. **Insufficient investor cash.** A non-manager invokes `/fund invest`
+   for an amount exceeding their current `cash_balance`. Verify an
+   ephemeral `InsufficientFunds` reply and no state mutation.
+
+### Intro DM
+
+Phase 17c added the one-time Q10 intro DM on `/optin`. STEP 15 covers
+the ephemeral acknowledgement; verify the DM behaviour separately:
+
+1. **First-time intro DM.** A member whose account has never seen the
+   intro (fresh account or `intro_shown=False` in storage) runs `/optin`.
+   Verify a direct message lands in their Discord DMs carrying the
+   "Welcome to Friendex" intro embed.
+2. **Subsequent /optin does not DM.** The same member opts back in
+   (e.g. after `/optout`/`/optin` toggles). Verify NO new DM lands —
+   `intro_shown` was consumed on the first call.
+3. **DM-closed fallback.** A member whose Discord privacy settings block
+   DMs from server members runs `/optin` for the first time. Verify the
+   intro embed is attached to the ephemeral confirmation reply (so the
+   user still sees it inline) and no exception leaks into the logs.
+
 ## Post-flight
 
 After working through every step:

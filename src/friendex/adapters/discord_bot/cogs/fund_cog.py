@@ -51,6 +51,7 @@ from discord.ext import commands
 from friendex.adapters.discord_bot.cogs._interaction import guild_id_of
 from friendex.adapters.discord_bot.embeds import (
     COLOR_NEUTRAL,
+    COLOR_SUCCESS,
     build_fund_info_embed,
 )
 from friendex.domain.fund_math import compute_effective_apy
@@ -262,6 +263,17 @@ class FundGroup(app_commands.Group):
             str(interaction.user.id),
             str(user.id),
             decimal_amount,
+        )
+        embed = discord.Embed(
+            title="Invested",
+            color=COLOR_SUCCESS,
+            description=(
+                f"Invested **${decimal_amount:,.2f}** into <@{user.id}>'s hedge fund."
+            ),
+        )
+        await interaction.response.send_message(
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions.none(),
         )
 
     # -- helpers -------------------------------------------------------------

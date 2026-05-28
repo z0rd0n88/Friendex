@@ -30,6 +30,7 @@ from friendex.adapters.discord_bot.embeds import (
     COLOR_NEUTRAL,
     COLOR_SUCCESS,
     build_balance_embed,
+    build_intro_embed,
 )
 
 if TYPE_CHECKING:
@@ -89,15 +90,61 @@ class AccountCog(commands.Cog):
         description="Opt in to being a tradeable stock on this server.",
     )
     async def optin(self, interaction: discord.Interaction) -> None:
-        """Mark the invoker's account as tradeable and confirm ephemerally."""
+        """Mark the invoker's account as tradeable; DM the intro on first opt-in.
+
+        Q10 auto-DM. ``opt_in_and_consume_intro`` returns ``True`` exactly
+        once per account (the first /optin) and atomically flips both
+        ``opt_in=True`` and ``intro_shown=True`` in the same write. On that
+        first-time signal the cog DMs the intro embed; if the user has DMs
+        disabled (``discord.Forbidden``) the intro embed is attached to the
+        ephemeral confirmation reply so the user still sees it inline.
+
+        The ephemeral acknowledgement is sent on every path — Discord's
+        3 s interaction-ack deadline does not care whether the DM succeeded.
+        Every send uses ``AllowedMentions.none()`` (Phase 10 invariant).
+        ``discord.Forbidden`` is the only ``try/except`` permitted in the
+        cog (Phase 13: DomainError propagates uncaught).
+        """
         activity_service = self._activity_factory(guild_id_of(interaction))
-        await activity_service.set_opt_in(str(interaction.user.id), True)
-        embed = discord.Embed(
+        should_show_intro = await activity_service.opt_in_and_consume_intro(
+            str(interaction.user.id)
+        )
+        confirmation_embed = discord.Embed(
             title="Opted in",
             color=COLOR_SUCCESS,
             description="You are now a tradeable stock on this server.",
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        if not should_show_intro:
+            await interaction.response.send_message(
+                embed=confirmation_embed,
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+
+        intro_embed = build_intro_embed()
+        try:
+            await interaction.user.send(
+                embed=intro_embed,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.Forbidden:
+            # DMs closed — fall back to attaching the intro to the
+            # ephemeral confirmation so the user still sees it.
+            await interaction.response.send_message(
+                embeds=[intro_embed, confirmation_embed],
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+
+        # DM succeeded — ephemeral ack carries the confirmation only.
+        await interaction.response.send_message(
+            embed=confirmation_embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     # -- /optout ------------------------------------------------------------
 

@@ -119,16 +119,22 @@ def test_every_slash_command_is_represented_exactly_once() -> None:
     assert len(commands_in_steps) == len(EXPECTED_SLASH_COMMANDS)
 
 
-def test_fund_invest_step_notes_not_implemented_error() -> None:
-    """``/fund invest`` is deferred to Phase 17 — the cog surfaces a
-    NotImplementedError as a user-facing ephemeral error per Phase 11c
-    digest + Phase 8e §Open-Q5.  The smoke test must call this out so the
-    operator doesn't mistake it for a regression."""
+def test_fund_invest_step_describes_live_invest_path() -> None:
+    """C4: ``/fund invest`` is live in Phase 17b — the smoke step now
+    describes the happy-path (debit invoker, credit fund, record stake)
+    plus the two pinned domain errors (self-invest blocked + insufficient
+    funds), and no longer mentions ``NotImplementedError`` or "deferred".
+    """
     invest_steps = [s for s in STEPS if s.command == "/fund invest"]
     assert len(invest_steps) == 1
     expected_text = invest_steps[0].expected.lower()
-    assert "notimplementederror" in expected_text
-    assert "ephemeral" in expected_text
+    # Live-invest semantics: the investor's stake on the fund is recorded.
+    assert "stake" in expected_text
+    # Self-invest pin: surfaces as InvalidAmount per Phase 17b §Q2.
+    assert "invalidamount" in expected_text
+    # The retired "deferred / NotImplementedError" pin must NOT be back.
+    assert "notimplementederror" not in expected_text
+    assert "deferred" not in expected_text
 
 
 # ---------------------------------------------------------------------------
