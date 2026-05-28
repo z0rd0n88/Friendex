@@ -142,26 +142,41 @@ def _cog_of_type(container: Container, cog_type: type) -> object:
 
 
 async def test_build_bot_wires_real_container(
-    settings: Settings, container: Container
+    settings: Settings,
+    container: Container,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Build the bot, run ``setup_hook`` over the real container.
 
-    Patches ``tree.sync`` + each ``task.start`` so no network or live loop
+    Patches ``tree.sync`` + each runner's ``start`` so no network or live loop
     runs; the assertion is purely that the wiring composes — cogs are
-    registered, tasks have iter_guild_ids swapped, no exception escapes.
+    registered, runners are started, no exception escapes.
     """
+    from friendex.adapters.tasks.task_runner import TaskRunner
+
     bot = build_bot(settings, container)
     bot.tree.sync = AsyncMock(name="tree.sync")  # type: ignore[method-assign]
     bot._connection._guilds = {}
     bot.add_cog = AsyncMock(name="add_cog")  # type: ignore[method-assign]
-    for task in container.tasks:
-        task.start = MagicMock()  # type: ignore[method-assign]
+
+    captured: list[TaskRunner] = []
+    real_br = container.build_runners
+
+    def stub(bot):  # type: ignore[return]
+        runners = real_br(bot)
+        for r in runners:
+            r.start = MagicMock()
+        captured.extend(runners)
+        return runners
+
+    monkeypatch.setattr(container, "build_runners", stub)
 
     await bot.setup_hook()
 
     assert bot.add_cog.await_count == 11  # 7 cogs + 4 listeners
-    for task in container.tasks:
-        assert task.start.call_count == 1
+    assert len(captured) == 8
+    for runner in captured:
+        assert runner.start.call_count == 1
     bot.tree.sync.assert_awaited()
 
 

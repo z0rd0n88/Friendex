@@ -106,6 +106,7 @@ if TYPE_CHECKING:
 
     from friendex.adapters.config import Settings
     from friendex.adapters.tasks.base_task import BackgroundTask
+    from friendex.adapters.tasks.task_runner import TaskRunner
     from friendex.application.liquidation_events import LiquidationEvent
 
 
@@ -218,21 +219,21 @@ class Container:
         self.discipline_service_factory = self._make_discipline_factory()
         self.voice_session_store_factory = self._voice_session_store_for
 
-        # --- Tasks (single-instance, not started) -------------------------
-        # Phase 14 binds ``_loop`` + calls ``start()``. Phase 13 only
-        # constructs.
+        # --- Tasks (single-instance; wrapped in TaskRunner by build_runners) --
+        # Constructed with placeholder guild-id iterators; build_runners(bot)
+        # swaps in the live closure before wrapping each task in a TaskRunner.
         self._vc_boost_task = VcBoostTask(
             service_factory=self.price_tick_service_factory,
             iter_guild_ids=_empty_guild_ids,
         )
-        # Stored reference so :meth:`bind_runtime` can swap the notifier
-        # without scanning ``self.tasks`` by ``isinstance``.
+        # Stored reference so build_runners can inject the live notifier
+        # without scanning raw_tasks by isinstance.
         self._liquidation_task = LiquidationTask(
             service_factory=self.liquidation_service_factory,
             iter_guild_ids=_empty_guild_ids,
             notifier=_noop_notifier,
         )
-        self.tasks: tuple[BackgroundTask, ...] = (
+        self.raw_tasks: tuple[BackgroundTask, ...] = (
             ActivityTickTask(
                 service_factory=self.price_tick_service_factory,
                 iter_guild_ids=_empty_guild_ids,
@@ -457,44 +458,31 @@ class Container:
     # Bot integration
     # ------------------------------------------------------------------
 
-    def bind_runtime(self, bot: commands.Bot) -> None:
-        """Swap Phase-13 wiring placeholders for live ``bot``-backed callables.
+    def build_runners(self, bot: commands.Bot) -> tuple[TaskRunner, ...]:
+        """Inject live bot callables and wrap each task in a :class:`TaskRunner`.
 
-        After Phase 13 every task was constructed with a no-op
-        ``iter_guild_ids`` and (for :class:`LiquidationTask`) a no-op
-        ``notifier``. Phase 14 calls this once inside ``setup_hook`` to:
+        Called once from ``setup_hook`` after the bot is ready. Steps:
 
-        1. Replace each task's ``iter_guild_ids`` with a closure that walks
+        1. Replace each task's ``_iter_guild_ids`` with a closure that walks
            ``bot.guilds`` on every tick (so newly-added guilds participate in
-           the next sweep without restart).
-        2. Replace :class:`LiquidationTask`'s notifier with a real Discord
-           dispatcher that renders the embed via
-           :func:`build_liquidation_notification_embed` and sends it to the
-           target guild's ``system_channel`` with
-           :meth:`discord.AllowedMentions.none` (defence-in-depth: the
-           embed body is built from validated event fields, but a hardened
-           reply path is the project-wide rule from Phase 13's digest).
+           the next sweep without a restart).
+        2. Replace :class:`LiquidationTask`'s notifier with the real Discord
+           embed dispatcher.
+        3. Wrap each task in a :class:`TaskRunner`, which builds its
+           ``discord.ext.tasks.Loop`` from the task's declared cadence.
 
-        The mutation is in-place on the single-instance task objects so the
-        Phase-13 "8 built, none started" invariant continues to hold —
-        ``bind_runtime`` is a separate call from construction and is invoked
-        only from the bot's ``setup_hook``.
+        Returns a tuple of ready-to-start runners — each valid immediately.
         """
+        from friendex.adapters.tasks.task_runner import TaskRunner
 
         async def iter_guild_ids() -> Iterable[str]:
-            # Re-read ``bot.guilds`` on every tick — guilds added after
-            # startup must participate in the next sweep without restart.
             return [str(g.id) for g in bot.guilds]
 
-        # Each concrete task stores ``_iter_guild_ids`` as an instance
-        # attribute (set in its own ``__init__``); the abstract base does not
-        # declare it, so mypy cannot statically see the attribute through a
-        # ``BackgroundTask`` reference. ``setattr`` resolves dynamically at
-        # runtime and keeps the type-ignore budget at 4 (Phase 13 carry +
-        # ``setup_hook`` method-assign).
-        for task in self.tasks:
-            setattr(task, "_iter_guild_ids", iter_guild_ids)  # noqa: B010
+        for task in self.raw_tasks:
+            task._iter_guild_ids = iter_guild_ids  # type: ignore[attr-defined]
         self._liquidation_task._notifier = _make_liquidation_notifier(bot)
+
+        return tuple(TaskRunner(task) for task in self.raw_tasks)
 
     async def register_with(self, bot: commands.Bot) -> None:
         """Attach every cog + listener to ``bot`` and install the error handler.

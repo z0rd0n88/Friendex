@@ -85,24 +85,21 @@ def build_bot(settings: Settings, container: Container) -> commands.Bot:
 
         The order matters:
 
-        1. ``register_with`` adds cogs/listeners *before* ``bind_runtime`` is
-           called — but ``bind_runtime`` only mutates task attributes, so
-           the relative order to ``register_with`` is independent. We do
-           ``register_with`` first so the slash-command tree is fully
-           populated before the global sync call.
-        2. ``bind_runtime`` swaps Phase-13 placeholders for live callables.
-           Must run **before** ``task.start()`` — once a task's loop is
-           running it would call the placeholder until the next tick.
-        3. ``task.start()`` for every task; ``BackgroundTask.start`` is
-           idempotent on an already-running loop.
+        1. ``register_with`` adds cogs/listeners so the slash-command tree is
+           fully populated before the global sync call.
+        2. ``build_runners`` injects the live ``iter_guild_ids`` closure and
+           the liquidation notifier, then wraps each task in a
+           :class:`~friendex.adapters.tasks.task_runner.TaskRunner` (building
+           its ``discord.ext.tasks.Loop`` at that point).
+        3. Each runner's ``start()`` is called — runners are valid immediately,
+           no dead zone between construction and start.
         4. Global ``bot.tree.sync()``. Then, if ``settings.dev_guild_id`` is
            set, ``copy_global_to`` + per-guild ``sync`` for instant dev
            propagation.
         """
         await container.register_with(bot)
-        container.bind_runtime(bot)
-        for task in container.tasks:
-            task.start()
+        for runner in container.build_runners(bot):
+            runner.start()
         await bot.tree.sync()
         if settings.dev_guild_id is not None:
             dev_guild = discord.Object(id=settings.dev_guild_id)

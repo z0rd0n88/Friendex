@@ -8,15 +8,15 @@ loop that drives the cadence.
 
 **Cadence is declared, not enforced here.** Each concrete task exposes its
 desired cadence as the ``interval_minutes`` (or ``interval_hours``) class
-attribute; the Phase-14 composition layer wraps the task's :meth:`_run` body
-in a ``discord.ext.tasks.loop(...)`` of the appropriate length and binds the
-resulting ``Loop`` to :attr:`_loop`. Keeping the wrapper out of the task
-module lets the liquidation task (per Phase 9 AC3) avoid importing the
-``discord`` package altogether — only the composition layer touches discord.
+attribute; :class:`~friendex.adapters.tasks.task_runner.TaskRunner` reads the
+cadence at construction time and wraps the task in a
+``discord.ext.tasks.loop``. Keeping the discord import out of this module lets
+the liquidation task (Phase 9 AC3) remain discord-free — only
+:class:`~friendex.adapters.tasks.task_runner.TaskRunner` touches discord.
 
-**Lifecycle.** :meth:`start` and :meth:`stop` operate on :attr:`_loop` once
-the composition layer has bound it. Calling either before binding raises
-:class:`AttributeError` — the task is not runnable on its own.
+**Lifecycle.** :class:`~friendex.adapters.tasks.task_runner.TaskRunner` owns
+``start()`` and ``stop()``. A bare :class:`BackgroundTask` has no lifecycle
+methods — it is always a pure-logic object, valid from construction.
 
 **Design notes**
 
@@ -53,8 +53,8 @@ class BackgroundTask(ABC):
 
     Subclasses implement :meth:`_run` (the per-tick body) and declare their
     desired cadence on either :attr:`interval_minutes` or
-    :attr:`interval_hours`. The composition layer (Phase 14) reads the
-    cadence and wraps :meth:`_run` in a ``discord.ext.tasks.loop``.
+    :attr:`interval_hours`. :class:`~friendex.adapters.tasks.task_runner.TaskRunner`
+    reads the cadence and wraps the tick in a ``discord.ext.tasks.loop``.
     """
 
     #: Cadence in minutes. Subclasses override exactly one of
@@ -63,30 +63,9 @@ class BackgroundTask(ABC):
     #: Cadence in hours. See :attr:`interval_minutes`.
     interval_hours: int = 0
 
-    _loop: Any  # bound by the composition layer; see module docstring.
-
     @abstractmethod
     async def _run(self) -> None:
         """Per-tick body — subclasses implement."""
-
-    def start(self) -> None:
-        """Start the underlying ``tasks.loop``.
-
-        The composition layer must bind :attr:`_loop` first; calling this
-        method before then raises :class:`AttributeError`. Idempotent on an
-        already-running loop.
-        """
-        if not self._loop.is_running():
-            self._loop.start()
-
-    def stop(self) -> None:
-        """Cancel the underlying ``tasks.loop``.
-
-        Signals the scheduler to stop after the current iteration. Safe to
-        call when the loop is not running.
-        """
-        if self._loop.is_running():
-            self._loop.cancel()
 
     async def _safe_run(self, awaitable: Awaitable[Any]) -> None:
         """Await ``awaitable`` and swallow + log any :class:`Exception`.
