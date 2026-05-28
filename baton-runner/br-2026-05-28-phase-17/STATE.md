@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-28-phase-17
 status: RUNNING
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-28-phase-17
-phase: 2 of 3  unit: WORK  review_iter: 0 of 3
-current_baton: baton-pass/phase-17a/001-2026-05-28-review-clean.md
-units_used: 2
+phase: 2 of 3  unit: REVIEW  review_iter: 1 of 3
+current_baton: baton-pass/phase-17b/000-2026-05-28-invest-implemented.md
+units_used: 3
 pause_reason: -
 budgets: { global_ceiling: 75, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 

@@ -21,8 +21,9 @@ Acceptance criteria pinned here (work-unit contract E1-E7):
   APY amount computed by :func:`fund_math.compute_apy_accrual`
   (annual rate ``settings.hedge_fund_base_apy`` over the ``"monthly"``
   period). The ``events_wallet`` pseudo-fund is skipped.
-* **E7** — ``invest(...)`` raises :class:`NotImplementedError` per the
-  §Open-Q5 deferral.
+* **E7** — ``invest(...)`` debits the investor's cash, credits the target
+  fund's balance, and records the investor stake (Phase 17b B1 — replaces
+  the original §Open-Q5 ``NotImplementedError`` scaffold).
 """
 
 from __future__ import annotations
@@ -533,33 +534,6 @@ async def test_accrue_apy_respects_active_penalty(
 
 
 # ---------------------------------------------------------------------------
-# E7 — invest scaffolded as NotImplementedError per §Open-Q5
-# ---------------------------------------------------------------------------
-
-
-async def test_e7_invest_raises_not_implemented(
-    fake_user_repo: FakeUserRepo,
-    fake_fund_repo: FakeFundRepo,
-    fake_penalty_repo: FakePenaltyRepo,
-    lock_manager: LockManager,
-    default_settings: Settings,
-) -> None:
-    """``invest`` is scaffolded per §Open-Q5; calling it raises."""
-    service = _make_service(
-        user_repo=fake_user_repo,
-        fund_repo=fake_fund_repo,
-        penalty_repo=fake_penalty_repo,
-        lock_manager=lock_manager,
-        settings=default_settings,
-    )
-
-    with pytest.raises(NotImplementedError):
-        await service.invest(
-            investor_id=USER, fund_id=OTHER_USER, amount=Decimal("100.00")
-        )
-
-
-# ---------------------------------------------------------------------------
 # fund_info read path
 # ---------------------------------------------------------------------------
 
@@ -604,6 +578,347 @@ async def test_fund_info_returns_the_stored_fund(
     assert info is not None
     assert info.fund_id == USER
     assert info.cash_balance == Decimal("777.77")
+
+
+# ---------------------------------------------------------------------------
+# Phase 17b — /fund invest goes live
+# ---------------------------------------------------------------------------
+
+
+async def test_invest_zero_or_negative_amount_raises_invalid_amount(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B1: ``amount <= 0`` is rejected as ``InvalidAmount``."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(OTHER_USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(InvalidAmount):
+        await service.invest(USER, OTHER_USER, Decimal("0.00"))
+    with pytest.raises(InvalidAmount):
+        await service.invest(USER, OTHER_USER, Decimal("-1.00"))
+
+
+async def test_invest_missing_fund_raises_invalid_amount(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B1: investing in a non-existent fund raises ``InvalidAmount``."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(InvalidAmount):
+        await service.invest(USER, OTHER_USER, Decimal("100.00"))
+
+
+async def test_invest_self_invest_is_blocked(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b §Q2: a manager may not invest in their own fund."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(InvalidAmount):
+        await service.invest(USER, USER, Decimal("100.00"))
+
+
+async def test_invest_missing_investor_account_raises_insufficient_funds(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B1: an absent investor account surfaces ``InsufficientFunds``."""
+    await fake_fund_repo.upsert(GUILD, _fund(OTHER_USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    from friendex.domain.errors import InsufficientFunds
+
+    with pytest.raises(InsufficientFunds) as excinfo:
+        await service.invest(USER, OTHER_USER, Decimal("100.00"))
+    assert excinfo.value.need == Decimal("100.00")
+    assert excinfo.value.have == Decimal("0.00")
+
+
+async def test_invest_insufficient_cash_raises_insufficient_funds(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B1: cash below the request raises ``InsufficientFunds``."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("50.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(OTHER_USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    from friendex.domain.errors import InsufficientFunds
+
+    with pytest.raises(InsufficientFunds) as excinfo:
+        await service.invest(USER, OTHER_USER, Decimal("100.00"))
+    assert excinfo.value.need == Decimal("100.00")
+    assert excinfo.value.have == Decimal("50.00")
+
+
+async def test_invest_happy_path_mutates_cash_and_investors(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B1 happy path: debit investor cash, credit fund, record stake."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(OTHER_USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.invest(USER, OTHER_USER, Decimal("150.00"))
+
+    account_after = await fake_user_repo.get(GUILD, USER)
+    fund_after = await fake_fund_repo.get(GUILD, OTHER_USER)
+    assert account_after is not None
+    assert fund_after is not None
+    assert account_after.cash_balance == Decimal("350.00")
+    assert fund_after.cash_balance == Decimal("250.00")
+    assert fund_after.investors == {USER: Decimal("150.00")}
+
+
+async def test_invest_second_call_accumulates_stake(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B1: a repeat invest increments the existing stake in place."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(OTHER_USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.invest(USER, OTHER_USER, Decimal("100.00"))
+    await service.invest(USER, OTHER_USER, Decimal("50.00"))
+
+    fund_after = await fake_fund_repo.get(GUILD, OTHER_USER)
+    assert fund_after is not None
+    assert fund_after.investors == {USER: Decimal("150.00")}
+    assert fund_after.cash_balance == Decimal("250.00")
+
+
+# ---------------------------------------------------------------------------
+# Phase 17b — withdraw caps at fund.cash_balance - sum(investors)
+# ---------------------------------------------------------------------------
+
+
+async def test_withdraw_caps_at_manager_balance_when_investors_present(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B2: manager cannot withdraw past their own balance share."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("0.00")))
+    seeded = HedgeFund(
+        fund_id=USER,
+        name=f"Fund {USER}",
+        manager_id=USER,
+        cash_balance=Decimal("1000.00"),
+        investors={OTHER_USER: Decimal("400.00")},
+    )
+    await fake_fund_repo.upsert(GUILD, seeded)
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with pytest.raises(FundInsufficientBalance) as excinfo:
+        await service.withdraw(USER, Decimal("700.00"), now=_NOW_MID_MONTH)
+    assert excinfo.value.need == Decimal("700.00")
+    assert excinfo.value.have == Decimal("600.00")
+
+
+async def test_withdraw_at_manager_cap_succeeds_and_preserves_investor_stake(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B2: withdrawing at the manager cap leaves investor stake intact."""
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("0.00")))
+    seeded = HedgeFund(
+        fund_id=USER,
+        name=f"Fund {USER}",
+        manager_id=USER,
+        cash_balance=Decimal("1000.00"),
+        investors={OTHER_USER: Decimal("400.00")},
+    )
+    await fake_fund_repo.upsert(GUILD, seeded)
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.withdraw(USER, Decimal("600.00"), now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    account_after = await fake_user_repo.get(GUILD, USER)
+    assert fund_after is not None
+    assert account_after is not None
+    assert fund_after.cash_balance == Decimal("400.00")
+    assert fund_after.investors == {OTHER_USER: Decimal("400.00")}
+    assert account_after.cash_balance == Decimal("600.00")
+
+
+# ---------------------------------------------------------------------------
+# Phase 17b — accrue_apy splits across manager balance and investor stakes
+# ---------------------------------------------------------------------------
+
+
+async def test_accrue_apy_splits_single_investor_at_annual_period(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B3 (a): split = manager $150 + investor $30 at 15% annual."""
+    custom = default_settings.model_copy(
+        update={"hedge_fund_base_apy_period": "annual"}
+    )
+    seeded = HedgeFund(
+        fund_id=USER,
+        name=f"Fund {USER}",
+        manager_id=USER,
+        cash_balance=Decimal("1200.00"),
+        investors={OTHER_USER: Decimal("200.00")},
+    )
+    await fake_fund_repo.upsert(GUILD, seeded)
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=custom,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    assert fund_after is not None
+    # manager_balance = 1200 - 200 = 1000 -> accrual = 1000 * 0.15 = 150
+    # investor accrual = 200 * 0.15 = 30
+    # new cash = 1000 + 150 + 230 = 1380
+    assert fund_after.cash_balance == Decimal("1380.00")
+    assert fund_after.investors == {OTHER_USER: Decimal("230.00")}
+
+
+async def test_accrue_apy_splits_two_investors_at_annual_period(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17b B3 (b): two-investor split at 15% annual."""
+    custom = default_settings.model_copy(
+        update={"hedge_fund_base_apy_period": "annual"}
+    )
+    investor_a = "investor-A"
+    investor_b = "investor-B"
+    seeded = HedgeFund(
+        fund_id=USER,
+        name=f"Fund {USER}",
+        manager_id=USER,
+        cash_balance=Decimal("3000.00"),
+        investors={
+            investor_a: Decimal("1000.00"),
+            investor_b: Decimal("500.00"),
+        },
+    )
+    await fake_fund_repo.upsert(GUILD, seeded)
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=custom,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    assert fund_after is not None
+    # manager_balance = 3000 - 1500 = 1500 -> accrual = 225
+    # investor A accrual = 1000 * 0.15 = 150 -> new = 1150
+    # investor B accrual = 500 * 0.15 = 75 -> new = 575
+    # new cash = 1500 + 225 + 1150 + 575 = 3450
+    assert fund_after.cash_balance == Decimal("3450.00")
+    assert fund_after.investors == {
+        investor_a: Decimal("1150.00"),
+        investor_b: Decimal("575.00"),
+    }
 
 
 # ---------------------------------------------------------------------------

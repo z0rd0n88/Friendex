@@ -11,10 +11,12 @@ The fund cog hosts the personal hedge-fund interface for Phase 11c:
   penalty except on the 1st of the month).
 * ``/fund send_events <amount>`` — donate cash from the invoker's fund to the
   per-guild events-wallet treasury (public; penalty-exempt).
-* ``/fund invest <user> <amount>`` — multi-investor invest path
-  (scaffolded; the service raises :class:`NotImplementedError` per the
-  ``docs/02-target-architecture.md`` §Open-Questions Resolution Q5 deferral
-  — the cog does **not** catch it).
+* ``/fund invest <user> <amount>`` — invest cash from the invoker's
+  trading account into another member's hedge fund (public; the service
+  debits the invoker, credits the target fund's balance, and records the
+  invoker's stake on the fund). Self-invest is rejected as
+  :class:`InvalidAmount` per Phase 17b §Q2; an insufficient cash balance
+  surfaces as :class:`InsufficientFunds`.
 
 The :class:`FundGroup` is an :class:`app_commands.Group` (``name="fund"``) so
 ``/fund <sub>`` is the natural slash namespace. The accompanying
@@ -32,9 +34,8 @@ notification; the kwarg is load-bearing.
 converted to :class:`Decimal` via ``Decimal(str(amount))`` — never
 ``Decimal(amount)`` directly, which would carry IEEE-754 noise.
 
-Domain errors (and :class:`NotImplementedError` from
-:meth:`FundService.invest`) **propagate uncaught**; Phase 13 owns the
-tree-wide ``app_commands`` error handler.
+Domain errors **propagate uncaught**; Phase 13 owns the tree-wide
+``app_commands`` error handler.
 """
 
 from __future__ import annotations
@@ -227,7 +228,7 @@ class FundGroup(app_commands.Group):
 
     @app_commands.command(
         name="invest",
-        description="Invest in another member's hedge fund (deferred per §Open-Q5).",
+        description="Invest cash from your account into another member's hedge fund.",
     )
     @app_commands.describe(
         user="The member whose fund to invest in.",
@@ -239,11 +240,21 @@ class FundGroup(app_commands.Group):
         user: discord.Member,
         amount: float,
     ) -> None:
-        """Invest in another member's fund — scaffolded per §Open-Q5.
+        """Invest ``amount`` from the invoker's cash into ``user``'s fund.
 
-        :class:`~friendex.application.fund_service.FundService.invest` raises
-        :class:`NotImplementedError`; the cog does NOT catch it. Phase 13's
-        tree-wide error handler renders a generic operator-facing message.
+        Calls :meth:`FundService.invest`, which debits the invoker's
+        trading cash, credits the target fund's balance, and records the
+        invoker as an investor on the fund. ``Decimal(str(amount))`` —
+        never ``Decimal(amount)`` — avoids IEEE-754 noise (Phase 3.1
+        money invariant).
+
+        Domain errors propagate uncaught (the cog never wraps in
+        ``try/except``): a non-positive amount, an absent fund, a
+        manager attempting to self-invest (Phase 17b §Q2), or an
+        investor account without enough cash all raise the appropriate
+        :class:`~friendex.domain.errors.DomainError`; Phase 13's
+        tree-wide ``app_commands`` error handler renders them for the
+        user.
         """
         fund_service = self._fund_factory(guild_id_of(interaction))
         decimal_amount = Decimal(str(amount))
