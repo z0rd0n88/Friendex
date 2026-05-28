@@ -101,6 +101,28 @@ same `user_id` provably coexists across two guilds; the cross-guild repo-isolati
 and the DM-rejection tests are green and block merge; `setup_hook` performs a global sync;
 and all existing phase gates (`ruff`, `mypy --strict`, `pytest` coverage thresholds) pass.
 
+## Implementation note (post-build)
+
+The shipped implementation uses **per-call factory closures** rather than the planned
+`container.for_guild(guild_id) → GuildScope` object. Each cog / listener holds a
+`Callable[[str], XxxService]` injected at construction time; when a slash command or
+event fires, the adapter calls `self._xxx_factory(guild_id)`, which constructs a
+`FundService` (or equivalent) bound to that guild's repositories.
+
+The practical difference is minimal:
+- There is no `GuildScope` dataclass and no `for_guild` cache — guild binding is done
+  per-call by the factory closure in `container.py`.
+- All isolation invariants from the Decision Outcome section still hold: every
+  repository is bound to exactly one `guild_id` at construction; the `LockManager`
+  still keys on `(guild_id, user_id)`.
+- The `container.py` wires 10 factory closures (`fund_service_factory`,
+  `trading_service_factory`, etc.) instead of one scope object.
+
+A `GuildScope` object would reduce ceremony slightly but would not add leverage —
+the per-guild isolation is enforced at the ORM / repo layer, not at the scope boundary.
+No migration is needed; this note records the deviation so future reviewers do not
+conflate "the ADR specified GuildScope" with "the code should have GuildScope."
+
 ## Links
 
 - Supersedes decision #12 in [`docs/02-target-architecture.md`](../02-target-architecture.md)
