@@ -186,8 +186,9 @@ async def test_weekly_reset_state_not_advanced_on_service_failure(
         system_state_repo=fake_system_state_repo,
     )
 
-    with freeze_time("2026-05-25 10:00:00", tz_offset=0), pytest.raises(
-        RuntimeError, match="oops"
+    with (
+        freeze_time("2026-05-25 10:00:00", tz_offset=0),
+        pytest.raises(RuntimeError, match="oops"),
     ):
         await task._run()
 

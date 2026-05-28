@@ -221,7 +221,7 @@ def _stub_bot_with_guilds(guild_ids: list[int]) -> MagicMock:
 async def test_build_runners_swaps_iter_guild_ids_to_walk_bot_guilds(
     settings: Settings, fake_sessionmaker: MagicMock
 ) -> None:
-    """After ``build_runners``, every task yields ``[str(g.id) for g in bot.guilds]``."""
+    """``build_runners`` makes every task yield ``[str(g.id) for g in bot.guilds]``."""
     container = Container(settings, fake_sessionmaker)
     bot = _stub_bot_with_guilds([1111, 2222])
 

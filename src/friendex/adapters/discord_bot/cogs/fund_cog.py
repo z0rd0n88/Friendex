@@ -111,8 +111,12 @@ class FundGroup(app_commands.Group):
         fund_service = self._fund_factory(guild_id_of(interaction))
         await fund_service.create_or_rename(str(interaction.user.id), name=name)
         result = await fund_service.fund_info(str(interaction.user.id), now)
-        embed = self._build_fund_info_embed_for(result) if result is not None else discord.Embed(
-            title="Hedge Fund", color=COLOR_SUCCESS, description="Fund created."
+        embed = (
+            self._build_fund_info_embed_for(result)
+            if result is not None
+            else discord.Embed(
+                title="Hedge Fund", color=COLOR_SUCCESS, description="Fund created."
+            )
         )
         await interaction.response.send_message(
             embed=embed,

@@ -57,6 +57,8 @@ if TYPE_CHECKING:
         async_sessionmaker,
     )
 
+    from friendex.adapters.tasks.task_runner import TaskRunner
+
 
 _VALID_TOKEN = "x" * 32
 # A weekday inside market hours (Mon 12:00 UTC) so /buy isn't blocked by
@@ -152,8 +154,6 @@ async def test_build_bot_wires_real_container(
     runs; the assertion is purely that the wiring composes — cogs are
     registered, runners are started, no exception escapes.
     """
-    from friendex.adapters.tasks.task_runner import TaskRunner
-
     bot = build_bot(settings, container)
     bot.tree.sync = AsyncMock(name="tree.sync")  # type: ignore[method-assign]
     bot._connection._guilds = {}
