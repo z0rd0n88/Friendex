@@ -367,22 +367,57 @@ async def test_fund_send_events_propagates_invalid_amount(
 
 
 # ---------------------------------------------------------------------------
-# /fund invest — raises NotImplementedError per Open-Q5
+# /fund invest — PUBLIC (mutation); 17b shipped the live service path
 
 
-async def test_fund_invest_propagates_not_implemented_uncaught(
+async def test_fund_invest_calls_service_with_decimal(
     fake_interaction,  # type: ignore[no-untyped-def]
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    """The cog must NOT catch :class:`NotImplementedError` from ``invest``."""
-    fund_service.invest.side_effect = NotImplementedError(
-        "multi-investor funds are deferred"
+    """Float amount converted via ``Decimal(str(amount))`` (Phase 3.1)."""
+    group = _build_group(fund_service_factory)
+    interaction = fake_interaction(user_id=42, guild_id=99)
+    target = _make_member(555)
+    await FundGroup.invest.callback(group, interaction, user=target, amount=100.10)
+    fund_service.invest.assert_awaited_once_with(
+        "42",
+        "555",
+        Decimal("100.10"),
     )
+
+
+async def test_fund_invest_reply_is_public_with_allowed_mentions_none(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    fund_service: AsyncMock,
+    fund_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """C6: happy-path ``/fund invest`` acks with a public embed reply
+    (mutation visibility) and suppresses mentions (Phase 10 I2 invariant).
+    """
     group = _build_group(fund_service_factory)
     interaction = fake_interaction()
     target = _make_member(555)
-    with pytest.raises(NotImplementedError):
+    await FundGroup.invest.callback(group, interaction, user=target, amount=250.0)
+    kwargs = _send_call_kwargs(interaction)
+    assert kwargs.get("ephemeral", False) is False
+    assert "allowed_mentions" in kwargs
+    assert isinstance(kwargs["allowed_mentions"], discord.AllowedMentions)
+    embed = kwargs["embed"]
+    assert isinstance(embed, discord.Embed)
+
+
+async def test_fund_invest_propagates_invalid_amount(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    fund_service: AsyncMock,
+    fund_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """DomainError propagates uncaught — Phase 13 handler renders it."""
+    fund_service.invest.side_effect = InvalidAmount(reason="cannot invest in own fund")
+    group = _build_group(fund_service_factory)
+    interaction = fake_interaction()
+    target = _make_member(555)
+    with pytest.raises(InvalidAmount):
         await FundGroup.invest.callback(group, interaction, user=target, amount=100.0)
     interaction.response.send_message.assert_not_awaited()
 

@@ -17,8 +17,8 @@ See:
 * ``baton-runner/br-2026-05-27-phase-12/`` digests — listener surface.
 * ``baton-runner/br-2026-05-25-phase-9/digest-phase-9.md`` — task surface.
 * ``baton-runner/br-2026-05-26-phase-11/digest-phase-11c.md`` — ``/fund``
-  subcommands; ``/fund invest`` is deferred to Phase 17 and currently
-  surfaces ``NotImplementedError`` as an ephemeral user-facing error.
+  subcommands; Phase 17b shipped the live ``/fund invest`` path
+  (`baton-runner/br-2026-05-28-phase-17/digest-phase-17b.md`).
 """
 
 from __future__ import annotations
@@ -256,13 +256,16 @@ STEPS: Final[tuple[SmokeStep, ...]] = (
     SmokeStep(
         id=18,
         category="slash",
-        name="/fund invest — deferred to Phase 17",
+        name="/fund invest — invest in another member's fund",
         command="/fund invest",
         expected=(
-            "Invoke /fund invest <fund> <amount>: the cog surfaces a "
-            "NotImplementedError as an ephemeral user-facing error "
-            "(deferred to Phase 17 per Phase 8e Open-Q5 + Phase 11c "
-            "digest); no state is mutated."
+            "Invoke /fund invest <fund> <amount>: deducts the invoker's "
+            "cash by <amount>, credits the target fund's cash_balance, "
+            "records the invoker's investor stake; public reply "
+            "confirms. Self-invest (invoker == fund.manager_id) is "
+            "blocked by InvalidAmount('cannot invest in own fund') and "
+            "surfaces as an ephemeral DomainError; insufficient "
+            "investor cash raises InsufficientFunds."
         ),
     ),
     SmokeStep(

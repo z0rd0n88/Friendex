@@ -9,15 +9,16 @@ walk ``interaction.response.send_message.call_args`` and the embed's
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import discord
 
-if TYPE_CHECKING:
-    from unittest.mock import AsyncMock
-
 from friendex.adapters.discord_bot.cogs.account_cog import AccountCog
-from friendex.adapters.discord_bot.embeds import COLOR_NEUTRAL, COLOR_SUCCESS
+from friendex.adapters.discord_bot.embeds import (
+    COLOR_NEUTRAL,
+    COLOR_SUCCESS,
+    build_intro_embed,
+)
 from friendex.application.snapshot_models import PortfolioSnapshot
 
 # ---------------------------------------------------------------------------
@@ -142,19 +143,120 @@ async def test_balance_with_no_account_replies_ephemerally(
 # /optin · /optout
 
 
-async def test_optin_calls_set_opt_in_true(
+def _attach_user_send(interaction, *, raises: BaseException | None = None) -> AsyncMock:
+    """Attach an :class:`AsyncMock` ``send`` to ``interaction.user``.
+
+    The conftest's ``fake_interaction`` leaves ``interaction.user`` as a
+    permissive :class:`MagicMock`, so ``interaction.user.send`` would be a
+    :class:`MagicMock` (not awaitable). Q10's auto-DM intro path awaits it —
+    every C2 test pins the spelling here.
+    """
+    send = AsyncMock(name="user.send")
+    if raises is not None:
+        send.side_effect = raises
+    interaction.user.send = send
+    return send
+
+
+async def test_optin_first_time_dms_intro_and_acks_ephemerally(
     fake_interaction,  # type: ignore[no-untyped-def]
     activity_service: AsyncMock,
     portfolio_service_factory,  # type: ignore[no-untyped-def]
     activity_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
+    """C2(a): first-time /optin (``opt_in_and_consume_intro`` returns ``True``)
+    fires the intro DM AND still sends the ephemeral confirmation.
+    """
+    activity_service.opt_in_and_consume_intro.return_value = True
     cog = AccountCog(
         portfolio_service_factory=portfolio_service_factory,
         activity_service_factory=activity_service_factory,
     )
     interaction = fake_interaction(user_id=4242, guild_id=99)
+    user_send = _attach_user_send(interaction)
+
     await AccountCog.optin.callback(cog, interaction)
-    activity_service.set_opt_in.assert_awaited_once_with("4242", True)
+
+    activity_service.opt_in_and_consume_intro.assert_awaited_once_with("4242")
+    # Intro DM fired exactly once with the canonical intro embed.
+    assert user_send.await_count == 1
+    dm_kwargs = user_send.await_args.kwargs
+    assert dm_kwargs["embed"].to_dict() == build_intro_embed().to_dict()
+    # AllowedMentions.none() is load-bearing (Phase 10 invariant).
+    assert isinstance(dm_kwargs["allowed_mentions"], discord.AllowedMentions)
+    # Ephemeral confirmation still goes through (Discord 3 s ack invariant).
+    kwargs = _send_call_kwargs(interaction)
+    assert kwargs.get("ephemeral") is True
+    assert isinstance(kwargs["embed"], discord.Embed)
+    # The ephemeral reply carries ONE embed (the confirmation) — the intro
+    # rode on the DM.
+    assert "embeds" not in kwargs
+
+
+async def test_optin_subsequent_does_not_dm(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    activity_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """C2(b): a /optin after the intro has been consumed does NOT DM."""
+    activity_service.opt_in_and_consume_intro.return_value = False
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction(user_id=4242, guild_id=99)
+    user_send = _attach_user_send(interaction)
+
+    await AccountCog.optin.callback(cog, interaction)
+
+    activity_service.opt_in_and_consume_intro.assert_awaited_once_with("4242")
+    assert user_send.await_count == 0
+    kwargs = _send_call_kwargs(interaction)
+    assert kwargs.get("ephemeral") is True
+    assert isinstance(kwargs["embed"], discord.Embed)
+    data = kwargs["embed"].to_dict()
+    assert data["color"] == COLOR_SUCCESS.value
+
+
+async def test_optin_dm_closed_falls_back_to_ephemeral_with_intro_attached(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    activity_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """C2(c): ``discord.Forbidden`` on the DM falls back — the ephemeral
+    reply carries TWO embeds (intro + confirmation) so the user still sees
+    the intro inline.
+    """
+    activity_service.opt_in_and_consume_intro.return_value = True
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction(user_id=4242, guild_id=99)
+    # ``discord.Forbidden`` requires a response object — build the minimum
+    # the constructor needs.
+    forbidden = discord.Forbidden(
+        response=_DummyResponse(status=403, reason="Forbidden"),
+        message="Cannot send messages to this user",
+    )
+    user_send = _attach_user_send(interaction, raises=forbidden)
+
+    await AccountCog.optin.callback(cog, interaction)
+
+    # The cog attempted the DM exactly once before falling back.
+    assert user_send.await_count == 1
+    kwargs = _send_call_kwargs(interaction)
+    assert kwargs.get("ephemeral") is True
+    # Fallback signature: ``embeds=[intro, confirmation]``.
+    embeds = kwargs.get("embeds")
+    assert isinstance(embeds, list)
+    assert len(embeds) == 2
+    assert embeds[0].to_dict() == build_intro_embed().to_dict()
+    assert embeds[1].to_dict()["color"] == COLOR_SUCCESS.value
+    # The single-embed kwarg must NOT be set when ``embeds=...`` is used.
+    assert "embed" not in kwargs
 
 
 async def test_optout_calls_set_opt_in_false(
@@ -163,6 +265,7 @@ async def test_optout_calls_set_opt_in_false(
     portfolio_service_factory,  # type: ignore[no-untyped-def]
     activity_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
+    """``/optout`` stays on ``set_opt_in(False)`` — Q10 only touches /optin."""
     cog = AccountCog(
         portfolio_service_factory=portfolio_service_factory,
         activity_service_factory=activity_service_factory,
@@ -170,25 +273,6 @@ async def test_optout_calls_set_opt_in_false(
     interaction = fake_interaction(user_id=4242, guild_id=99)
     await AccountCog.optout.callback(cog, interaction)
     activity_service.set_opt_in.assert_awaited_once_with("4242", False)
-
-
-async def test_optin_reply_is_ephemeral_success_embed(
-    fake_interaction,  # type: ignore[no-untyped-def]
-    portfolio_service_factory,  # type: ignore[no-untyped-def]
-    activity_service_factory,  # type: ignore[no-untyped-def]
-) -> None:
-    cog = AccountCog(
-        portfolio_service_factory=portfolio_service_factory,
-        activity_service_factory=activity_service_factory,
-    )
-    interaction = fake_interaction()
-    await AccountCog.optin.callback(cog, interaction)
-    kwargs = _send_call_kwargs(interaction)
-    assert kwargs.get("ephemeral") is True  # mutation-hardening
-    embed = kwargs["embed"]
-    assert isinstance(embed, discord.Embed)
-    data = embed.to_dict()
-    assert data["color"] == COLOR_SUCCESS.value
 
 
 async def test_optout_reply_is_ephemeral_success_embed(
@@ -208,6 +292,19 @@ async def test_optout_reply_is_ephemeral_success_embed(
     assert isinstance(embed, discord.Embed)
     data = embed.to_dict()
     assert data["color"] == COLOR_SUCCESS.value
+
+
+class _DummyResponse:
+    """Minimal stand-in for the ``aiohttp.ClientResponse`` that
+    :class:`discord.Forbidden` requires in its constructor.
+
+    discord.py inspects ``status`` and ``reason`` when formatting the error;
+    nothing else is touched at construction time.
+    """
+
+    def __init__(self, *, status: int, reason: str) -> None:
+        self.status = status
+        self.reason = reason
 
 
 # ---------------------------------------------------------------------------
