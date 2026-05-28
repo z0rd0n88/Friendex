@@ -604,3 +604,68 @@ async def test_fund_info_returns_the_stored_fund(
     assert info is not None
     assert info.fund_id == USER
     assert info.cash_balance == Decimal("777.77")
+
+
+# ---------------------------------------------------------------------------
+# Phase 17a — Open-Q8 toggle: hedge_fund_base_apy_period
+# ---------------------------------------------------------------------------
+
+
+async def test_accrue_apy_uses_annual_period_when_setting_is_annual(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Open-Q8: ``hedge_fund_base_apy_period="annual"`` credits the full APY.
+
+    $100 balance at 0.15 APY accrues $15.00 in a single ``accrue_apy`` call
+    when the period setting is ``"annual"`` (vs $1.25 monthly).
+    """
+    custom = default_settings.model_copy(
+        update={"hedge_fund_base_apy_period": "annual"}
+    )
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=custom,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    assert fund_after is not None
+    # 100 * 0.15 = 15.00 (annual single-shot accrual)
+    assert fund_after.cash_balance == Decimal("115.00")
+
+
+async def test_accrue_apy_uses_monthly_period_by_default(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Open-Q8: default ``"monthly"`` cadence preserves Phase-8e accrual.
+
+    $100 balance at 0.15 APY accrues $1.25 (= 100 * 0.15 / 12) in one call.
+    """
+    await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("100.00")))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    assert fund_after is not None
+    # 100 * 0.15 / 12 = 1.25
+    assert fund_after.cash_balance == Decimal("101.25")

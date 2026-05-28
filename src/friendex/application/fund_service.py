@@ -337,7 +337,9 @@ class FundService:
                     self._settings.hedge_fund_base_apy, penalty, now
                 )
                 accrual = compute_apy_accrual(
-                    fresh.cash_balance, effective_apy, period="monthly"
+                    fresh.cash_balance,
+                    effective_apy,
+                    period=self._settings.hedge_fund_base_apy_period,
                 )
                 if accrual == _ZERO_CASH:
                     continue

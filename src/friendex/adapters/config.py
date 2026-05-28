@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     market_open: time = time(6, 30)
     market_close: time = time(4, 30)
     timezone_offset_hours: int = 0
+    # Open-Q2 toggle: when True the ``/buy`` slash command treats Sunday as a
+    # normal trading day (preserves the original spec's Sunday exception);
+    # set to False to make Sunday a fully closed day for buys as well.
+    # ``/sell``, ``/short``, ``/cover`` ignore this flag (they always reject
+    # Sunday). See ``docs/02-target-architecture.md`` §Open-Questions Q2.
+    sunday_buy_allowed: bool = True
+    # Open-Q3 toggle: when True an ``opt_in=False`` target raises
+    # :class:`~friendex.domain.errors.OptedOut` from every trade direction;
+    # set to False to make opt-out advisory (the user no longer appears in
+    # opt-in-only listings but trades against them still succeed). See
+    # ``docs/02-target-architecture.md`` §Open-Questions Q3.
+    opt_out_blocks_trading: bool = True
 
     # Game constants
     initial_cash: float = 10_000.0
@@ -148,6 +160,12 @@ class Settings(BaseSettings):
 
     # Hedge fund
     hedge_fund_base_apy: float = 0.15
+    # Open-Q8 toggle: cadence over which ``settings.hedge_fund_base_apy`` is
+    # accrued by :meth:`FundService.accrue_apy` — ``"monthly"`` credits
+    # ``balance * apy / 12`` (the historic Phase-8e behaviour), ``"annual"``
+    # credits the full ``balance * apy`` in a single call. See
+    # ``docs/02-target-architecture.md`` §Open-Questions Q8.
+    hedge_fund_base_apy_period: Literal["monthly", "annual"] = "monthly"
     early_withdraw_penalty: float = 0.05
     penalty_duration_days: int = 14
 
