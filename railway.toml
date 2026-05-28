@@ -1,0 +1,7 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "uv run alembic upgrade head && uv run friendex"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
