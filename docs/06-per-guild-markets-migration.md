@@ -1,5 +1,11 @@
 # Per-Guild Markets — Implementation Plan
 
+> **Historical document.** Per-guild market isolation is **fully implemented as of
+> 2026-05-28**. All ORM tables carry a `guild_id` column with composite primary keys;
+> repositories are constructor-bound to a single guild via `container.for_guild(guild_id)`;
+> all Discord adapters extract `interaction.guild_id` and reject DMs. This document
+> is preserved as the implementation plan that drove those changes.
+
 > Companion to [ADR-0001](./adr/0001-per-guild-markets.md) (the decision) and
 > [`04-migration-plan.md`](./04-migration-plan.md) (the 18-phase roadmap this re-specs).
 

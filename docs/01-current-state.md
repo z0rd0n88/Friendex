@@ -1,5 +1,11 @@
 # Friendex — Specification Analysis: Current State
 
+> **Historical document.** This is the Phase 1 analysis of the original single-file
+> `bot.py` spec. The greenfield hexagonal rebuild described in `docs/04-migration-plan.md`
+> is **complete as of 2026-05-28** — all 17 phases merged to `main`. This document is
+> preserved for historical context; it does not describe the current codebase.
+> See `docs/02-target-architecture.md` for the implemented architecture.
+
 ## Executive Summary
 
 Friendex is a single-file Discord bot (`bot.py`, not yet implemented) in which every server member is a tradeable "stock" whose price moves based on measured Discord activity (messages, voice time, reactions, VC pings) and direct trade pressure. The full design exists in one 1,660-line Python skeleton document. The architecture mixes Discord event handling, domain logic, price arithmetic, and JSON persistence into the same functions throughout, with no layer separation. Four global in-memory dicts act as the entire database, flushed to JSON after every mutation. Two ephemeral in-memory dicts track live voice sessions and VC ping state and are lost on restart. The spec implies six background tasks, four Discord event handlers, one additional bot event, and fifteen user-facing commands, all operating on shared mutable global state without any concurrency guard.
