@@ -276,8 +276,14 @@ def test_defaults_match_target_architecture() -> None:
     assert settings.photo_bonus_channel_ids == []
 
     assert settings.hedge_fund_base_apy == 0.15
+    assert settings.hedge_fund_base_apy_period == "monthly"
     assert settings.early_withdraw_penalty == 0.05
     assert settings.penalty_duration_days == 14
+
+    # Phase 17a toggles (Open-Q2 / Q3 / Q8). Defaults preserve the historic
+    # behaviour so the toggle landing is a no-op until an operator flips one.
+    assert settings.sunday_buy_allowed is True
+    assert settings.opt_out_blocks_trading is True
 
     assert settings.log_level == "INFO"
     assert settings.log_format == "json"
@@ -418,3 +424,59 @@ def test_get_settings_cache_clear_returns_fresh_instance(
 
     assert first is not second
     assert first == second
+
+
+# ---------------------------------------------------------------------------
+# Phase 17a — Open-Q2/Q3/Q8 toggle env overrides
+# ---------------------------------------------------------------------------
+
+
+def test_sunday_buy_allowed_env_override_false(tmp_path: Path) -> None:
+    """Open-Q2: ``SUNDAY_BUY_ALLOWED=false`` flips the Sunday-buy exception off."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nSUNDAY_BUY_ALLOWED=false\n",
+        encoding="utf-8",
+    )
+
+    settings = _load_from_env_file(env_path)
+
+    assert settings.sunday_buy_allowed is False
+
+
+def test_hedge_fund_base_apy_period_env_override_annual(tmp_path: Path) -> None:
+    """Open-Q8: ``HEDGE_FUND_BASE_APY_PERIOD=annual`` selects the annual cadence."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nHEDGE_FUND_BASE_APY_PERIOD=annual\n",
+        encoding="utf-8",
+    )
+
+    settings = _load_from_env_file(env_path)
+
+    assert settings.hedge_fund_base_apy_period == "annual"
+
+
+def test_hedge_fund_base_apy_period_rejects_invalid_value(tmp_path: Path) -> None:
+    """Open-Q8: only the Literal members ``monthly``/``annual`` are accepted."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nHEDGE_FUND_BASE_APY_PERIOD=weekly\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError):
+        _load_from_env_file(env_path)
+
+
+def test_opt_out_blocks_trading_env_override_false(tmp_path: Path) -> None:
+    """Open-Q3: ``OPT_OUT_BLOCKS_TRADING=false`` disarms the ``OptedOut`` gate."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nOPT_OUT_BLOCKS_TRADING=false\n",
+        encoding="utf-8",
+    )
+
+    settings = _load_from_env_file(env_path)
+
+    assert settings.opt_out_blocks_trading is False

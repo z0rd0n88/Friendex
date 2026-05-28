@@ -1506,3 +1506,82 @@ async def test_market_closed_uses_settings_window(
 
     with freeze_time(closed_dt), pytest.raises(MarketClosed):
         await service.buy(BUYER, TARGET, 1)
+
+
+# ---------------------------------------------------------------------------
+# Phase 17a — Open-Q2/Q3 toggles wired into the trading service
+# ---------------------------------------------------------------------------
+
+
+async def test_buy_rejected_on_sunday_when_sunday_buy_allowed_is_false(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Open-Q2: with ``sunday_buy_allowed=False`` /buy is closed on Sunday too."""
+    custom = default_settings.model_copy(update={"sunday_buy_allowed": False})
+    await fake_user_repo.upsert(GUILD, _account(BUYER, cash=Decimal("5000.00")))
+    await fake_user_repo.upsert(GUILD, _account(TARGET))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=custom,
+    )
+
+    with freeze_time(SUNDAY_OPEN), pytest.raises(MarketClosed):
+        await service.buy(BUYER, TARGET, 1)
+
+
+async def test_check_opt_in_is_noop_when_opt_out_blocks_trading_is_false(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Open-Q3: ``opt_out_blocks_trading=False`` disarms ``_check_opt_in``."""
+    custom = default_settings.model_copy(update={"opt_out_blocks_trading": False})
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=custom,
+    )
+    opted_out_target = _account(TARGET, opt_in=False)
+
+    # Must NOT raise — the toggle turns the opt-in gate into a no-op.
+    service._check_opt_in(opted_out_target)
+
+
+async def test_check_opt_in_still_raises_when_toggle_default_true(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Default ``opt_out_blocks_trading=True`` keeps the historic ``OptedOut`` raise."""
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+    opted_out_target = _account(TARGET, opt_in=False)
+
+    with pytest.raises(OptedOut):
+        service._check_opt_in(opted_out_target)

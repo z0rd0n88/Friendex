@@ -308,9 +308,16 @@ class TradingService:
         if actor_id == target_id:
             raise SelfTrade()
 
-    @staticmethod
-    def _check_opt_in(target: UserAccount) -> None:
-        """Reject a trade whose target has opted out of being tradable."""
+    def _check_opt_in(self, target: UserAccount) -> None:
+        """Reject a trade whose target has opted out of being tradable.
+
+        When ``settings.opt_out_blocks_trading`` is False (Open-Q3 toggle) the
+        check is a no-op — opt-out becomes advisory (the user is still hidden
+        from opt-in-only listings, but trades against them succeed). See
+        ``docs/02-target-architecture.md`` §Open-Questions Q3.
+        """
+        if not self._settings.opt_out_blocks_trading:
+            return
         if not target.opt_in:
             raise OptedOut(target_id=target.user_id)
 
@@ -331,7 +338,7 @@ class TradingService:
         """
         self._validate_shares(shares)
         self._check_not_self(buyer_id, target_id)
-        self._check_market_open(allow_sunday=True)
+        self._check_market_open(allow_sunday=self._settings.sunday_buy_allowed)
 
         async with self._locks.locked(
             self._lock_key(buyer_id), self._lock_key(target_id)
