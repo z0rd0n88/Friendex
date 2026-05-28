@@ -16,11 +16,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
+from unittest.mock import ANY
 
 import discord
 import pytest
-
-from unittest.mock import ANY
 
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock
@@ -81,9 +80,7 @@ def _fund_info_result(
     has_penalty: bool = False,
 ) -> FundInfoResult:
     return FundInfoResult(
-        fund=_hedge_fund(
-            fund_id=fund_id, name=name, manager_id=manager_id, cash=cash
-        ),
+        fund=_hedge_fund(fund_id=fund_id, name=name, manager_id=manager_id, cash=cash),
         base_apy=base_apy,
         effective_apy=effective_apy,
         has_penalty=has_penalty,
@@ -193,7 +190,9 @@ async def test_fund_info_defaults_to_invoking_user(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    fund_service.fund_info.return_value = _fund_info_result(fund_id="42", manager_id="42")
+    fund_service.fund_info.return_value = _fund_info_result(
+        fund_id="42", manager_id="42"
+    )
     group = _build_group(fund_service_factory)
     interaction = fake_interaction(user_id=42, guild_id=99)
     await FundGroup.info.callback(group, interaction, user=None)
@@ -205,7 +204,9 @@ async def test_fund_info_uses_explicit_user_when_provided(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    fund_service.fund_info.return_value = _fund_info_result(fund_id="555", manager_id="555")
+    fund_service.fund_info.return_value = _fund_info_result(
+        fund_id="555", manager_id="555"
+    )
     group = _build_group(fund_service_factory)
     interaction = fake_interaction(user_id=42, guild_id=99)
     target = _make_member(555)
@@ -241,7 +242,9 @@ async def test_fund_info_passes_base_and_effective_apy_to_builder(
 ) -> None:
     """``FundService.fund_info`` returns a ``FundInfoResult`` carrying pre-computed
     APY values; the cog passes them directly to the embed builder."""
-    fund_service.fund_info.return_value = _fund_info_result(base_apy=0.15, effective_apy=0.15)
+    fund_service.fund_info.return_value = _fund_info_result(
+        base_apy=0.15, effective_apy=0.15
+    )
     group = _build_group(fund_service_factory)
     interaction = fake_interaction()
     await FundGroup.info.callback(group, interaction, user=None)

@@ -214,8 +214,9 @@ async def test_monthly_rollover_propagates_service_exception() -> None:
         iter_guild_ids=iter_guilds,
     )
 
-    with freeze_time("2026-06-01 00:30:00", tz_offset=0), pytest.raises(
-        RuntimeError, match="nope"
+    with (
+        freeze_time("2026-06-01 00:30:00", tz_offset=0),
+        pytest.raises(RuntimeError, match="nope"),
     ):
         await task._run()
 

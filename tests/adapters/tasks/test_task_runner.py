@@ -18,7 +18,6 @@ from __future__ import annotations
 from friendex.adapters.tasks.base_task import BackgroundTask
 from friendex.adapters.tasks.task_runner import TaskRunner
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 
@@ -73,7 +72,7 @@ def test_task_runner_holds_task() -> None:
 
 
 # ---------------------------------------------------------------------------
-# start()
+# Tests for ``start()`` — loop startup is idempotent.
 
 
 def test_start_starts_loop_when_not_running() -> None:
@@ -91,7 +90,7 @@ def test_start_is_idempotent_when_loop_already_running() -> None:
 
 
 # ---------------------------------------------------------------------------
-# stop()
+# Tests for ``stop()`` — loop cancellation is safe when not running.
 
 
 def test_stop_cancels_loop_when_running() -> None:

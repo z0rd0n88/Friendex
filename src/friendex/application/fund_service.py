@@ -95,6 +95,7 @@ if TYPE_CHECKING:
         IUserRepo,
     )
     from friendex.application.lock_manager import LockManager
+    from friendex.application.snapshot_models import FundInfoResult
 
 # Currency quantisation unit — two decimal places, banker's rounding.
 _CENT = Decimal("0.01")

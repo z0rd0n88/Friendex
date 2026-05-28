@@ -47,17 +47,17 @@ assignment. Phase 13 chose attribute assignment for ``bot.tree.on_error``
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import discord
+import structlog
 from discord.ext import commands
 
 if TYPE_CHECKING:
     from friendex.adapters.config import Settings
     from friendex.adapters.container import Container
 
-_log = logging.getLogger(__name__)
+_log = structlog.get_logger(__name__)
 
 
 def build_bot(settings: Settings, container: Container) -> commands.Bot:
@@ -116,9 +116,7 @@ def build_bot(settings: Settings, container: Container) -> commands.Bot:
                 )
                 failed_runners.append(task_name)
         if failed_runners:
-            raise RuntimeError(
-                f"Failed to start runners: {', '.join(failed_runners)}"
-            )
+            raise RuntimeError(f"Failed to start runners: {', '.join(failed_runners)}")
         await bot.tree.sync()
         if settings.dev_guild_id is not None:
             dev_guild = discord.Object(id=settings.dev_guild_id)

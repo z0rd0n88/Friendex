@@ -15,7 +15,7 @@ patched so the assertions exercise the wiring contract, not Discord's network.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -25,7 +25,11 @@ from discord.ext import commands
 from friendex.adapters.config import Settings
 from friendex.adapters.container import Container
 from friendex.adapters.discord_bot.bot import build_bot
-from friendex.adapters.tasks.task_runner import TaskRunner
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from friendex.adapters.tasks.task_runner import TaskRunner
 
 _VALID_TOKEN = "x" * 32
 
