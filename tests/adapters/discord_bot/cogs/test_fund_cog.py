@@ -20,12 +20,14 @@ from typing import TYPE_CHECKING
 import discord
 import pytest
 
+from unittest.mock import ANY
+
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock
 
-from friendex.adapters.config import Settings
 from friendex.adapters.discord_bot.cogs.fund_cog import FundCog, FundGroup
 from friendex.adapters.discord_bot.embeds import COLOR_NEUTRAL
+from friendex.application.snapshot_models import FundInfoResult
 from friendex.domain.errors import (
     AlreadyOptedIn,
     FundInsufficientBalance,
@@ -35,18 +37,6 @@ from friendex.domain.models import HedgeFund
 
 # ---------------------------------------------------------------------------
 # Helpers
-
-
-def _settings(**overrides: object) -> Settings:
-    """Build a :class:`Settings` with a non-placeholder token for tests."""
-    base: dict[str, object] = {
-        "discord_token": "test-token-not-placeholder",
-        "hedge_fund_base_apy": 0.15,
-        "early_withdraw_penalty": 0.05,
-        "penalty_duration_days": 14,
-    }
-    base.update(overrides)
-    return Settings(**base)  # type: ignore[arg-type]
 
 
 def _hedge_fund(
@@ -80,14 +70,30 @@ def _make_member(user_id: int):  # type: ignore[no-untyped-def]
     return member
 
 
+def _fund_info_result(
+    *,
+    fund_id: str = "42",
+    name: str = "Fund 42",
+    manager_id: str = "42",
+    cash: Decimal = Decimal("1000.00"),
+    base_apy: float = 0.15,
+    effective_apy: float = 0.15,
+    has_penalty: bool = False,
+) -> FundInfoResult:
+    return FundInfoResult(
+        fund=_hedge_fund(
+            fund_id=fund_id, name=name, manager_id=manager_id, cash=cash
+        ),
+        base_apy=base_apy,
+        effective_apy=effective_apy,
+        has_penalty=has_penalty,
+    )
+
+
 def _build_group(
     fund_service_factory,  # type: ignore[no-untyped-def]
-    settings: Settings | None = None,
 ) -> FundGroup:
-    return FundGroup(
-        fund_service_factory=fund_service_factory,
-        settings=settings or _settings(),
-    )
+    return FundGroup(fund_service_factory=fund_service_factory)
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +105,8 @@ async def test_fund_create_calls_create_or_rename_with_name(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    fund = _hedge_fund(name="My Cool Fund")
-    fund_service.create_or_rename.return_value = fund
+    fund_service.create_or_rename.return_value = None
+    fund_service.fund_info.return_value = _fund_info_result(name="My Cool Fund")
     group = _build_group(fund_service_factory)
     interaction = fake_interaction(user_id=42, guild_id=99)
     await FundGroup.create.callback(group, interaction, name="My Cool Fund")
@@ -112,7 +118,8 @@ async def test_fund_create_defaults_name_to_none(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    fund_service.create_or_rename.return_value = _hedge_fund()
+    fund_service.create_or_rename.return_value = None
+    fund_service.fund_info.return_value = _fund_info_result()
     group = _build_group(fund_service_factory)
     interaction = fake_interaction(user_id=42, guild_id=99)
     await FundGroup.create.callback(group, interaction, name=None)
@@ -123,7 +130,8 @@ async def test_fund_create_routes_through_per_guild_factory(
     fake_interaction,  # type: ignore[no-untyped-def]
     fund_service: AsyncMock,
 ) -> None:
-    fund_service.create_or_rename.return_value = _hedge_fund()
+    fund_service.create_or_rename.return_value = None
+    fund_service.fund_info.return_value = _fund_info_result()
     seen_guild_ids: list[str] = []
 
     def factory(guild_id: str):
@@ -141,7 +149,8 @@ async def test_fund_create_reply_is_public_with_allowed_mentions_none(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    fund_service.create_or_rename.return_value = _hedge_fund(name="Funky Town")
+    fund_service.create_or_rename.return_value = None
+    fund_service.fund_info.return_value = _fund_info_result(name="Funky Town")
     group = _build_group(fund_service_factory)
     interaction = fake_interaction()
     await FundGroup.create.callback(group, interaction, name="Funky Town")
@@ -184,11 +193,11 @@ async def test_fund_info_defaults_to_invoking_user(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    fund_service.fund_info.return_value = _hedge_fund(fund_id="42", manager_id="42")
+    fund_service.fund_info.return_value = _fund_info_result(fund_id="42", manager_id="42")
     group = _build_group(fund_service_factory)
     interaction = fake_interaction(user_id=42, guild_id=99)
     await FundGroup.info.callback(group, interaction, user=None)
-    fund_service.fund_info.assert_awaited_once_with(user_id="42")
+    fund_service.fund_info.assert_awaited_once_with("42", ANY)
 
 
 async def test_fund_info_uses_explicit_user_when_provided(
@@ -196,12 +205,12 @@ async def test_fund_info_uses_explicit_user_when_provided(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    fund_service.fund_info.return_value = _hedge_fund(fund_id="555", manager_id="555")
+    fund_service.fund_info.return_value = _fund_info_result(fund_id="555", manager_id="555")
     group = _build_group(fund_service_factory)
     interaction = fake_interaction(user_id=42, guild_id=99)
     target = _make_member(555)
     await FundGroup.info.callback(group, interaction, user=target)
-    fund_service.fund_info.assert_awaited_once_with(user_id="555")
+    fund_service.fund_info.assert_awaited_once_with("555", ANY)
 
 
 async def test_fund_info_reply_is_ephemeral_with_allowed_mentions_none(
@@ -209,7 +218,7 @@ async def test_fund_info_reply_is_ephemeral_with_allowed_mentions_none(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    fund_service.fund_info.return_value = _hedge_fund(name="MyFund")
+    fund_service.fund_info.return_value = _fund_info_result(name="MyFund")
     group = _build_group(fund_service_factory)
     interaction = fake_interaction()
     await FundGroup.info.callback(group, interaction, user=None)
@@ -230,10 +239,10 @@ async def test_fund_info_passes_base_and_effective_apy_to_builder(
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    """The cog computes effective APY via ``compute_effective_apy`` and renders it."""
-    fund_service.fund_info.return_value = _hedge_fund()
-    settings = _settings(hedge_fund_base_apy=0.15)
-    group = FundGroup(fund_service_factory=fund_service_factory, settings=settings)
+    """``FundService.fund_info`` returns a ``FundInfoResult`` carrying pre-computed
+    APY values; the cog passes them directly to the embed builder."""
+    fund_service.fund_info.return_value = _fund_info_result(base_apy=0.15, effective_apy=0.15)
+    group = _build_group(fund_service_factory)
     interaction = fake_interaction()
     await FundGroup.info.callback(group, interaction, user=None)
     kwargs = _send_call_kwargs(interaction)
@@ -451,5 +460,5 @@ def test_fund_cog_exposes_group_for_phase_13_wiring(
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
     """``FundCog`` exposes the ``FundGroup`` instance so Phase 13 can register it."""
-    cog = FundCog(fund_service_factory=fund_service_factory, settings=_settings())
+    cog = FundCog(fund_service_factory=fund_service_factory)
     assert isinstance(cog.group, FundGroup)

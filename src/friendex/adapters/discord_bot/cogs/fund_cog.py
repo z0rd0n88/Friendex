@@ -54,14 +54,12 @@ from friendex.adapters.discord_bot.embeds import (
     COLOR_SUCCESS,
     build_fund_info_embed,
 )
-from friendex.domain.fund_math import compute_effective_apy
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from friendex.adapters.config import Settings
     from friendex.application.fund_service import FundService
-    from friendex.domain.models import HedgeFund
+    from friendex.application.snapshot_models import FundInfoResult
 
 
 class FundGroup(app_commands.Group):
@@ -70,24 +68,22 @@ class FundGroup(app_commands.Group):
     The group is its own class (not a module-level instance) so Phase 13 can
     instantiate one per bot/guild scope and register it via
     ``bot.tree.add_command(group_instance)``. Subclassing also lets us hold
-    the per-guild :class:`FundService` factory and :class:`Settings` as
-    instance state without monkey-patching attributes onto a stock
-    ``app_commands.Group``.
+    the per-guild :class:`FundService` factory as instance state without
+    monkey-patching attributes onto a stock ``app_commands.Group``.
 
-    Ctor takes a per-guild :class:`FundService` factory plus the
-    :class:`Settings` (required for the ``hedge_fund_base_apy`` rate that
-    ``/fund info`` renders).
+    Ctor takes a per-guild :class:`FundService` factory. APY values and
+    penalty state are returned by :meth:`FundService.fund_info` as a
+    :class:`~friendex.application.snapshot_models.FundInfoResult` so the
+    cog does not need access to :class:`~friendex.adapters.config.Settings`.
     """
 
     def __init__(
         self,
         *,
         fund_service_factory: Callable[[str], FundService],
-        settings: Settings,
     ) -> None:
         super().__init__(name="fund", description="Hedge fund management")
         self._fund_factory = fund_service_factory
-        self._settings = settings
 
     # -- /fund create --------------------------------------------------------
 
@@ -106,13 +102,18 @@ class FundGroup(app_commands.Group):
         """Create or rename the invoker's personal fund and confirm publicly.
 
         Renders the confirmation via :func:`build_fund_info_embed` after the
-        create call. The service returns the persisted :class:`HedgeFund`,
-        which carries every field the builder needs (balance, manager,
-        name); APY rendering reuses the same convention as ``/fund info``.
+        create call. Calls :meth:`FundService.fund_info` to get the display
+        DTO — one extra read on a fund we just wrote, but it keeps the embed
+        path consistent with ``/fund info`` and avoids needing
+        :class:`Settings` in the cog.
         """
+        now = datetime.now(tz=UTC)
         fund_service = self._fund_factory(guild_id_of(interaction))
-        fund = await fund_service.create_or_rename(str(interaction.user.id), name=name)
-        embed = self._build_fund_info_embed_for(fund)
+        await fund_service.create_or_rename(str(interaction.user.id), name=name)
+        result = await fund_service.fund_info(str(interaction.user.id), now)
+        embed = self._build_fund_info_embed_for(result) if result is not None else discord.Embed(
+            title="Hedge Fund", color=COLOR_SUCCESS, description="Fund created."
+        )
         await interaction.response.send_message(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -140,16 +141,17 @@ class FundGroup(app_commands.Group):
         :class:`AccountCog.balance` and :class:`PortfolioCog.portfolio`.
         """
         target_user = user if user is not None else interaction.user
+        now = datetime.now(tz=UTC)
         fund_service = self._fund_factory(guild_id_of(interaction))
-        fund = await fund_service.fund_info(user_id=str(target_user.id))
-        if fund is None:
+        result = await fund_service.fund_info(str(target_user.id), now)
+        if result is None:
             embed = discord.Embed(
                 title="Hedge Fund",
                 color=COLOR_NEUTRAL,
                 description=("No hedge fund yet — run `/fund create` to open one."),
             )
         else:
-            embed = self._build_fund_info_embed_for(fund)
+            embed = self._build_fund_info_embed_for(result)
         await interaction.response.send_message(
             embed=embed,
             ephemeral=True,
@@ -278,29 +280,13 @@ class FundGroup(app_commands.Group):
 
     # -- helpers -------------------------------------------------------------
 
-    def _build_fund_info_embed_for(self, fund: HedgeFund) -> discord.Embed:
-        """Render the ``/fund info`` embed for ``fund`` with computed APYs.
-
-        ``build_fund_info_embed`` is keyword-only (Phase 10 digest §kw-only).
-        The cog computes the *effective* APY from
-        :attr:`Settings.hedge_fund_base_apy` and the (currently un-fetched)
-        penalty via :func:`compute_effective_apy`; passing ``penalty=None``
-        leaves the effective APY equal to the base, which is the natural
-        rendering when no penalty data is loaded at the cog layer.
-        """
-        base_apy = self._settings.hedge_fund_base_apy
-        # The cog does NOT fetch :class:`FundPenalty` here — that would
-        # require widening the read service. ``compute_effective_apy`` with
-        # ``penalty=None`` returns ``base_apy`` unchanged, so the rendered
-        # effective APY matches the base in the absence of penalty data.
-        # Phase 13 / a future enhancement may surface the penalty by widening
-        # ``FundService.fund_info`` to return a read-model DTO.
-        effective_apy = compute_effective_apy(base_apy, None, datetime.now(tz=UTC))
+    def _build_fund_info_embed_for(self, result: FundInfoResult) -> discord.Embed:
+        """Render the ``/fund info`` embed from a :class:`FundInfoResult` DTO."""
         return build_fund_info_embed(
-            fund=fund,
-            base_apy=base_apy,
-            effective_apy=effective_apy,
-            has_penalty=False,
+            fund=result.fund,
+            base_apy=result.base_apy,
+            effective_apy=result.effective_apy,
+            has_penalty=result.has_penalty,
         )
 
 
@@ -316,9 +302,7 @@ class FundCog(commands.Cog):
         self,
         *,
         fund_service_factory: Callable[[str], FundService],
-        settings: Settings,
     ) -> None:
         self.group: FundGroup = FundGroup(
             fund_service_factory=fund_service_factory,
-            settings=settings,
         )

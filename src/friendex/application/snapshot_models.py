@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from decimal import Decimal
 
-    from friendex.domain.models import LongPosition, ShortPosition
+    from friendex.domain.models import HedgeFund, LongPosition, ShortPosition
 
 
 @dataclass(frozen=True)
@@ -104,3 +104,23 @@ class UserStats:
     trending_score: float
     engagement_tier: str
     last_activity: datetime
+
+
+@dataclass(frozen=True)
+class FundInfoResult:
+    """Display-ready fund summary for ``/fund info`` and ``/fund create`` embeds.
+
+    Packages the :class:`~friendex.domain.models.HedgeFund` with APY values
+    computed by :class:`~friendex.application.fund_service.FundService` so the
+    caller (``FundCog``) does not need access to
+    :class:`~friendex.adapters.config.Settings` or domain math helpers.
+    ``base_apy`` and ``effective_apy`` are ``float`` matching the return type
+    of :func:`~friendex.domain.fund_math.compute_effective_apy`.
+    ``has_penalty`` is ``True`` when an early-withdrawal penalty is active at
+    the time of the read (i.e. ``penalty.penalty_until > now``).
+    """
+
+    fund: HedgeFund
+    base_apy: float
+    effective_apy: float
+    has_penalty: bool

@@ -162,15 +162,33 @@ class FundService:
 
     # -- public read use case (lockless) ------------------------------------
 
-    async def fund_info(self, user_id: str) -> HedgeFund | None:
-        """Return ``user_id``'s personal fund, or ``None`` if they have none.
+    async def fund_info(self, user_id: str, now: datetime) -> FundInfoResult | None:
+        """Return ``user_id``'s fund as a display-ready :class:`FundInfoResult`.
 
-        Best-effort read — no lock is held. The Phase 11 ``/fund info`` embed
-        builder consumes the returned :class:`HedgeFund` directly; rendering
-        the *effective* APY (with any active penalty) is the embed builder's
-        responsibility, not this read.
+        Best-effort read — no lock is held. Fetches both the
+        :class:`HedgeFund` and any active :class:`FundPenalty` in two
+        repository reads, computes ``effective_apy`` via
+        :func:`~friendex.domain.fund_math.compute_effective_apy`, and
+        packages everything the ``/fund info`` embed builder needs so the
+        cog does not require access to :class:`Settings` or domain math.
+
+        Returns ``None`` when the user has no personal fund.
         """
-        return await self._fund_repo.get(self._guild_id, user_id)
+        from friendex.application.snapshot_models import FundInfoResult
+
+        fund = await self._fund_repo.get(self._guild_id, user_id)
+        if fund is None:
+            return None
+        penalty = await self._penalty_repo.get(self._guild_id, user_id)
+        base_apy = self._settings.hedge_fund_base_apy
+        effective_apy = compute_effective_apy(base_apy, penalty, now)
+        has_penalty = penalty is not None and penalty.penalty_until > now
+        return FundInfoResult(
+            fund=fund,
+            base_apy=base_apy,
+            effective_apy=effective_apy,
+            has_penalty=has_penalty,
+        )
 
     # -- create / rename ----------------------------------------------------
 

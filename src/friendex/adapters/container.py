@@ -276,7 +276,6 @@ class Container:
             DailyCog(daily_service_factory=self.daily_service_factory),
             FundCog(
                 fund_service_factory=self.fund_service_factory,
-                settings=self._settings,
             ),
             PortfolioCog(portfolio_service_factory=self.portfolio_service_factory),
             StatsCog(stats_service_factory=self.stats_service_factory),

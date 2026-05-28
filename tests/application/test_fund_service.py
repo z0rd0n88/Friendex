@@ -554,7 +554,7 @@ async def test_fund_info_returns_none_when_absent(
         settings=default_settings,
     )
 
-    assert await service.fund_info(USER) is None
+    assert await service.fund_info(USER, datetime(2024, 1, 15, tzinfo=UTC)) is None
 
 
 async def test_fund_info_returns_the_stored_fund(
@@ -574,10 +574,10 @@ async def test_fund_info_returns_the_stored_fund(
         settings=default_settings,
     )
 
-    info = await service.fund_info(USER)
+    info = await service.fund_info(USER, datetime(2024, 1, 15, tzinfo=UTC))
     assert info is not None
-    assert info.fund_id == USER
-    assert info.cash_balance == Decimal("777.77")
+    assert info.fund.fund_id == USER
+    assert info.fund.cash_balance == Decimal("777.77")
 
 
 # ---------------------------------------------------------------------------
