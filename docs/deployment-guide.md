@@ -4,9 +4,12 @@
 
 This guide covers everything needed to get Friendex running in production: creating the
 Discord application, configuring environment variables, running the database migration,
-starting the bot as a systemd service, and migrating existing data from the old JSON
-format. The bot is a single Python process; the only runtime dependency is a writable
-filesystem for SQLite.
+and starting the bot. The bot is a single Python process; the only runtime dependency is
+a writable filesystem for SQLite.
+
+Two hosting options are documented:
+- **Railway** (§9) — recommended for quick cloud deployment; handles builds, restarts, and persistent storage automatically.
+- **Self-hosted via systemd** (§7) — for VPS or bare-metal installs.
 
 ---
 
@@ -269,6 +272,89 @@ Since `LOG_FORMAT=json` is the default, each log line is a JSON object. Parse wi
 sudo journalctl -u friendex -f | jq 'select(.level == "error")'
 sudo journalctl -u friendex -f | jq 'select(.event | startswith("trade."))'
 ```
+
+---
+
+## 9. Deploying to Railway
+
+[Railway](https://railway.app) runs Friendex as a persistent worker process with
+automatic deploys on every push to `main`. No Dockerfile is needed — Railway's Nixpacks
+detects uv from `uv.lock` and builds the environment automatically. The `railway.toml`
+at the repo root wires up the start command and restart policy.
+
+### Prerequisites
+
+- A [Railway](https://railway.app) account (free tier works; Hobby plan recommended for always-on uptime)
+- The repo pushed to GitHub (already at `z0rd0n88/Friendex`)
+
+### Step 1 — Create the Railway project
+
+1. In the Railway dashboard click **New Project → Deploy from GitHub repo**.
+2. Select `z0rd0n88/Friendex`.
+3. Railway detects `railway.toml` and queues the first build. **Let it fail** — you
+   haven't set the environment variables yet.
+
+### Step 2 — Add a persistent volume for SQLite
+
+Railway containers are ephemeral; the database must live on a volume.
+
+1. In your service, go to **Settings → Volumes → Add Volume**.
+2. Set the **Mount Path** to `/data`.
+3. Railway provisions the volume and remounts it on every deploy.
+
+### Step 3 — Set environment variables
+
+In your service go to **Variables** and add the following. Values that match the
+`.env.example` defaults can be left unset; Railway picks them up from `railway.toml`
+only if you override `startCommand`, otherwise let the app defaults apply.
+
+**Required:**
+
+| Variable        | Value                                    |
+| --------------- | ---------------------------------------- |
+| `DISCORD_TOKEN` | Your bot token from Discord Developer Portal |
+| `DATABASE_URL`  | `sqlite+aiosqlite:////data/friendex.db`  |
+
+> The four slashes in `DATABASE_URL` are intentional: SQLAlchemy async SQLite uses
+> `sqlite+aiosqlite:///` as the scheme prefix, then `/<absolute-path>` — so four
+> slashes total for an absolute path starting at `/data`.
+
+**Optional** (override only if you want non-default values):
+
+| Variable      | Default | Notes                                          |
+| ------------- | ------- | ---------------------------------------------- |
+| `LOG_FORMAT`  | `json`  | Keep `json` in production for structured logs. |
+| `LOG_LEVEL`   | `INFO`  | Set to `DEBUG` for troubleshooting.            |
+| `DEV_GUILD_ID`| _(unset)_ | Leave unset in production.                  |
+
+All game-tuning variables from §3 are optional and fall back to their defaults if unset.
+
+### Step 4 — Deploy
+
+Click **Deploy** (or push to `main`). Railway runs:
+
+```
+uv run alembic upgrade head && uv run friendex
+```
+
+Alembic creates `data/friendex.db` on the volume on the first deploy and is a no-op on
+subsequent deploys when the schema is already up to date.
+
+### Step 5 — View logs
+
+In the Railway dashboard, select your service and click **Logs**. Since `LOG_FORMAT`
+defaults to `json`, each line is a JSON object. You can filter in the Railway UI or
+stream logs locally with the Railway CLI:
+
+```bash
+railway logs --follow
+```
+
+### Redeploys and rollbacks
+
+Every push to `main` triggers a new deploy. Railway keeps the previous deploy available
+for one-click rollback in the **Deployments** tab. The SQLite volume persists across
+redeploys and rollbacks — it is never reset automatically.
 
 ---
 
