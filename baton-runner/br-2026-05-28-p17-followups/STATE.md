@@ -1,9 +1,9 @@
 # baton-runner run br-2026-05-28-p17-followups
-status: RUNNING
+status: DONE
 worktree: /home/user/Friendex/.claude/worktrees/br-2026-05-28-p17-followups
-phase: 1 of 1  unit: REVIEW  review_iter: 1 of 3
-current_baton: baton-pass/p17-followups/000-2026-05-28-followups-implemented.md
-units_used: 1
+phase: 1 of 1  unit: -  review_iter: 1 of 3 (CLEAN)
+current_baton: baton-pass/p17-followups/001-2026-05-28-review-clean.md
+units_used: 2
 pause_reason: -
 budgets: { global_ceiling: 25, phase_thrash: 20, bail_calls: 50, bail_files: 10 }
 
