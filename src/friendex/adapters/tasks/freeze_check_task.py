@@ -46,7 +46,7 @@ class FreezeCheckTask(BackgroundTask):
         self._iter_guild_ids = iter_guild_ids
 
     async def _run(self) -> None:
-        """Per-tick body — fan out one ``_safe_run`` per guild."""
+        """Per-tick body — fan out one service call per guild."""
         for guild_id in await self._iter_guild_ids():
             service = self._service_factory(guild_id)
-            await self._safe_run(service.update_frozen_shorts())
+            await service.update_frozen_shorts()

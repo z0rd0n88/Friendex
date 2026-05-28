@@ -54,8 +54,8 @@ async def test_freeze_check_task_invokes_service_per_guild() -> None:
     svc_b.update_frozen_shorts.assert_awaited_once()
 
 
-async def test_freeze_check_task_swallows_service_exception() -> None:
-    """F2: a per-guild service exception does not propagate or stop the sweep."""
+async def test_freeze_check_task_propagates_service_exception() -> None:
+    """F2: per-guild service exception propagates from ``_run()``; caught by runner."""
     svc_a = MagicMock()
     svc_a.update_frozen_shorts = AsyncMock(side_effect=RuntimeError("kaboom"))
     svc_b = MagicMock()
@@ -67,12 +67,10 @@ async def test_freeze_check_task_swallows_service_exception() -> None:
         return ["g1", "g2"]
 
     task = FreezeCheckTask(service_factory=factory, iter_guild_ids=iter_guilds)
-    # Must NOT raise.
-    await task._run()
+    import pytest
 
-    svc_a.update_frozen_shorts.assert_awaited_once()
-    # The second guild is still processed.
-    svc_b.update_frozen_shorts.assert_awaited_once()
+    with pytest.raises(RuntimeError, match="kaboom"):
+        await task._run()
 
 
 def test_freeze_check_task_cadence_is_five_minutes() -> None:

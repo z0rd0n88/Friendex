@@ -4,18 +4,18 @@ The factory constructs a :class:`discord.ext.commands.Bot` with
 :attr:`Intents.all` and a ``commands.when_mentioned`` prefix (slash-only bot;
 the prefix is API-required but inert). Its :attr:`Bot.setup_hook` is the
 single Phase 14 lifecycle entry point: it calls
-:meth:`Container.bind_runtime`, starts every task, and syncs the slash-command
+:meth:`Container.build_runners`, starts every runner, and syncs the slash-command
 tree globally (plus an optional dev-guild instant sync when
 ``settings.dev_guild_id`` is set).
 
 These tests verify the factory's *seams* without bringing up a real Discord
-gateway connection: ``bot.tree.sync`` and the task ``start()`` methods are
-patched so the assertions exercise the wiring contract, not Discord's
-network.
+gateway connection: ``bot.tree.sync`` and each runner's ``start()`` method are
+patched so the assertions exercise the wiring contract, not Discord's network.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -25,6 +25,7 @@ from discord.ext import commands
 from friendex.adapters.config import Settings
 from friendex.adapters.container import Container
 from friendex.adapters.discord_bot.bot import build_bot
+from friendex.adapters.tasks.task_runner import TaskRunner
 
 _VALID_TOKEN = "x" * 32
 
@@ -44,6 +45,28 @@ def container(settings: Settings, fake_sessionmaker: MagicMock) -> Container:
     return Container(settings, fake_sessionmaker)
 
 
+def _capture_runners_stub(
+    container: Container,
+) -> tuple[list[TaskRunner], Callable]:
+    """Return (captured_list, stub) for monkeypatching ``container.build_runners``.
+
+    The stub calls the real ``build_runners`` (so lifecycle injection runs),
+    then patches ``start`` on every returned runner to a ``MagicMock`` so no
+    ``discord.ext.tasks.Loop`` is actually started in tests.
+    """
+    real_br = container.build_runners
+    captured: list[TaskRunner] = []
+
+    def stub(bot):  # type: ignore[return]
+        runners = real_br(bot)
+        for r in runners:
+            r.start = MagicMock(name=f"TaskRunner.start<{type(r._task).__name__}>")
+        captured.extend(runners)
+        return runners
+
+    return captured, stub
+
+
 def test_build_bot_returns_commands_bot(
     settings: Settings, container: Container
 ) -> None:
@@ -54,8 +77,6 @@ def test_build_bot_returns_commands_bot(
 def test_build_bot_intents_are_all(settings: Settings, container: Container) -> None:
     """The bot opts into every privileged intent — Phase 14 spec."""
     bot = build_bot(settings, container)
-    # ``Intents.all().value`` is the bitfield with every flag set; the bot
-    # should at minimum carry the same value.
     assert bot.intents.value == discord.Intents.all().value
 
 
@@ -64,38 +85,31 @@ def test_build_bot_setup_hook_is_set_and_overridden(
 ) -> None:
     """``setup_hook`` is no longer the default discord.py no-op."""
     bot = build_bot(settings, container)
-    # commands.Bot.setup_hook (the inherited default) is identifiable by
-    # its qualified name on the Bot class.
     assert bot.setup_hook is not None
-    # The instance attribute must differ from the class-level default.
     assert bot.setup_hook != commands.Bot.setup_hook.__get__(bot)
 
 
-async def test_setup_hook_starts_every_task_and_syncs_tree(
+async def test_setup_hook_starts_every_runner_and_syncs_tree(
     settings: Settings,
     container: Container,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """setup_hook calls bind_runtime, starts every task, syncs commands globally."""
+    """setup_hook calls build_runners, starts every runner, syncs commands globally."""
     bot = build_bot(settings, container)
 
-    # Patch the tree sync so no network call escapes.
     bot.tree.sync = AsyncMock(name="tree.sync")  # type: ignore[method-assign]
     bot.tree.copy_global_to = MagicMock(name="tree.copy_global_to")  # type: ignore[method-assign]
-    # Empty guild list keeps bind_runtime's iter callable trivial.
     bot._connection._guilds = {}
-    # Patch every task's ``start`` to a no-op MagicMock so we can assert calls.
-    for task in container.tasks:
-        task.start = MagicMock(name=f"{type(task).__name__}.start")  # type: ignore[method-assign]
+
+    captured, stub = _capture_runners_stub(container)
+    monkeypatch.setattr(container, "build_runners", stub)
 
     await bot.setup_hook()
 
-    for task in container.tasks:
-        assert task.start.call_count == 1, (
-            f"{type(task).__name__}.start() was not called"
-        )
+    assert len(captured) == 8, f"Expected 8 runners, got {len(captured)}"
+    for runner in captured:
+        runner.start.assert_called_once()
     bot.tree.sync.assert_awaited()
-    # No dev_guild_id set on this fixture → copy_global_to is NOT called.
     bot.tree.copy_global_to.assert_not_called()
 
 
@@ -111,56 +125,56 @@ async def test_setup_hook_dev_guild_sync_when_dev_guild_id_set(
     bot.tree.sync = AsyncMock(name="tree.sync")  # type: ignore[method-assign]
     bot.tree.copy_global_to = MagicMock(name="tree.copy_global_to")  # type: ignore[method-assign]
     bot._connection._guilds = {}
-    for task in container.tasks:
-        task.start = MagicMock(name=f"{type(task).__name__}.start")  # type: ignore[method-assign]
+
+    _, stub = _capture_runners_stub(container)
+    monkeypatch.setattr(container, "build_runners", stub)
 
     await bot.setup_hook()
 
     bot.tree.copy_global_to.assert_called_once()
-    # The kwarg ``guild=`` carries a ``discord.Object`` with the dev id.
     call = bot.tree.copy_global_to.call_args
     guild_obj = call.kwargs.get("guild") or call.args[0]
     assert int(guild_obj.id) == 424242
-    # tree.sync called at least twice — global + dev-guild.
     assert bot.tree.sync.await_count >= 2
 
 
-async def test_setup_hook_binds_runtime_before_starting_tasks(
+async def test_setup_hook_build_runners_swaps_iter_guild_ids_and_notifier(
     settings: Settings,
     container: Container,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """After ``setup_hook`` runs, ``bind_runtime`` has swapped iter_guild_ids.
+    """After ``setup_hook`` runs, ``build_runners`` has swapped iter_guild_ids.
 
-    The swap is observable: the task's ``_iter_guild_ids`` attribute is no
-    longer the module-level ``_empty_guild_ids`` placeholder.
+    The swap is observable: each raw task's ``_iter_guild_ids`` attribute is no
+    longer the module-level ``_empty_guild_ids`` placeholder, and
+    ``LiquidationTask._notifier`` is no longer the no-op.
     """
     from friendex.adapters.container import _empty_guild_ids, _noop_notifier
 
     bot = build_bot(settings, container)
     bot.tree.sync = AsyncMock(name="tree.sync")  # type: ignore[method-assign]
     bot._connection._guilds = {}
-    for task in container.tasks:
-        task.start = MagicMock()  # type: ignore[method-assign]
 
-    # Pre-condition: every task carries the placeholder.
-    for task in container.tasks:
+    _, stub = _capture_runners_stub(container)
+    monkeypatch.setattr(container, "build_runners", stub)
+
+    for task in container.raw_tasks:
         assert task._iter_guild_ids is _empty_guild_ids
 
     await bot.setup_hook()
 
-    # Post-condition: every task has been re-wired.
-    for task in container.tasks:
+    for task in container.raw_tasks:
         assert task._iter_guild_ids is not _empty_guild_ids
-    # LiquidationTask's notifier was also replaced.
     from friendex.adapters.tasks.liquidation_task import LiquidationTask
 
-    liquidation = next(t for t in container.tasks if isinstance(t, LiquidationTask))
+    liquidation = next(t for t in container.raw_tasks if isinstance(t, LiquidationTask))
     assert liquidation._notifier is not _noop_notifier
 
 
 async def test_setup_hook_registers_cogs_and_listeners(
     settings: Settings,
     container: Container,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``register_with`` is invoked from ``setup_hook`` so every cog lands on the bot.
 
@@ -173,8 +187,9 @@ async def test_setup_hook_registers_cogs_and_listeners(
     bot.tree.sync = AsyncMock(name="tree.sync")  # type: ignore[method-assign]
     bot._connection._guilds = {}
     bot.add_cog = AsyncMock(name="add_cog")  # type: ignore[method-assign]
-    for task in container.tasks:
-        task.start = MagicMock()  # type: ignore[method-assign]
+
+    _, stub = _capture_runners_stub(container)
+    monkeypatch.setattr(container, "build_runners", stub)
 
     await bot.setup_hook()
 

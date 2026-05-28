@@ -61,17 +61,12 @@ class LiquidationTask(BackgroundTask):
         self._clock: Callable[[], datetime] = clock or (lambda: _datetime.now(tz=UTC))
 
     async def _run(self) -> None:
-        """Per-tick body — sweep each guild, then notify each emitted event.
-
-        Service and notifier exceptions are isolated via independent
-        :meth:`_safe_run` wrappers: a single bad guild or a single bad event
-        cannot halt the rest of the tick.
-        """
+        """Per-tick body — sweep each guild, then notify each emitted event."""
         for guild_id in await self._iter_guild_ids():
             service = self._service_factory(guild_id)
             events = await self._collect_events(service)
             for event in events:
-                await self._safe_run(self._notifier(event))
+                await self._notifier(event)
 
     async def _collect_events(
         self, service: LiquidationService

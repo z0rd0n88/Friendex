@@ -166,7 +166,14 @@ def test_weekly_reset_cadence_is_one_minute() -> None:
 async def test_weekly_reset_state_not_advanced_on_service_failure(
     fake_system_state_repo: FakeSystemStateRepo,
 ) -> None:
-    """W6: a failing service call does NOT advance ``last_weekly_reset``."""
+    """W6: a failing service call does NOT advance ``last_weekly_reset``.
+
+    The exception propagates from ``_run()`` (the runner layer catches it).
+    Because ``_advance_state`` is only called after a successful reset, the
+    failure path leaves the state unchanged and the next tick retries.
+    """
+    import pytest
+
     svc = MagicMock()
     svc.reset_week_buckets = AsyncMock(side_effect=RuntimeError("oops"))
 
@@ -179,7 +186,9 @@ async def test_weekly_reset_state_not_advanced_on_service_failure(
         system_state_repo=fake_system_state_repo,
     )
 
-    with freeze_time("2026-05-25 10:00:00", tz_offset=0):
+    with freeze_time("2026-05-25 10:00:00", tz_offset=0), pytest.raises(
+        RuntimeError, match="oops"
+    ):
         await task._run()
 
     state = await fake_system_state_repo.get(GUILD)
