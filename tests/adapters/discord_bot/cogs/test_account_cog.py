@@ -8,8 +8,10 @@ walk ``interaction.response.send_message.call_args`` and the embed's
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, MagicMock
 
 import discord
 
@@ -20,6 +22,9 @@ from friendex.adapters.discord_bot.embeds import (
     build_intro_embed,
 )
 from friendex.application.snapshot_models import PortfolioSnapshot
+
+if TYPE_CHECKING:
+    import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -257,6 +262,104 @@ async def test_optin_dm_closed_falls_back_to_ephemeral_with_intro_attached(
     assert embeds[1].to_dict()["color"] == COLOR_SUCCESS.value
     # The single-embed kwarg must NOT be set when ``embeds=...`` is used.
     assert "embed" not in kwargs
+
+
+async def test_optin_logs_when_intro_dm_is_forbidden(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    activity_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Phase 17 follow-up (17c INFO carry-forward): the ``discord.Forbidden``
+    DM-fallback path must emit ONE structured ``INFO`` log so operators can
+    see how often the intro DM gets blocked.
+
+    The cog already swallows ``Forbidden`` silently (Phase 17c shipped that
+    fallback). This pin adds observability without changing user-visible
+    behaviour: same fallback, plus a single log record with stable event
+    name + ``user_id`` / ``guild_id`` keys. The log MUST fire BEFORE the
+    fallback send so the failure is recorded even if the fallback itself
+    later fails. Embed contents are deliberately NOT logged.
+    """
+    activity_service.opt_in_and_consume_intro.return_value = True
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction(user_id=4242, guild_id=99)
+    forbidden = discord.Forbidden(
+        response=_DummyResponse(status=403, reason="Forbidden"),
+        message="Cannot send messages to this user",
+    )
+    _attach_user_send(interaction, raises=forbidden)
+
+    cog_logger_name = "friendex.adapters.discord_bot.cogs.account_cog"
+    with caplog.at_level(logging.INFO, logger=cog_logger_name):
+        await AccountCog.optin.callback(cog, interaction)
+
+    matching = [
+        record
+        for record in caplog.records
+        if record.name == cog_logger_name
+        and record.message == "account.optin_intro_dm_forbidden"
+    ]
+    cog_records = [
+        (r.levelname, r.message) for r in caplog.records if r.name == cog_logger_name
+    ]
+    assert len(matching) == 1, (
+        f"expected exactly one 'account.optin_intro_dm_forbidden' log on the "
+        f"cog logger, got {len(matching)} (all cog records: {cog_records!r})"
+    )
+    record = matching[0]
+    assert record.levelno == logging.INFO
+    assert getattr(record, "user_id", None) == "4242"
+    assert getattr(record, "guild_id", None) == "99"
+
+
+async def test_optin_consumes_intro_before_acking(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    activity_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """Phase 17 follow-up (17c LOW-1 pin): the service call MUST run before
+    any Discord reply.
+
+    The intro-consume step is an atomic RMW that decides whether the user
+    sees the intro DM (or fallback). Acking first would race the consume
+    against the Discord 3 s deadline and break the one-shot signal —
+    Phase 17c's mutation M2 (ack-first reorder) stayed green because no test
+    pinned the ordering. This is that test.
+
+    Uses ``parent.attach_mock`` to fold ``opt_in_and_consume_intro`` and
+    every Discord send into one ordered call log, then asserts the FIRST
+    recorded call resolves to ``consume`` — proving no Discord side-effect
+    runs before the service.
+    """
+    activity_service.opt_in_and_consume_intro.return_value = False
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction(user_id=4242, guild_id=99)
+    user_send = _attach_user_send(interaction)
+
+    parent = MagicMock(name="parent")
+    parent.attach_mock(activity_service.opt_in_and_consume_intro, "consume")
+    parent.attach_mock(user_send, "user_send")
+    parent.attach_mock(interaction.response.send_message, "send_message")
+
+    await AccountCog.optin.callback(cog, interaction)
+
+    # At least one call landed (sanity: the cog ran), and the FIRST
+    # recorded call is the service consume — not a Discord send.
+    assert parent.mock_calls, "expected at least one attached call"
+    first_name = parent.mock_calls[0][0]
+    assert first_name == "consume", (
+        f"expected first call to be 'consume' (the service), "
+        f"got {first_name!r}; full call log: {parent.mock_calls!r}"
+    )
 
 
 async def test_optout_calls_set_opt_in_false(

@@ -19,6 +19,7 @@ Domain errors **propagate uncaught**; Phase 13 will install a tree-wide
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import discord
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
 
     from friendex.application.activity_service import ActivityService
     from friendex.application.portfolio_service import PortfolioService
+
+logger = logging.getLogger(__name__)
 
 
 class AccountCog(commands.Cog):
@@ -131,7 +134,16 @@ class AccountCog(commands.Cog):
             )
         except discord.Forbidden:
             # DMs closed — fall back to attaching the intro to the
-            # ephemeral confirmation so the user still sees it.
+            # ephemeral confirmation so the user still sees it. Record the
+            # block at INFO so operators can spot trends (e.g. server-wide
+            # DM restrictions); the embed payload is deliberately omitted.
+            logger.info(
+                "account.optin_intro_dm_forbidden",
+                extra={
+                    "user_id": str(interaction.user.id),
+                    "guild_id": guild_id_of(interaction),
+                },
+            )
             await interaction.response.send_message(
                 embeds=[intro_embed, confirmation_embed],
                 ephemeral=True,

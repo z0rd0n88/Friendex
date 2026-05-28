@@ -732,6 +732,60 @@ async def test_invest_happy_path_mutates_cash_and_investors(
     assert fund_after.investors == {USER: Decimal("150.00")}
 
 
+async def test_invest_does_not_mutate_input_investors_dict(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Phase 17 follow-up (17b LOW-1 pin): ``invest`` must defensively clone
+    ``fund.investors`` before mutating it.
+
+    Pins the existing ``new_investors = dict(fund.investors)`` clone in
+    :meth:`FundService.invest`. Dropping the clone (mutating
+    ``fund.investors[investor_id]`` directly) would silently scribble on the
+    snapshot the repo handed back — Phase 17b's mutation M5 stayed green
+    because no test caught it. This is that test.
+
+    Asserts both halves of the invariant:
+
+    (a) the dict the test handed to the fund builder stays empty after
+        ``invest``  — the in-memory snapshot was NOT mutated in place;
+    (b) the freshly fetched fund's ``investors`` is a NEW dict object
+        (``fresh.investors is not original_investors``) with the new stake
+        recorded — so the clone is producing real isolation, not just
+        skipping the assignment.
+    """
+    await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
+    original_investors: dict[str, Decimal] = {}
+    seeded_fund = HedgeFund(
+        fund_id=OTHER_USER,
+        name=f"Fund {OTHER_USER}",
+        manager_id=OTHER_USER,
+        cash_balance=Decimal("100.00"),
+        investors=original_investors,
+    )
+    await fake_fund_repo.upsert(GUILD, seeded_fund)
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    await service.invest(USER, OTHER_USER, Decimal("150.00"))
+
+    # (a) The test-owned dict ref was NOT mutated in place.
+    assert original_investors == {}
+    # (b) The fresh snapshot carries a NEW dict with the stake recorded.
+    fresh = await fake_fund_repo.get(GUILD, OTHER_USER)
+    assert fresh is not None
+    assert fresh.investors is not original_investors
+    assert fresh.investors == {USER: Decimal("150.00")}
+
+
 async def test_invest_second_call_accumulates_stake(
     fake_user_repo: FakeUserRepo,
     fake_fund_repo: FakeFundRepo,
