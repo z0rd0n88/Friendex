@@ -2,21 +2,29 @@
 
 :class:`BackgroundTask` is the thin abstraction every Phase 9 task wrapper
 inherits from. It captures **one** load-bearing contract that the application
-services never make: any exception raised by a tick's work coroutine is
-swallowed and logged, so a transient service-layer failure cannot cancel the
-loop that drives the cadence.
+services never make: any exception raised by a tick is swallowed and logged,
+so a transient service-layer failure cannot cancel the loop that drives the
+cadence.
+
+**Where ``_safe_run`` lives.** The error boundary is enforced by
+:class:`~friendex.adapters.tasks.task_runner.TaskRunner`, which calls
+``await self._task._safe_run(self._task._run())`` on every tick. Concrete
+:meth:`_run` implementations raise normally — they do not call ``_safe_run``
+themselves for the outermost wrap. Tasks that need per-operation failure
+isolation within a single tick (e.g. per-guild fan-out, independent service
+calls) may still call ``_safe_run`` on those inner coroutines directly.
 
 **Cadence is declared, not enforced here.** Each concrete task exposes its
 desired cadence as the ``interval_minutes`` (or ``interval_hours``) class
-attribute; the Phase-14 composition layer wraps the task's :meth:`_run` body
-in a ``discord.ext.tasks.loop(...)`` of the appropriate length and binds the
-resulting ``Loop`` to :attr:`_loop`. Keeping the wrapper out of the task
-module lets the liquidation task (per Phase 9 AC3) avoid importing the
-``discord`` package altogether — only the composition layer touches discord.
+attribute; :class:`~friendex.adapters.tasks.task_runner.TaskRunner` reads the
+cadence at construction time and wraps the task in a
+``discord.ext.tasks.loop``. Keeping the discord import out of this module lets
+the liquidation task (Phase 9 AC3) remain discord-free — only
+:class:`~friendex.adapters.tasks.task_runner.TaskRunner` touches discord.
 
-**Lifecycle.** :meth:`start` and :meth:`stop` operate on :attr:`_loop` once
-the composition layer has bound it. Calling either before binding raises
-:class:`AttributeError` — the task is not runnable on its own.
+**Lifecycle.** :class:`~friendex.adapters.tasks.task_runner.TaskRunner` owns
+``start()`` and ``stop()``. A bare :class:`BackgroundTask` has no lifecycle
+methods — it is always a pure-logic object, valid from construction.
 
 **Design notes**
 
@@ -42,7 +50,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Callable, Iterable
 
 
 _log = structlog.get_logger(__name__)
@@ -53,8 +61,8 @@ class BackgroundTask(ABC):
 
     Subclasses implement :meth:`_run` (the per-tick body) and declare their
     desired cadence on either :attr:`interval_minutes` or
-    :attr:`interval_hours`. The composition layer (Phase 14) reads the
-    cadence and wraps :meth:`_run` in a ``discord.ext.tasks.loop``.
+    :attr:`interval_hours`. :class:`~friendex.adapters.tasks.task_runner.TaskRunner`
+    reads the cadence and wraps the tick in a ``discord.ext.tasks.loop``.
     """
 
     #: Cadence in minutes. Subclasses override exactly one of
@@ -63,33 +71,22 @@ class BackgroundTask(ABC):
     #: Cadence in hours. See :attr:`interval_minutes`.
     interval_hours: int = 0
 
-    _loop: Any  # bound by the composition layer; see module docstring.
+    #: Injected by :meth:`~friendex.adapters.container.Container.build_runners`
+    #: before the first tick. Declared here so the attribute exists on the type
+    #: and external assignment does not require ``# type: ignore[attr-defined]``.
+    _iter_guild_ids: Callable[[], Awaitable[Iterable[str]]]
 
     @abstractmethod
     async def _run(self) -> None:
         """Per-tick body — subclasses implement."""
 
-    def start(self) -> None:
-        """Start the underlying ``tasks.loop``.
-
-        The composition layer must bind :attr:`_loop` first; calling this
-        method before then raises :class:`AttributeError`. Idempotent on an
-        already-running loop.
-        """
-        if not self._loop.is_running():
-            self._loop.start()
-
-    def stop(self) -> None:
-        """Cancel the underlying ``tasks.loop``.
-
-        Signals the scheduler to stop after the current iteration. Safe to
-        call when the loop is not running.
-        """
-        if self._loop.is_running():
-            self._loop.cancel()
-
     async def _safe_run(self, awaitable: Awaitable[Any]) -> None:
         """Await ``awaitable`` and swallow + log any :class:`Exception`.
+
+        Called by :class:`~friendex.adapters.tasks.task_runner.TaskRunner`
+        around the outermost :meth:`_run` coroutine on every tick. Task helper
+        methods may also call it directly when they need per-sub-operation
+        failure isolation (e.g. independent service calls within a single tick).
 
         The contract: this helper NEVER re-raises. A service-layer failure on
         one tick must not cancel the loop that drives the cadence.

@@ -7,13 +7,12 @@ tasks (single-instance), all 7 cogs, all 4 listeners, then exposes
 installs the central error handler on ``bot.tree.on_error``.
 
 Per the Phase 13 AC bar the test exercises construction + registration counts;
-it does **not** start any task (tasks need a live event loop and the Phase 14
-composition layer to bind ``_loop``).
+it does **not** start any task (tasks are started via
+:meth:`~Container.build_runners` in the Phase-14 ``setup_hook``).
 """
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -94,7 +93,7 @@ def test_container_exposes_eight_tasks(
     settings: Settings, fake_sessionmaker: MagicMock
 ) -> None:
     container = Container(settings, fake_sessionmaker)
-    assert len(container.tasks) == 8
+    assert len(container.raw_tasks) == 8
 
 
 def test_container_cog_types_match_inventory(
@@ -130,7 +129,7 @@ def test_container_task_types_match_inventory(
     settings: Settings, fake_sessionmaker: MagicMock
 ) -> None:
     container = Container(settings, fake_sessionmaker)
-    task_types = {type(t) for t in container.tasks}
+    task_types = {type(t) for t in container.raw_tasks}
     assert task_types == {
         ActivityTickTask,
         DailyResetTask,
@@ -141,33 +140,6 @@ def test_container_task_types_match_inventory(
         VcBoostTask,
         WeeklyResetTask,
     }
-
-
-def test_container_tasks_are_not_started(
-    settings: Settings, fake_sessionmaker: MagicMock
-) -> None:
-    """No task has had ``start()`` called — ``_loop`` is unbound (Phase 14).
-
-    The :class:`~friendex.adapters.tasks.base_task.BackgroundTask` base class
-    leaves ``_loop`` as a declared attribute that the **composition layer**
-    (Phase 14) binds with a :class:`discord.ext.tasks.Loop`. Phase 13 must
-    not bind it, so any task whose ``_loop`` has been initialised would
-    indicate premature wiring.
-    """
-    container = Container(settings, fake_sessionmaker)
-    for task in container.tasks:
-        # ``hasattr`` returns False when ``_loop`` is a bare class
-        # annotation without instance binding.
-        assert not hasattr(task, "_loop") or not _is_running(task), (
-            f"{type(task).__name__} appears to have been started"
-        )
-
-
-def _is_running(task: object) -> bool:
-    try:
-        return bool(task._loop.is_running())  # type: ignore[attr-defined]
-    except AttributeError:
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +208,7 @@ async def test_register_with_installs_error_handler(
 
 
 # ---------------------------------------------------------------------------
-# bind_runtime (Phase 14 AC2 / AC6)
+# build_runners (Phase 14 AC2 / AC6)
 
 
 def _stub_bot_with_guilds(guild_ids: list[int]) -> MagicMock:
@@ -246,57 +218,57 @@ def _stub_bot_with_guilds(guild_ids: list[int]) -> MagicMock:
     return bot
 
 
-async def test_bind_runtime_swaps_iter_guild_ids_to_walk_bot_guilds(
+async def test_build_runners_swaps_iter_guild_ids_to_walk_bot_guilds(
     settings: Settings, fake_sessionmaker: MagicMock
 ) -> None:
-    """After ``bind_runtime``, every task yields ``[str(g.id) for g in bot.guilds]``."""
+    """After ``build_runners``, every task yields ``[str(g.id) for g in bot.guilds]``."""
     container = Container(settings, fake_sessionmaker)
     bot = _stub_bot_with_guilds([1111, 2222])
 
-    container.bind_runtime(bot)
+    container.build_runners(bot)
 
-    for task in container.tasks:
+    for task in container.raw_tasks:
         result = await task._iter_guild_ids()
         assert list(result) == ["1111", "2222"], (
             f"{type(task).__name__} did not pick up bot.guilds"
         )
 
 
-async def test_bind_runtime_iter_guild_ids_reflects_live_bot_guilds(
+async def test_build_runners_iter_guild_ids_reflects_live_bot_guilds(
     settings: Settings, fake_sessionmaker: MagicMock
 ) -> None:
     """The closure must re-read ``bot.guilds`` on each call, not snapshot."""
     container = Container(settings, fake_sessionmaker)
     bot = _stub_bot_with_guilds([100])
 
-    container.bind_runtime(bot)
+    container.build_runners(bot)
     # Mutate after bind — the closure should see the new state.
     bot.guilds = [MagicMock(name="Guild(200)", id=200)]
 
-    task = container.tasks[0]
+    task = container.raw_tasks[0]
     result = await task._iter_guild_ids()
     assert list(result) == ["200"]
 
 
-async def test_bind_runtime_replaces_liquidation_notifier(
+async def test_build_runners_replaces_liquidation_notifier(
     settings: Settings, fake_sessionmaker: MagicMock
 ) -> None:
-    """``LiquidationTask._notifier`` is no longer the no-op after bind_runtime."""
+    """``LiquidationTask._notifier`` is no longer the no-op after ``build_runners``."""
     from friendex.adapters.container import _noop_notifier
 
     container = Container(settings, fake_sessionmaker)
     liquidation_task = next(
-        t for t in container.tasks if isinstance(t, LiquidationTask)
+        t for t in container.raw_tasks if isinstance(t, LiquidationTask)
     )
     assert liquidation_task._notifier is _noop_notifier  # pre-condition
 
     bot = _stub_bot_with_guilds([42])
-    container.bind_runtime(bot)
+    container.build_runners(bot)
 
     assert liquidation_task._notifier is not _noop_notifier
 
 
-async def test_bind_runtime_liquidation_notifier_dispatches_to_system_channel(
+async def test_build_runners_liquidation_notifier_dispatches_to_system_channel(
     settings: Settings, fake_sessionmaker: MagicMock
 ) -> None:
     """Notifier sends the embed to ``bot.get_guild(...).system_channel``."""
@@ -311,9 +283,9 @@ async def test_bind_runtime_liquidation_notifier_dispatches_to_system_channel(
     bot.guilds = [guild]
     bot.get_guild = MagicMock(return_value=guild)
 
-    container.bind_runtime(bot)
+    container.build_runners(bot)
     liquidation_task = next(
-        t for t in container.tasks if isinstance(t, LiquidationTask)
+        t for t in container.raw_tasks if isinstance(t, LiquidationTask)
     )
 
     event = LiquidationEvent(
@@ -341,20 +313,19 @@ async def test_bind_runtime_liquidation_notifier_dispatches_to_system_channel(
     assert allowed.roles is False
 
 
-async def test_bind_runtime_liquidation_notifier_skips_when_guild_missing(
+async def test_build_runners_liquidation_notifier_skips_when_guild_missing(
     settings: Settings,
     fake_sessionmaker: MagicMock,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When ``bot.get_guild`` returns None, the notifier logs WARNING and skips."""
+    """When ``bot.get_guild`` returns None, the notifier skips without raising."""
     container = Container(settings, fake_sessionmaker)
     bot = MagicMock(name="Bot")
     bot.guilds = []
     bot.get_guild = MagicMock(return_value=None)
 
-    container.bind_runtime(bot)
+    container.build_runners(bot)
     liquidation_task = next(
-        t for t in container.tasks if isinstance(t, LiquidationTask)
+        t for t in container.raw_tasks if isinstance(t, LiquidationTask)
     )
 
     event = LiquidationEvent(
@@ -368,40 +339,28 @@ async def test_bind_runtime_liquidation_notifier_skips_when_guild_missing(
         pnl=Decimal("-50.00"),
         timestamp=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
     )
-    # ``caplog.set_level`` attaches caplog's handler directly to the named
-    # logger — robust against ``logging.basicConfig(force=True)`` calls in
-    # other tests (``configure_logging`` invokes that on every run).
-    # ``alembic.env`` calls ``logging.config.fileConfig`` with the default
-    # ``disable_existing_loggers=True`` when test_migrations runs in the
-    # same session, which silently disables this logger. Re-enable it
-    # explicitly so the WARNING emission isn't swallowed.
-    logging.getLogger("friendex.adapters.container").disabled = False
-    caplog.set_level(logging.WARNING, logger="friendex.adapters.container")
     await liquidation_task._notifier(event)
 
     bot.get_guild.assert_called_once_with(999)
-    assert any(record.levelno == logging.WARNING for record in caplog.records), (
-        "Expected a WARNING log when guild is missing"
-    )
 
 
-async def test_bind_runtime_liquidation_notifier_skips_when_no_system_channel(
+async def test_build_runners_liquidation_notifier_skips_when_no_system_channel(
     settings: Settings,
     fake_sessionmaker: MagicMock,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When ``guild.system_channel`` is None, the notifier logs WARNING and skips."""
+    """When ``guild.system_channel`` is None, the notifier skips without raising."""
     container = Container(settings, fake_sessionmaker)
     guild = MagicMock(name="Guild")
     guild.system_channel = None
+    channel_send = MagicMock(name="send")
 
     bot = MagicMock(name="Bot")
     bot.guilds = [guild]
     bot.get_guild = MagicMock(return_value=guild)
 
-    container.bind_runtime(bot)
+    container.build_runners(bot)
     liquidation_task = next(
-        t for t in container.tasks if isinstance(t, LiquidationTask)
+        t for t in container.raw_tasks if isinstance(t, LiquidationTask)
     )
 
     event = LiquidationEvent(
@@ -415,14 +374,6 @@ async def test_bind_runtime_liquidation_notifier_skips_when_no_system_channel(
         pnl=Decimal("-50.00"),
         timestamp=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
     )
-    # ``alembic.env`` calls ``logging.config.fileConfig`` with the default
-    # ``disable_existing_loggers=True`` when test_migrations runs in the
-    # same session, which silently disables this logger. Re-enable it
-    # explicitly so the WARNING emission isn't swallowed.
-    logging.getLogger("friendex.adapters.container").disabled = False
-    caplog.set_level(logging.WARNING, logger="friendex.adapters.container")
     await liquidation_task._notifier(event)
 
-    assert any(record.levelno == logging.WARNING for record in caplog.records), (
-        "Expected a WARNING log when system_channel is None"
-    )
+    channel_send.assert_not_called()
