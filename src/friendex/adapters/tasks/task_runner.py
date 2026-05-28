@@ -10,12 +10,9 @@ without a discord event loop.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from discord.ext import tasks as discord_tasks
 
-if TYPE_CHECKING:
-    from friendex.adapters.tasks.base_task import BackgroundTask
+from friendex.adapters.tasks.base_task import BackgroundTask  # noqa: TC001
 
 
 class TaskRunner:
@@ -24,9 +21,19 @@ class TaskRunner:
     The loop is built from the task's declared :attr:`~BackgroundTask.interval_minutes`
     / :attr:`~BackgroundTask.interval_hours` at construction time. Calling
     :meth:`start` or :meth:`stop` is safe immediately — there is no dead zone.
+
+    Raises
+    ------
+    ValueError
+        If both ``task.interval_minutes`` and ``task.interval_hours`` are zero.
     """
 
     def __init__(self, task: BackgroundTask) -> None:
+        if task.interval_minutes == 0 and task.interval_hours == 0:
+            raise ValueError(
+                f"{type(task).__name__}: at least one of interval_minutes or"
+                " interval_hours must be non-zero"
+            )
         self._task = task
         loop_decorator = discord_tasks.loop(
             minutes=task.interval_minutes,
@@ -35,8 +42,12 @@ class TaskRunner:
         self._loop = loop_decorator(self._tick)
 
     async def _tick(self) -> None:
-        """Delegate one loop iteration to the wrapped task."""
-        await self._task._run()
+        """Delegate one loop iteration to the wrapped task via ``_safe_run``.
+
+        ``_safe_run`` is the single error boundary for the loop — subclass
+        ``_run`` implementations raise normally; this layer swallows and logs.
+        """
+        await self._task._safe_run(self._task._run())
 
     def start(self) -> None:
         """Start the underlying loop. Idempotent if already running."""

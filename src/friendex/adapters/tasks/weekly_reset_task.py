@@ -67,9 +67,8 @@ class WeeklyResetTask(BackgroundTask):
         for guild_id in await self._iter_guild_ids():
             if not await self._is_stale(guild_id, now):
                 continue
-            success = await self._try_reset(guild_id)
-            if success:
-                await self._advance_state(guild_id, now)
+            await self._try_reset(guild_id)
+            await self._advance_state(guild_id, now)
 
     async def _is_stale(self, guild_id: str, now: datetime) -> bool:
         """``True`` iff the persisted ISO ``(year, week)`` is older than now's."""
@@ -78,17 +77,10 @@ class WeeklyResetTask(BackgroundTask):
             return True
         return _iso_year_week(now) != _iso_year_week(state.last_weekly_reset)
 
-    async def _try_reset(self, guild_id: str) -> bool:
-        """Call the service under ``_safe_run``; return ``True`` iff successful."""
-        succeeded: dict[str, bool] = {}
+    async def _try_reset(self, guild_id: str) -> None:
+        """Call the reset service for the given guild."""
         service = self._service_factory(guild_id)
-
-        async def call() -> None:
-            await service.reset_week_buckets()
-            succeeded["ok"] = True
-
-        await self._safe_run(call())
-        return succeeded.get("ok", False)
+        await service.reset_week_buckets()
 
     async def _advance_state(self, guild_id: str, now: datetime) -> None:
         """Upsert :class:`SystemState` with ``last_weekly_reset = now``.

@@ -48,10 +48,10 @@ is purely a wiring placeholder for Phase 14 to swap with
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import discord
+import structlog
 
 from friendex.adapters.discord_bot.cogs.account_cog import AccountCog
 from friendex.adapters.discord_bot.cogs.admin_cog import AdminCog
@@ -110,7 +110,7 @@ if TYPE_CHECKING:
     from friendex.application.liquidation_events import LiquidationEvent
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def _empty_guild_ids() -> Iterable[str]:
@@ -150,14 +150,14 @@ def _make_liquidation_notifier(
         if guild is None:
             logger.warning(
                 "liquidation_notifier_guild_missing",
-                extra={"guild_id": event.guild_id},
+                guild_id=event.guild_id,
             )
             return
         channel = guild.system_channel
         if channel is None:
             logger.warning(
                 "liquidation_notifier_system_channel_missing",
-                extra={"guild_id": event.guild_id},
+                guild_id=event.guild_id,
             )
             return
         await channel.send(
@@ -187,6 +187,7 @@ class Container:
     ) -> None:
         self._settings = settings
         self._sessionmaker = sessionmaker
+        self._runners_built: bool = False
 
         # --- Repositories -------------------------------------------------
         self._user_repo = SqlUserRepository(sessionmaker)
@@ -461,7 +462,11 @@ class Container:
     def build_runners(self, bot: commands.Bot) -> tuple[TaskRunner, ...]:
         """Inject live bot callables and wrap each task in a :class:`TaskRunner`.
 
-        Called once from ``setup_hook`` after the bot is ready. Steps:
+        **One-shot contract**: must be called exactly once, from ``setup_hook``.
+        A second call raises :class:`RuntimeError` — calling it again would
+        create orphan runners sharing the same task instances.
+
+        Steps:
 
         1. Replace each task's ``_iter_guild_ids`` with a closure that walks
            ``bot.guilds`` on every tick (so newly-added guilds participate in
@@ -473,13 +478,17 @@ class Container:
 
         Returns a tuple of ready-to-start runners — each valid immediately.
         """
+        if self._runners_built:
+            raise RuntimeError("build_runners() must only be called once")
+        self._runners_built = True
+
         from friendex.adapters.tasks.task_runner import TaskRunner
 
         async def iter_guild_ids() -> Iterable[str]:
             return [str(g.id) for g in bot.guilds]
 
         for task in self.raw_tasks:
-            task._iter_guild_ids = iter_guild_ids  # type: ignore[attr-defined]
+            task._iter_guild_ids = iter_guild_ids
         self._liquidation_task._notifier = _make_liquidation_notifier(bot)
 
         return tuple(TaskRunner(task) for task in self.raw_tasks)

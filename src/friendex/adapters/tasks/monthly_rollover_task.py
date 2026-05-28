@@ -63,5 +63,5 @@ class MonthlyRolloverTask(BackgroundTask):
             fund = self._fund_factory(guild_id)
             # Order is load-bearing: capture the baseline BEFORE APY accrues
             # so the month-start net worth reflects the pre-accrual value.
-            await self._safe_run(portfolio.capture_month_start_net_worth())
-            await self._safe_run(fund.accrue_apy(now=now))
+            await portfolio.capture_month_start_net_worth()
+            await fund.accrue_apy(now=now)

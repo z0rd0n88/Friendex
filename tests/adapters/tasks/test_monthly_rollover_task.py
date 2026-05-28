@@ -196,8 +196,10 @@ def test_monthly_rollover_cadence_is_one_hour() -> None:
     assert MonthlyRolloverTask.interval_minutes == 0
 
 
-async def test_monthly_rollover_swallows_service_exception() -> None:
-    """M7: a portfolio failure does NOT block fund accrual; both wrapped."""
+async def test_monthly_rollover_propagates_service_exception() -> None:
+    """M7: a portfolio failure propagates from ``_run()``; caught by the runner."""
+    import pytest
+
     port = MagicMock()
     port.capture_month_start_net_worth = AsyncMock(side_effect=RuntimeError("nope"))
     fund = MagicMock()
@@ -212,13 +214,12 @@ async def test_monthly_rollover_swallows_service_exception() -> None:
         iter_guild_ids=iter_guilds,
     )
 
-    with freeze_time("2026-06-01 00:30:00", tz_offset=0):
-        # Must NOT raise.
+    with freeze_time("2026-06-01 00:30:00", tz_offset=0), pytest.raises(
+        RuntimeError, match="nope"
+    ):
         await task._run()
 
     port.capture_month_start_net_worth.assert_awaited_once()
-    # Fund still accrues even after portfolio failure.
-    fund.accrue_apy.assert_awaited_once()
 
 
 async def test_monthly_rollover_fans_out_per_guild() -> None:

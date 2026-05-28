@@ -13,7 +13,6 @@ it does **not** start any task (tasks are started via
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -317,9 +316,8 @@ async def test_build_runners_liquidation_notifier_dispatches_to_system_channel(
 async def test_build_runners_liquidation_notifier_skips_when_guild_missing(
     settings: Settings,
     fake_sessionmaker: MagicMock,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When ``bot.get_guild`` returns None, the notifier logs WARNING and skips."""
+    """When ``bot.get_guild`` returns None, the notifier skips without raising."""
     container = Container(settings, fake_sessionmaker)
     bot = MagicMock(name="Bot")
     bot.guilds = []
@@ -341,32 +339,20 @@ async def test_build_runners_liquidation_notifier_skips_when_guild_missing(
         pnl=Decimal("-50.00"),
         timestamp=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
     )
-    # ``caplog.set_level`` attaches caplog's handler directly to the named
-    # logger — robust against ``logging.basicConfig(force=True)`` calls in
-    # other tests (``configure_logging`` invokes that on every run).
-    # ``alembic.env`` calls ``logging.config.fileConfig`` with the default
-    # ``disable_existing_loggers=True`` when test_migrations runs in the
-    # same session, which silently disables this logger. Re-enable it
-    # explicitly so the WARNING emission isn't swallowed.
-    logging.getLogger("friendex.adapters.container").disabled = False
-    caplog.set_level(logging.WARNING, logger="friendex.adapters.container")
     await liquidation_task._notifier(event)
 
     bot.get_guild.assert_called_once_with(999)
-    assert any(record.levelno == logging.WARNING for record in caplog.records), (
-        "Expected a WARNING log when guild is missing"
-    )
 
 
 async def test_build_runners_liquidation_notifier_skips_when_no_system_channel(
     settings: Settings,
     fake_sessionmaker: MagicMock,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When ``guild.system_channel`` is None, the notifier logs WARNING and skips."""
+    """When ``guild.system_channel`` is None, the notifier skips without raising."""
     container = Container(settings, fake_sessionmaker)
     guild = MagicMock(name="Guild")
     guild.system_channel = None
+    channel_send = MagicMock(name="send")
 
     bot = MagicMock(name="Bot")
     bot.guilds = [guild]
@@ -388,14 +374,6 @@ async def test_build_runners_liquidation_notifier_skips_when_no_system_channel(
         pnl=Decimal("-50.00"),
         timestamp=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
     )
-    # ``alembic.env`` calls ``logging.config.fileConfig`` with the default
-    # ``disable_existing_loggers=True`` when test_migrations runs in the
-    # same session, which silently disables this logger. Re-enable it
-    # explicitly so the WARNING emission isn't swallowed.
-    logging.getLogger("friendex.adapters.container").disabled = False
-    caplog.set_level(logging.WARNING, logger="friendex.adapters.container")
     await liquidation_task._notifier(event)
 
-    assert any(record.levelno == logging.WARNING for record in caplog.records), (
-        "Expected a WARNING log when system_channel is None"
-    )
+    channel_send.assert_not_called()

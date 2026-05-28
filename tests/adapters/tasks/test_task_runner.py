@@ -15,8 +15,6 @@ triggered in unit tests.
 
 from __future__ import annotations
 
-import pytest
-
 from friendex.adapters.tasks.base_task import BackgroundTask
 from friendex.adapters.tasks.task_runner import TaskRunner
 

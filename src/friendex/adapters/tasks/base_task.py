@@ -2,9 +2,17 @@
 
 :class:`BackgroundTask` is the thin abstraction every Phase 9 task wrapper
 inherits from. It captures **one** load-bearing contract that the application
-services never make: any exception raised by a tick's work coroutine is
-swallowed and logged, so a transient service-layer failure cannot cancel the
-loop that drives the cadence.
+services never make: any exception raised by a tick is swallowed and logged,
+so a transient service-layer failure cannot cancel the loop that drives the
+cadence.
+
+**Where ``_safe_run`` lives.** The error boundary is enforced by
+:class:`~friendex.adapters.tasks.task_runner.TaskRunner`, which calls
+``await self._task._safe_run(self._task._run())`` on every tick. Concrete
+:meth:`_run` implementations raise normally — they do not call ``_safe_run``
+themselves for the outermost wrap. Tasks that need per-operation failure
+isolation within a single tick (e.g. per-guild fan-out, independent service
+calls) may still call ``_safe_run`` on those inner coroutines directly.
 
 **Cadence is declared, not enforced here.** Each concrete task exposes its
 desired cadence as the ``interval_minutes`` (or ``interval_hours``) class
@@ -42,7 +50,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Callable, Iterable
 
 
 _log = structlog.get_logger(__name__)
@@ -63,12 +71,22 @@ class BackgroundTask(ABC):
     #: Cadence in hours. See :attr:`interval_minutes`.
     interval_hours: int = 0
 
+    #: Injected by :meth:`~friendex.adapters.container.Container.build_runners`
+    #: before the first tick. Declared here so the attribute exists on the type
+    #: and external assignment does not require ``# type: ignore[attr-defined]``.
+    _iter_guild_ids: Callable[[], Awaitable[Iterable[str]]]
+
     @abstractmethod
     async def _run(self) -> None:
         """Per-tick body — subclasses implement."""
 
     async def _safe_run(self, awaitable: Awaitable[Any]) -> None:
         """Await ``awaitable`` and swallow + log any :class:`Exception`.
+
+        Called by :class:`~friendex.adapters.tasks.task_runner.TaskRunner`
+        around the outermost :meth:`_run` coroutine on every tick. Task helper
+        methods may also call it directly when they need per-sub-operation
+        failure isolation (e.g. independent service calls within a single tick).
 
         The contract: this helper NEVER re-raises. A service-layer failure on
         one tick must not cancel the loop that drives the cadence.

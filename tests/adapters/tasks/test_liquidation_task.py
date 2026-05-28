@@ -118,8 +118,10 @@ async def test_liquidation_task_swallows_service_exception() -> None:
     assert len(seen) == 1
 
 
-async def test_liquidation_task_swallows_notifier_exception() -> None:
-    """L2: a notifier failure on one event does not block subsequent events."""
+async def test_liquidation_task_propagates_notifier_exception() -> None:
+    """L2: a notifier failure propagates from ``_run()``; caught by the runner."""
+    import pytest
+
     e1 = _event(holder="h1", target="t1")
     e2 = _event(holder="h2", target="t2")
 
@@ -141,9 +143,10 @@ async def test_liquidation_task_swallows_notifier_exception() -> None:
         iter_guild_ids=iter_guilds,
         notifier=notifier,
     )
-    await task._run()
+    with pytest.raises(RuntimeError, match="notifier oops"):
+        await task._run()
 
-    assert seen == [e1, e2]
+    assert seen == [e1]
 
 
 def test_liquidation_task_cadence_is_five_minutes() -> None:
