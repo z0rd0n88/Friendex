@@ -1,5 +1,11 @@
 # Friendex — Phased Migration & Build Plan
 
+> **Historical document.** This phased build plan is **complete as of 2026-05-28** —
+> all 18 phases (Phase 0 through Phase 17) merged to `main`. The bot is fully built
+> and deployable. This document is preserved for historical context and to explain
+> architectural decisions made during construction.
+> See [docs/deployment-guide.md](./deployment-guide.md) to deploy the bot.
+
 ## Executive Summary
 
 This document is the concrete, file-by-file build roadmap for greenfield construction of Friendex from the spec, organised as eighteen incremental phases (Phase 0 through Phase 17) each delivered as its own GitHub PR against `main`. Phase 0 creates the master tracking issue; Phase 1 lays down packaging and tooling; Phases 2 through 14 build the system bottom-up (config, domain, persistence, concurrency, services, tasks, Discord adapters, and finally the bot entry point); Phases 15-17 cover migration verification, production cutover, and hardening of the items deferred by the target architecture. Every phase has a deterministic verification gate (`ruff`, `mypy`, `pytest`) that must pass before the phase PR may be merged, every PR body references the master tracking issue with `Refs #<master-id>`, and every PR is independently revertible so a regression in any single phase rolls back without disturbing earlier work. Calendar total: ~5-7 working weeks single-engineer, ~3-4 weeks if Phases 8a-8f and 11 are parallelised across two engineers.

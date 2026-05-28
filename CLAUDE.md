@@ -16,17 +16,20 @@ Friendex is a Discord bot that simulates a stock exchange game. Each server memb
 
 ## Development
 
-This is a [`uv`](https://docs.astral.sh/uv/)-managed Python ≥3.11 package. It is a **greenfield rebuild in progress and not yet a runnable bot** — the `friendex` entry point (`friendex.main:main`) is built in Phase 14. Until then it is a library under construction; the loop you exercise is tests, not a live bot.
+This is a [`uv`](https://docs.astral.sh/uv/)-managed Python ≥3.11 package. The build is complete — `uv run friendex` starts the bot.
 
 ```bash
 uv sync                                          # install deps + dev group
 uv run pytest                                     # run tests (coverage-gated)
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src/friendex
-uv run friendex                                   # run the bot — only works once Phase 14 lands
+uv run alembic upgrade head                      # create/migrate the database
+uv run friendex                                   # run the bot
 ```
 
 A `.env` with `DISCORD_TOKEN` is required (see `.env.example`). Slash commands sync **globally**, so the bot works in any server it is added to — there is no command prefix and no required home guild. `DEV_GUILD_ID` is optional: when set it also syncs commands instantly to that one guild for development. Each server is an isolated economy keyed by `(guild_id, user_id)` — see [ADR-0001](./docs/adr/0001-per-guild-markets.md).
+
+For full deployment instructions see [docs/deployment-guide.md](./docs/deployment-guide.md).
 
 ## Repo workflow & PRs
 
@@ -37,13 +40,14 @@ A `.env` with `DISCORD_TOKEN` is required (see `.env.example`). Slash commands s
 
 ## Architecture
 
-Friendex is a **greenfield rebuild** of an original single-file `bot.py` into a **hexagonal (ports-and-adapters)** package under `src/friendex/`. The original monolith no longer exists in the tree — it survives only as the spec at [`docs/spec/original-skeleton.md`](./docs/spec/original-skeleton.md).
+Friendex is a **hexagonal (ports-and-adapters)** package under `src/friendex/`, rebuilt from scratch from the original single-file `bot.py` spec (preserved at [`docs/spec/original-skeleton.md`](./docs/spec/original-skeleton.md) for reference).
 
 > **Authoritative sources — do not re-snapshot them here (that is what rots):**
 > - Target architecture → [`docs/02-target-architecture.md`](./docs/02-target-architecture.md)
-> - Phased build plan → [`docs/04-migration-plan.md`](./docs/04-migration-plan.md)
+> - Deployment → [`docs/deployment-guide.md`](./docs/deployment-guide.md)
 > - Testing strategy → [`docs/05-testing-strategy.md`](./docs/05-testing-strategy.md)
-> - **Live phase status → GitHub issue #2** (its checklist + merged PRs — never a status line in this repo)
+> - Historical build plan (completed) → [`docs/04-migration-plan.md`](./docs/04-migration-plan.md)
+> - **Phase completion status → GitHub issue #2** (its checklist + merged PRs — never a status line in this repo)
 
 ### Layers (`src/friendex/`)
 
@@ -57,25 +61,29 @@ Dependencies point inward only — `adapters → application → domain`. The do
 
 ### Current state
 
-Implemented: `Settings` + structured logging (Phase 2); domain models + error taxonomy (Phase 3) — **money fields are `Decimal` and datetimes are UTC-aware** (Phase 3.1 invariant; preserve it in new code). Everything else — domain pure functions, persistence (ORM + migrator), application services, Discord cogs/listeners, background tasks, and the bot entry point — is scaffolded (`__init__.py` only) and built phase-by-phase. **Check issue #2 for what is actually done.**
+The build is **complete as of 2026-05-28** — all 17 phases merged to `main`. The full
+stack is implemented: domain pure functions, persistence (ORM + migrator + Alembic),
+application services, Discord cogs/listeners, background tasks, and the bot entry point.
+**Money fields are `Decimal` and datetimes are UTC-aware** (Phase 3.1 invariant; preserve
+it in all new code).
 
 ### Persistence
 
-Domain state is stored in **SQLite via async SQLAlchemy 2.0 + Alembic** (`adapters/persistence/`, behind repository interfaces; `database_url` defaults to `sqlite+aiosqlite:///data/friendex.db`). This replaces the original bot's JSON files (`users.json`, `funds.json`, `prices.json`, `fund_penalties.json`); a one-time JSON→SQLite migrator is part of the cutover. Built in Phases 5–6.
+Domain state is stored in **SQLite via async SQLAlchemy 2.0 + Alembic** (`adapters/persistence/`, behind repository interfaces; `database_url` defaults to `sqlite+aiosqlite:///data/friendex.db`). All tables carry a `guild_id` column with composite primary keys for per-guild isolation. A one-time JSON→SQLite migrator (`src/friendex/adapters/persistence/migrate_json_to_sqlite.py`) handles migration from the original bot's JSON files — see [docs/deployment-guide.md](./docs/deployment-guide.md) for flags and usage.
 
 ### Price & game rules
 
-Durable game-design facts. Tunables live in `Settings` (`adapters/config.py`), not as module-level constants; the engine itself lands in Phase 4 (domain) and Phase 9 (background loops).
+Durable game-design facts. Tunables live in `Settings` (`adapters/config.py`), not as module-level constants.
 
 - **Activity ticks** (15-min loop): accumulate text posts, media, reactions, replies, and voice time; apply `ΔP = K · ln(1 + activity)`.
 - **Trade impact**: buy/sell/short/cover shift the price immediately via `price_impact_k` (0.5).
 - **Inactivity decay**: 4% drop after ~4h idle. `min_price` floor is $70; initial price $100.
-- **Background loops** (Phase 9): activity tick, short liquidation (auto-cover at `liquidation_threshold` × entry = 1.5×), hedge-fund APY accrual, early-withdrawal penalty decay.
+- **Background loops**: activity tick (15 min), short liquidation (auto-cover at `liquidation_threshold` × entry = 1.5×), hedge-fund APY accrual, early-withdrawal penalty decay, daily/weekly activity bucket resets, monthly net-worth rollover.
 - Other key tunables: `initial_cash` $10,000, `trade_cooldown_seconds` 900 (short/cover only), `hedge_fund_base_apy` 0.15, `early_withdraw_penalty` 0.05; market hours 06:30–04:30 next day, Mon–Sat (Sunday closed).
 
 ### Discord interface
 
-Events are handled by listeners in `adapters/discord_bot/listeners/` (Phase 12): `on_message` (text/media activity, reaction & reply credit, opt-in), `on_reaction_add`, `on_voice_state_update` (VC join/leave + ping-response timing), `on_member_update` (timeout/ban discipline penalty, 17% drop). Commands are cogs in `adapters/discord_bot/cogs/` (Phase 11).
+Events are handled by listeners in `adapters/discord_bot/listeners/`: `on_message` (text/media activity, reaction & reply credit, opt-in), `on_reaction_add`, `on_voice_state_update` (VC join/leave + ping-response timing), `on_member_update` (timeout/ban discipline penalty, 17% drop). Commands are cogs in `adapters/discord_bot/cogs/`.
 
 ### Bot Commands (slash `/`)
 

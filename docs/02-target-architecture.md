@@ -1,8 +1,18 @@
 # Friendex — Target Architecture
 
+> **Status: Implemented.** This document describes the architecture that was designed
+> and then built. The implementation is **complete as of 2026-05-28**. Two notes on
+> divergence from the original design text:
+> - Persistence uses **SQLite via async SQLAlchemy 2.0 + Alembic** (Option B from
+>   §Persistence Strategy), not the `.tmp`-then-`os.replace()` JSON pattern mentioned
+>   in the executive summary below.
+> - Multi-guild isolation (per-guild markets) is fully implemented per ADR-0001 and
+>   `docs/06-per-guild-markets-migration.md`. Decision #12 in §Open-Questions Resolution
+>   is marked superseded accordingly.
+
 ## Executive Summary
 
-The refactored Friendex is organized as a layered Python package where domain logic, application orchestration, and Discord/persistence adapters form three concentric rings with dependencies pointing strictly inward. Every piece of mutable game state is owned by typed repository objects rather than bare global dicts, and each repository exposes atomic write operations using the `.tmp`-then-`os.replace()` pattern. Per-user `asyncio.Lock` instances serialise all price and portfolio mutations, eliminating the race conditions identified in Phase 1. All hardcoded Discord IDs, timing constants, and APY parameters are lifted into a `pydantic-settings` configuration class loaded at startup, making the bot deployable to any server without code changes.
+The refactored Friendex is organized as a layered Python package where domain logic, application orchestration, and Discord/persistence adapters form three concentric rings with dependencies pointing strictly inward. Every piece of mutable game state is owned by typed repository objects rather than bare global dicts, and each repository exposes atomic write operations. Per-user `asyncio.Lock` instances serialise all price and portfolio mutations, eliminating the race conditions identified in Phase 1. All hardcoded Discord IDs, timing constants, and APY parameters are lifted into a `pydantic-settings` configuration class loaded at startup, making the bot deployable to any server without code changes.
 
 ---
 
@@ -1020,7 +1030,9 @@ graph TD
 
 ## Phased Migration Plan
 
-This is a high-level outline. Phase 3 will deliver the detailed per-file build sequence.
+> **Complete.** All phases shipped as of 2026-05-28. The detailed per-file build sequence
+> is in `docs/04-migration-plan.md`. What follows is the high-level outline from the
+> original design document.
 
 **Phase 0 — Foundation**
 Establish the package skeleton, `pyproject.toml` with pinned dependencies (`discord.py`, `sqlalchemy[asyncio]`, `aiosqlite`, `alembic`, `pydantic-settings`, `structlog`), `Settings` class, SQLAlchemy models, Alembic baseline migration, and the `LockManager`. No game logic yet.

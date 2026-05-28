@@ -1,5 +1,10 @@
 # Running Friendex phases with `baton-runner` (cloud session edition)
 
+> **Note:** The Friendex phased build is **complete as of 2026-05-28**. This guide
+> is preserved as reference documentation for how the build was orchestrated with
+> `baton-runner`. It remains relevant for future multi-phase work in this or other
+> projects that use the same `baton-runner` skill.
+
 > **Audience:** you (the project owner) driving a multi-phase Friendex build from
 > a cloud Claude Code session — claude.ai/code in a browser, a remote/sandboxed
 > Claude container, or a fresh local session that needs to behave like one
@@ -121,9 +126,8 @@ A few cloud-specific notes:
 friction by walking the same checks yourself before invoking:
 
 1. **Pick the phases.** Open `docs/04-migration-plan.md` and identify the
-   contiguous block you want to ship. The remaining phases as of 2026-05-26
-   are 10–17; estimates live in your session-memory notes (unit budgets and
-   risk).
+   contiguous block you want to ship. Estimates for each phase live in the
+   migration plan's complexity and calendar tables.
 2. **Confirm the issue tracker.** Each phase typically maps to a checklist
    item on issue #2 (`gh issue view 2 --json body`). Note the issue number;
    the manager threads it through the draft PR body as `Refs #2`.
