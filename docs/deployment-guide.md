@@ -65,60 +65,60 @@ Open `.env` in an editor and set values for your deployment.
 
 ### Required variable
 
-| Variable | Description |
-|----------|-------------|
+| Variable        | Description                                         |
+| --------------- | --------------------------------------------------- |
 | `DISCORD_TOKEN` | The bot token from step 1. Never commit this value. |
 
 ### Important optional variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `sqlite+aiosqlite:///data/friendex.db` | SQLAlchemy async URL for the database. The default creates `data/friendex.db` relative to the working directory. |
-| `DEV_GUILD_ID` | _(unset)_ | Discord server ID. When set, slash commands are also synced instantly to this guild for faster iteration. Leave unset in production; global propagation takes up to 1 hour after first launch. |
-| `MARKET_OPEN` | `06:30` | Market open time (24h UTC). |
-| `MARKET_CLOSE` | `04:30` | Market close time (24h UTC). The market spans overnight — open from 06:30 through 04:30 the following morning, Mon–Sat. Sunday is closed. |
-| `TIMEZONE_OFFSET_HOURS` | `0` | UTC offset applied to market hour calculations. |
-| `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
-| `LOG_FORMAT` | `json` | Log output format. Use `json` in production (structured, one record per line). Use `console` for human-readable development output. |
+| Variable                | Default                                | Description                                                                                                                                                                                    |
+| ----------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`          | `sqlite+aiosqlite:///data/friendex.db` | SQLAlchemy async URL for the database. The default creates `data/friendex.db` relative to the working directory.                                                                               |
+| `DEV_GUILD_ID`          | _(unset)_                              | Discord server ID. When set, slash commands are also synced instantly to this guild for faster iteration. Leave unset in production; global propagation takes up to 1 hour after first launch. |
+| `MARKET_OPEN`           | `06:30`                                | Market open time (24h UTC).                                                                                                                                                                    |
+| `MARKET_CLOSE`          | `04:30`                                | Market close time (24h UTC). The market spans overnight — open from 06:30 through 04:30 the following morning, Mon–Sat. Sunday is closed.                                                      |
+| `TIMEZONE_OFFSET_HOURS` | `0`                                    | UTC offset applied to market hour calculations.                                                                                                                                                |
+| `LOG_LEVEL`             | `INFO`                                 | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`.                                                                                                                                        |
+| `LOG_FORMAT`            | `json`                                 | Log output format. Use `json` in production (structured, one record per line). Use `console` for human-readable development output.                                                            |
 
 ### Game tuning variables
 
 These have sensible defaults and rarely need changing for a standard deployment.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `INITIAL_CASH` | `10000` | Starting cash balance for new users. |
-| `INITIAL_PRICE` | `100` | Starting stock price for new users. |
-| `MIN_PRICE` | `70` | Absolute price floor — no stock can drop below this. |
-| `PRICE_IMPACT_K` | `0.5` | Linear scaling factor for trade-driven price moves. |
-| `INACTIVITY_DECAY` | `0.04` | Price drop (4%) applied after ~4 hours of inactivity. |
-| `LIQUIDATION_THRESHOLD` | `1.5` | Short positions are auto-covered when the current price reaches 150% of the entry price. |
-| `SHORT_FREEZE_MINUTES` | `30` | Minutes before a short position is frozen (prevents manual cover). |
-| `TRADE_COOLDOWN_SECONDS` | `900` | Cooldown between short/cover operations per user (15 minutes). |
-| `DISCIPLINE_PENALTY` | `0.17` | Price drop (17%) applied when a user is timed out or banned. |
+| Variable                 | Default | Description                                                                              |
+| ------------------------ | ------- | ---------------------------------------------------------------------------------------- |
+| `INITIAL_CASH`           | `10000` | Starting cash balance for new users.                                                     |
+| `INITIAL_PRICE`          | `100`   | Starting stock price for new users.                                                      |
+| `MIN_PRICE`              | `70`    | Absolute price floor — no stock can drop below this.                                     |
+| `PRICE_IMPACT_K`         | `0.5`   | Linear scaling factor for trade-driven price moves.                                      |
+| `INACTIVITY_DECAY`       | `0.04`  | Price drop (4%) applied after ~4 hours of inactivity.                                    |
+| `LIQUIDATION_THRESHOLD`  | `1.5`   | Short positions are auto-covered when the current price reaches 150% of the entry price. |
+| `SHORT_FREEZE_MINUTES`   | `30`    | Minutes before a short position is frozen (prevents manual cover).                       |
+| `TRADE_COOLDOWN_SECONDS` | `900`   | Cooldown between short/cover operations per user (15 minutes).                           |
+| `DISCIPLINE_PENALTY`     | `0.17`  | Price drop (17%) applied when a user is timed out or banned.                             |
 
 ### Discord role and channel IDs
 
-| Variable | Description |
-|----------|-------------|
-| `VC_PING_ROLE_IDS` | Comma-separated list of role IDs whose @mentions trigger VC ping bonuses. Example: `111111111111111111,222222222222222222` |
-| `PHOTO_BONUS_CHANNEL_IDS` | Comma-separated list of channel IDs where media posts receive an extra activity bonus. |
+| Variable                  | Description                                                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `VC_PING_ROLE_IDS`        | Comma-separated list of role IDs whose @mentions trigger VC ping bonuses. Example: `111111111111111111,222222222222222222` |
+| `PHOTO_BONUS_CHANNEL_IDS` | Comma-separated list of channel IDs where media posts receive an extra activity bonus.                                     |
 
 ### Hedge fund variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HEDGE_FUND_BASE_APY` | `0.15` | Base annual percentage yield for hedge fund balances. |
+| Variable                     | Default   | Description                                                                                          |
+| ---------------------------- | --------- | ---------------------------------------------------------------------------------------------------- |
+| `HEDGE_FUND_BASE_APY`        | `0.15`    | Base annual percentage yield for hedge fund balances.                                                |
 | `HEDGE_FUND_BASE_APY_PERIOD` | `monthly` | How APY is credited: `monthly` (balance × apy / 12 per cycle) or `annual` (full balance × apy once). |
-| `EARLY_WITHDRAW_PENALTY` | `0.05` | APY reduction applied per early withdrawal. |
-| `PENALTY_DURATION_DAYS` | `14` | Days a withdrawal penalty remains active. |
+| `EARLY_WITHDRAW_PENALTY`     | `0.05`    | APY reduction applied per early withdrawal.                                                          |
+| `PENALTY_DURATION_DAYS`      | `14`      | Days a withdrawal penalty remains active.                                                            |
 
 ### Trading toggles
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SUNDAY_BUY_ALLOWED` | `true` | When `true`, `/buy` is permitted on Sundays even though `/sell`, `/short`, and `/cover` are not. |
-| `OPT_OUT_BLOCKS_TRADING` | `true` | When `true`, a user who has run `/optout` cannot be bought, sold, or shorted. |
+| Variable                 | Default | Description                                                                                      |
+| ------------------------ | ------- | ------------------------------------------------------------------------------------------------ |
+| `SUNDAY_BUY_ALLOWED`     | `true`  | When `true`, `/buy` is permitted on Sundays even though `/sell`, `/short`, and `/cover` are not. |
+| `OPT_OUT_BLOCKS_TRADING` | `true`  | When `true`, a user who has run `/optout` cannot be bought, sold, or shorted.                    |
 
 ---
 
@@ -176,13 +176,13 @@ per-guild.
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--source <dir>` | Directory containing the JSON files. Defaults to `data/`. |
-| `--target <url>` | SQLAlchemy async URL for the destination database. |
-| `--guild-id <id>` | Discord guild ID to tag all migrated rows with. Required. |
-| `--dry-run` | Parse and validate the JSON files without writing to the database. Useful for checking data integrity before committing. |
-| `--report` | Print a `<table>: <count>` summary after the run. Composes with `--dry-run`. |
+| Flag              | Description                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `--source <dir>`  | Directory containing the JSON files. Defaults to `data/`.                                                                |
+| `--target <url>`  | SQLAlchemy async URL for the destination database.                                                                       |
+| `--guild-id <id>` | Discord guild ID to tag all migrated rows with. Required.                                                                |
+| `--dry-run`       | Parse and validate the JSON files without writing to the database. Useful for checking data integrity before committing. |
+| `--report`        | Print a `<table>: <count>` summary after the run. Composes with `--dry-run`.                                             |
 
 The migrator is **idempotent** — running it twice produces no duplicates. The original
 JSON files are not deleted.
@@ -369,3 +369,5 @@ commands to execute with their expected outcomes:
 ```bash
 uv run python scripts/smoke_test_commands.py
 ```
+
+
