@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/plugins/cache/local/inventory/1.0.0/hooks/inventory.cmd"
+          }
+        ]
+      }
+    ]
+  }
+}
