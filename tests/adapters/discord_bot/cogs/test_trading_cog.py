@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import discord
 import pytest
+from discord import app_commands
 
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock
@@ -505,3 +506,40 @@ async def test_cover_defers_publicly_before_service_call(
     await TradingCog.cover.callback(cog, interaction, user=target, shares=2)
 
     interaction.response.defer.assert_awaited_once_with(ephemeral=False)
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 L — every ``shares`` parameter has a bounded upper limit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("command_name", ["buy", "sell", "short", "cover"])
+def test_shares_parameter_is_upper_bounded(command_name: str) -> None:
+    """Issue #84 L — every ``shares`` Range carries a finite ``max_value``.
+
+    The pre-fix annotation ``Range[int, 1, None]`` let a caller pass
+    ``2**53 - 1`` shares; the service then performed Decimal arithmetic
+    over a 16-digit integer (``Decimal(shares) * price``), tying up the
+    event loop and blocking every other coroutine. A bounded
+    ``Range[int, 1, 1_000_000]`` keeps the worst-case integer small
+    enough that the arithmetic stays sub-millisecond.
+
+    The parameter exposes ``min_value`` / ``max_value`` via the discord.py
+    :class:`app_commands.Command._params` mapping; both must be set.
+    """
+    command = getattr(TradingCog, command_name)
+    assert isinstance(command, app_commands.Command)
+    shares_param = command._params["shares"]
+    assert shares_param.min_value == 1, (
+        f"/{command_name} shares min_value must remain 1"
+    )
+    assert shares_param.max_value is not None, (
+        f"/{command_name} shares must be upper-bounded "
+        "(was unbounded Range[int, 1, None])"
+    )
+    # Sanity bound — the actual cap is 1_000_000 per the remediation plan;
+    # the test asserts the *shape* (any finite cap) so future re-tuning
+    # without going unbounded again does not break the regression contract.
+    assert shares_param.max_value <= 1_000_000, (
+        f"/{command_name} shares max_value should not exceed 1_000_000"
+    )

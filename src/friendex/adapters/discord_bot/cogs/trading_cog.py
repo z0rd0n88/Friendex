@@ -60,6 +60,14 @@ if TYPE_CHECKING:
 
     from friendex.application.trading_service import TradingService
 
+# Issue #84 L — every ``shares`` ``Range`` carries this finite upper bound so
+# a malicious caller cannot pass ``2**53 - 1`` and tie up the event loop in
+# Decimal arithmetic over a 16-digit integer. The ceiling is well above any
+# realistic in-game position size (initial cash $10 000 / min price $70 puts
+# the natural cap around 142 shares; a generous five-order-of-magnitude
+# headroom leaves room for future economy rebalances without re-tuning).
+_MAX_SHARES = 1_000_000
+
 
 class TradingCog(commands.Cog):
     """Buy / sell / short / cover slash commands.
@@ -92,7 +100,7 @@ class TradingCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         user: discord.Member,
-        shares: app_commands.Range[int, 1, None],
+        shares: app_commands.Range[int, 1, _MAX_SHARES],
     ) -> None:
         """Open or add to a long position on ``user`` and confirm publicly."""
         await interaction.response.defer(ephemeral=False)
@@ -121,7 +129,7 @@ class TradingCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         user: discord.Member,
-        shares: app_commands.Range[int, 1, None],
+        shares: app_commands.Range[int, 1, _MAX_SHARES],
     ) -> None:
         """Close some/all of a long position on ``user`` and confirm publicly."""
         await interaction.response.defer(ephemeral=False)
@@ -150,7 +158,7 @@ class TradingCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         user: discord.Member,
-        shares: app_commands.Range[int, 1, None],
+        shares: app_commands.Range[int, 1, _MAX_SHARES],
     ) -> None:
         """Open or add to a short position on ``user`` and confirm publicly."""
         await interaction.response.defer(ephemeral=False)
@@ -179,7 +187,7 @@ class TradingCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         user: discord.Member,
-        shares: app_commands.Range[int, 1, None],
+        shares: app_commands.Range[int, 1, _MAX_SHARES],
     ) -> None:
         """Close some/all of a short position on ``user`` and confirm publicly."""
         await interaction.response.defer(ephemeral=False)
