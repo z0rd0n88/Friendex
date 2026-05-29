@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -39,6 +40,9 @@ from discord import app_commands
 from friendex.adapters.discord_bot.embeds import COLOR_ERROR
 from friendex.adapters.discord_bot.error_handler import register_error_handler
 from friendex.domain.errors import DomainError, InsufficientFunds, PersistenceError
+
+if TYPE_CHECKING:
+    import pytest
 
 # ---------------------------------------------------------------------------
 # Fake interaction
