@@ -42,6 +42,12 @@ if TYPE_CHECKING:
 # Pre-quantised zero-price fallback used when a leaderboard user has a
 # :class:`UserAccount` but no :class:`Stock` row.  Constructed once at
 # module load to avoid a fresh ``Decimal("0.00")`` allocation per call.
+#
+# The fallback is hit only when a leaderboard user has a
+# :class:`UserAccount` but no :class:`Stock` row — a transient state that
+# should be vanishingly rare in production (every account upserted by
+# ``TradingService`` also upserts a stock).  Read this constant directly
+# at the call site rather than wrapping it in a helper.
 _ZERO_PRICE = Decimal("0.00")
 
 # Default top-N for the ``/trending`` leaderboard; overridable via kwarg.
@@ -105,7 +111,7 @@ class StatsService:
                     rank=rank,
                     user_id=account.user_id,
                     score=score,
-                    current_price=price if price is not None else _zero_price(),
+                    current_price=price if price is not None else _ZERO_PRICE,
                 )
             )
         return entries
@@ -171,15 +177,3 @@ class StatsService:
             low_24h=low,
             all_time_high=stock.all_time_high,
         )
-
-
-def _zero_price() -> Decimal:
-    """Return the zero-quantised :class:`Decimal` missing-stock fallback.
-
-    The fallback is hit only when a leaderboard user has a
-    :class:`UserAccount` but no :class:`Stock` row — a transient state that
-    should be vanishingly rare in production (every account upserted by
-    ``TradingService`` also upserts a stock).  Returns the shared module
-    constant :data:`_ZERO_PRICE` so allocations stay zero-cost.
-    """
-    return _ZERO_PRICE

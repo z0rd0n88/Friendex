@@ -105,6 +105,12 @@ _ZERO_CASH = Decimal("0.00")
 # Shared ``Decimal`` zero used as the ``sum(..., start=_ZERO)`` starter for
 # investor-stake totals.  Replaces the three per-call-site re-constructions
 # of ``Decimal("0.00")`` at the sum boundary.
+#
+# Intentionally ``Decimal("0")`` not ``Decimal("0.00")``:  ``sum()`` returns
+# the precision of the *terms*, not the starter, so a less-precise starter
+# can't widen the result; using ``Decimal("0")`` keeps the starter neutral
+# so callers stay in control of quantisation (each ``sum(...)`` site
+# wraps the result in ``_quantise(...)`` before storing it).
 _ZERO = Decimal("0")
 # Pseudo-fund identity for the per-guild events wallet (matches
 # ``FakeFundRepo`` and ``SqlFundRepository.ensure_events_wallet``).
