@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import logging
 from datetime import time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 import structlog
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from friendex.adapters.config import (
     Settings,
@@ -84,7 +85,10 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_loads_token_and_dev_guild_from_fixture_env() -> None:
     settings = _load_from_env_file(SAMPLE_ENV)
 
-    assert settings.discord_token == "test-token-abc-123"
+    # ``discord_token`` is :class:`SecretStr` — never compare the raw value
+    # directly; always go through ``.get_secret_value()``.
+    assert isinstance(settings.discord_token, SecretStr)
+    assert settings.discord_token.get_secret_value() == "test-token-abc-123"
     # The fixture's legacy ``GUILD_ID`` is accepted as a backward-compatible
     # alias for the now-optional dev-sync guild.
     assert settings.dev_guild_id == 111111111111111111
@@ -99,7 +103,7 @@ def test_loads_dev_guild_id_from_temp_env(tmp_path: Path) -> None:
 
     settings = _load_from_env_file(env_path)
 
-    assert settings.discord_token == "tmp-token"
+    assert settings.discord_token.get_secret_value() == "tmp-token"
     assert settings.dev_guild_id == 987654321098765432
 
 
@@ -410,7 +414,7 @@ def test_get_settings_is_memoised(monkeypatch: pytest.MonkeyPatch) -> None:
     second = get_settings()
 
     assert first is second
-    assert first.discord_token == "memo-token"
+    assert first.discord_token.get_secret_value() == "memo-token"
 
 
 def test_get_settings_cache_clear_returns_fresh_instance(
@@ -480,3 +484,262 @@ def test_opt_out_blocks_trading_env_override_false(tmp_path: Path) -> None:
     settings = _load_from_env_file(env_path)
 
     assert settings.opt_out_blocks_trading is False
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 / fix/config-settings — env-binding integrity (#84 H)
+# ---------------------------------------------------------------------------
+
+
+def test_get_settings_reads_discord_token_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``get_settings()`` must construct via ``Settings()`` so env binding fires.
+
+    ``Settings.model_validate({})`` is a documentation-non-canonical entry
+    point for pydantic-settings; the canonical constructor is ``Settings()``.
+    This test pins the canonical form so regressions to ``model_validate({})``
+    cannot land silently.
+    """
+    monkeypatch.setenv("DISCORD_TOKEN", "env-bound-token")
+    monkeypatch.setenv("DEV_GUILD_ID", "919191919191919191")
+
+    settings = get_settings()
+
+    assert settings.discord_token.get_secret_value() == "env-bound-token"
+    assert settings.dev_guild_id == 919191919191919191
+
+
+def test_get_settings_constructs_settings_with_no_kwargs() -> None:
+    """Documented invariant: ``get_settings()`` calls ``Settings()`` directly.
+
+    Reaching into ``model_validate`` (or any other backdoor) suppresses the
+    pydantic-settings env source pipeline in some configurations and is
+    explicitly discouraged by the library.  Inspect the function body only
+    (skipping the docstring) so a future revision is free to *mention*
+    ``model_validate`` in commentary without re-introducing the call.
+    """
+    import ast
+    import inspect
+
+    from friendex.adapters import config as config_module
+
+    src = inspect.getsource(config_module.get_settings)
+    tree = ast.parse(src)
+    func = tree.body[0]
+    assert isinstance(func, ast.FunctionDef)
+    # Drop the docstring expression node if present.
+    body = func.body
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+    # The only executable statement must be ``return Settings()``.
+    assert len(body) == 1
+    stmt = body[0]
+    assert isinstance(stmt, ast.Return)
+    assert isinstance(stmt.value, ast.Call)
+    call = stmt.value
+    assert isinstance(call.func, ast.Name)
+    assert call.func.id == "Settings"
+    assert call.args == []
+    assert call.keywords == []
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 / fix/config-settings — SecretStr propagation (#84 M)
+# ---------------------------------------------------------------------------
+
+
+def test_discord_token_is_secret_str_typed() -> None:
+    settings = Settings(discord_token="raw-token-value")
+    assert isinstance(settings.discord_token, SecretStr)
+    assert settings.discord_token.get_secret_value() == "raw-token-value"
+
+
+def test_settings_repr_does_not_leak_token() -> None:
+    """``repr(settings)`` must redact the token, even in stack traces."""
+    settings = Settings(discord_token="super-secret-token-9000")
+
+    rendered = repr(settings)
+
+    assert "super-secret-token-9000" not in rendered
+    # Pydantic's ``SecretStr.__repr__`` is ``SecretStr('**********')``.
+    assert "**********" in rendered
+
+
+def test_settings_str_does_not_leak_token() -> None:
+    settings = Settings(discord_token="super-secret-token-9000")
+    rendered = str(settings)
+    assert "super-secret-token-9000" not in rendered
+
+
+def test_secret_str_str_renders_redacted() -> None:
+    """``str(secret_str)`` is the redaction text, never the raw value."""
+    settings = Settings(discord_token="super-secret-token-9000")
+    assert "super-secret-token-9000" not in str(settings.discord_token)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 / fix/config-settings — redaction key fix (#84 M)
+# ---------------------------------------------------------------------------
+
+
+def test_redact_token_redacts_discord_token_field() -> None:
+    """The processor must redact the actual field name on ``Settings``."""
+    event: dict[str, Any] = {
+        "event": "boot",
+        "discord_token": "should-be-redacted",
+    }
+    out = redact_token(logger=None, method="info", event_dict=event)
+    assert out["discord_token"] == "REDACTED"
+
+
+def test_redact_token_redacts_discord_token_in_log_pipeline(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: a real structlog event with ``discord_token=...`` is scrubbed."""
+    settings = Settings(
+        discord_token="tmp",
+        log_format="json",
+        log_level="INFO",
+    )
+    configure_logging(settings)
+
+    log = structlog.get_logger("config-test")
+    log.info("startup", discord_token="leaked-bot-token")
+
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "REDACTED" in output
+    assert "leaked-bot-token" not in output
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 / fix/config-settings — parse_int_list per-token recovery (#84 M)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_int_list_skips_malformed_token_and_logs_warning(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """A malformed entry must not silently kill the whole list.
+
+    Today an invalid token raises ``ValueError`` and the field silently rolls
+    back to its default — operators get no diagnostic. We log a structured
+    warning identifying the bad token and keep the good ones.
+
+    ``capsys`` captures structlog's :class:`structlog.PrintLoggerFactory`
+    output rather than stdlib ``caplog`` (the module logs through structlog,
+    not the root stdlib logger).
+    """
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nVC_PING_ROLE_IDS=100,not_a_number,300\n",
+        encoding="utf-8",
+    )
+
+    settings = _load_from_env_file(env_path)
+
+    assert settings.vc_ping_role_ids == [100, 300]
+    output = capsys.readouterr().out + capsys.readouterr().err
+    # The warning must identify the bad token by its raw value.  We bind it
+    # under ``value`` (not ``token``) so the redaction processor leaves it
+    # alone.
+    assert "not_a_number" in output, (
+        f"Expected structlog warning mentioning malformed token; got: {output!r}"
+    )
+    assert "config.parse_int_list.malformed_token" in output
+
+
+def test_parse_int_list_skips_malformed_list_entry(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Per-entry recovery also applies to direct list constructor input."""
+    settings = Settings(
+        discord_token="tmp",
+        vc_ping_role_ids=["10", "not_an_int", 30],  # type: ignore[arg-type]
+    )
+
+    assert settings.vc_ping_role_ids == [10, 30]
+    output = capsys.readouterr().out + capsys.readouterr().err
+    assert "not_an_int" in output
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 / fix/config-settings — Decimal computed fields (#82 H20)
+# ---------------------------------------------------------------------------
+
+
+def test_money_fields_expose_decimal_view() -> None:
+    """Each float-typed money field must have a ``*_d`` Decimal counterpart.
+
+    Services should read ``settings.initial_cash_d`` directly instead of
+    constructing ``Decimal(str(settings.initial_cash))`` at 20+ call sites.
+    The float source field stays untouched for env-var binding stability.
+    """
+    settings = Settings(discord_token="tmp")
+
+    # Money / cash
+    assert settings.initial_cash_d == Decimal("10000.0")
+    assert settings.initial_price_d == Decimal("100.0")
+    assert settings.daily_reward_d == Decimal("500.0")
+    assert settings.streak_bonus_d == Decimal("500.0")
+    assert settings.min_price_d == Decimal("70.0")
+    # Rates / multipliers
+    assert settings.price_impact_k_d == Decimal("0.5")
+    assert settings.inactivity_decay_d == Decimal("0.04")
+    assert settings.liquidation_threshold_d == Decimal("1.5")
+    assert settings.discipline_penalty_d == Decimal("0.17")
+    assert settings.activity_tick_k_d == Decimal("0.3")
+    assert settings.vc_extra_boost_multiplier_d == Decimal("1.03")
+    assert settings.voice_ping_join_boost_d == Decimal("1.2")
+    assert settings.voice_stay_boost_d == Decimal("1.5")
+    # Hedge fund
+    assert settings.hedge_fund_base_apy_d == Decimal("0.15")
+    assert settings.early_withdraw_penalty_d == Decimal("0.05")
+
+
+def test_money_fields_decimal_view_types() -> None:
+    """Every ``*_d`` field is a real ``Decimal`` (not a string or float)."""
+    settings = Settings(discord_token="tmp")
+
+    for name in (
+        "initial_cash_d",
+        "initial_price_d",
+        "daily_reward_d",
+        "streak_bonus_d",
+        "min_price_d",
+        "price_impact_k_d",
+        "inactivity_decay_d",
+        "liquidation_threshold_d",
+        "discipline_penalty_d",
+        "activity_tick_k_d",
+        "vc_extra_boost_multiplier_d",
+        "voice_ping_join_boost_d",
+        "voice_stay_boost_d",
+        "hedge_fund_base_apy_d",
+        "early_withdraw_penalty_d",
+    ):
+        value = getattr(settings, name)
+        assert isinstance(value, Decimal), (
+            f"{name} is {type(value).__name__}, want Decimal"
+        )
+
+
+def test_money_decimal_view_tracks_overrides(tmp_path: Path) -> None:
+    """``*_d`` fields reflect the env-overridden source value, not the default."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nINITIAL_CASH=25000\nMIN_PRICE=42\n",
+        encoding="utf-8",
+    )
+
+    settings = _load_from_env_file(env_path)
+
+    assert settings.initial_cash_d == Decimal("25000.0")
+    assert settings.min_price_d == Decimal("42.0")
