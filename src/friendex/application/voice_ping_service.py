@@ -17,6 +17,18 @@ guarded by an :class:`asyncio.Lock`) — intentionally not persisted, mirroring 
 original ``voice_ping_sessions`` dict, since an open ping is meaningless after a
 restart.
 
+**Alt-account farming guard (issue #84 M).** ``register_ping_message`` accepts
+an optional ``host_role_member_ids`` snapshot — the set of member ids wearing
+the pinged VC role at the moment the ping was issued. The service holds the
+snapshot in a parallel in-memory dict keyed by ``message_id`` (alongside the
+session itself, since the role list is not durable state). On every reward
+attempt, a responder whose id is in that set is rejected — closing the
+exploit where a host pings their own role and then claims responder credit
+from an alt-account that wears the same role. The host-self check
+(``host_id == responder_id``) covers the host themselves; this guard catches
+the alts. Omitting the kwarg disables the alt-account guard (historic
+behaviour) so legacy callers and tests are not broken on adoption.
+
 **Guild scoping (ADR-0001) + concurrency + immutability** follow the same rules
 as :class:`~friendex.application.activity_service.ActivityService`: ``guild_id``
 is a constructor argument, every user mutation serialises under
@@ -38,6 +50,7 @@ import structlog
 from friendex.domain.models import (
     ActivityBucket,
     DailyProgress,
+    PricePoint,
     UserAccount,
     VcExtraBoost,
     VoicePingSession,
@@ -45,6 +58,8 @@ from friendex.domain.models import (
 from friendex.domain.price_engine import apply_floor_stall
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from friendex.adapters.config import Settings
     from friendex.application.interfaces import IPriceRepo, IUserRepo
     from friendex.application.lock_manager import LockManager
@@ -74,6 +89,14 @@ class VoicePingService:
         self._locks = lock_manager
         self._settings = settings
         self._ping_sessions = ping_sessions
+        # Parallel in-memory snapshot of the role-member ids that share the
+        # host's VC role at ping time (issue #84 M — alt-account farming
+        # guard). Kept off the durable :class:`VoicePingSession` because the
+        # session itself is volatile and the role membership has the same
+        # lifetime; storing it in a parallel dict avoids touching the
+        # domain model. Cleared in lockstep with the session in
+        # :meth:`cleanup_expired_pings`.
+        self._host_role_member_ids: dict[int, frozenset[str]] = {}
 
     # -- ping lifecycle -----------------------------------------------------
 
@@ -83,11 +106,20 @@ class VoicePingService:
         host_id: str,
         channel_id: int,
         timestamp: datetime,
+        host_role_member_ids: Iterable[str] | None = None,
     ) -> None:
         """Open a ping session for ``message_id`` and credit the host.
 
         The host earns one ``role_ping_joins`` point (today + week) for issuing
         the ping, matching the original ``on_message`` voice-ping branch.
+
+        ``host_role_member_ids`` (issue #84 M) is the snapshot of member ids
+        who share the host's VC role at ping time. Responders whose ids are
+        in that set are rejected by :meth:`reward_voice_ping_response` to
+        close the alt-account farming exploit. Omitting the argument leaves
+        the historic call signature intact; the guard is a no-op for that
+        ping. The host's own id MAY be in the snapshot — the existing
+        ``responder_id == host_id`` self-check covers it.
         """
         session = VoicePingSession(
             message_id=message_id,
@@ -98,6 +130,8 @@ class VoicePingService:
             extra_joiners=[],
         )
         await self._ping_sessions.set(session)
+        if host_role_member_ids is not None:
+            self._host_role_member_ids[message_id] = frozenset(host_role_member_ids)
         await self._credit(host_id, role_ping_joins=1.0)
 
     async def collect_extra_boosts(self, now: datetime) -> list[VcExtraBoost]:
@@ -135,13 +169,16 @@ class VoicePingService:
         """Evict ping sessions older than the response window; return the count.
 
         A session expires once ``now - timestamp`` exceeds
-        ``voice_ping_window_seconds``.
+        ``voice_ping_window_seconds``. The parallel host-role-member
+        snapshot for the evicted session is also dropped to keep the two
+        dicts from drifting (issue #84 M).
         """
         window = self._settings.voice_ping_window_seconds
         evicted = 0
         for session in await self._ping_sessions.list_all():
             age = (now - session.timestamp).total_seconds()
             if age > window and await self._ping_sessions.pop(session.message_id):
+                self._host_role_member_ids.pop(session.message_id, None)
                 evicted += 1
         return evicted
 
@@ -173,6 +210,13 @@ class VoicePingService:
             if session.channel_id != channel_id:
                 continue
             if responder_id == session.host_id:
+                continue
+            # Alt-account farming guard (issue #84 M): reject responders
+            # who share the host's pinged VC role. The snapshot is empty
+            # (or absent) for legacy callers that did not supply role-member
+            # ids — that case falls through to the historic behaviour.
+            host_role_members = self._host_role_member_ids.get(session.message_id)
+            if host_role_members is not None and responder_id in host_role_members:
                 continue
             age = (now - session.timestamp).total_seconds()
             if age < 0 or age > window:
@@ -279,6 +323,14 @@ class VoicePingService:
         is missing — issue #84 M (silent-failures branch). Silently dropping
         the boost hid a persistence drift; the structured log lets the
         operator catch it without changing user-visible behaviour.
+
+        Issue #82 M6 — the upsert is paired with an ``append_history`` call
+        on a real price change so the 24h-window aggregations
+        (:class:`PortfolioService` high/low derived from history) include
+        this boost. The ``if new_price != stock.current`` guard mirrors
+        :meth:`PriceTickService._rmw_price` and avoids padding history
+        with duplicate points when the boost rounds to a no-op (e.g. the
+        floor stall stalled the rise).
         """
         min_price = Decimal(str(self._settings.min_price))
         boost = Decimal(str(self._settings.voice_ping_join_boost))
@@ -293,8 +345,15 @@ class VoicePingService:
                 return
             proposed = stock.current * boost
             new_price = apply_floor_stall(stock.current, proposed, min_price)
+            if new_price == stock.current:
+                return
             await self._price_repo.upsert(
                 self._guild_id, replace(stock, current=new_price)
+            )
+            await self._price_repo.append_history(
+                self._guild_id,
+                responder_id,
+                PricePoint(price=new_price, timestamp=datetime.now(tz=UTC)),
             )
 
     # -- shared account helpers --------------------------------------------

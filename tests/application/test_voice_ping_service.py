@@ -222,6 +222,41 @@ async def test_join_boost_logs_warning_when_stock_missing(
     assert rec["guild_id"] == GUILD
 
 
+async def test_join_boost_appends_price_history_when_price_changes(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """Issue #82 M6 — ``_apply_join_boost`` must append a :class:`PricePoint`.
+
+    The boost upserts the stock with a new ``current`` price but the pre-fix
+    code skipped the ``append_history`` call, so the 24h-window aggregations
+    in :class:`PortfolioService` (high/low derived from history) silently
+    missed every join boost. Mirrors :meth:`PriceTickService._rmw_price`'s
+    ``if new_price != stock.current`` guard so a no-op boost does not pad
+    history with duplicate points.
+    """
+    store = VoicePingSessionStore()
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings, store)
+    ping_time = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+
+    await fake_user_repo.upsert(GUILD, _account("r1"))
+    await fake_price_repo.upsert(GUILD, _stock("r1", current=Decimal("100.00")))
+    await service.register_ping_message(
+        message_id=1, host_id=HOST, channel_id=CHANNEL, timestamp=ping_time
+    )
+
+    await service.reward_voice_ping_response(
+        responder_id="r1",
+        channel_id=CHANNEL,
+        now=ping_time + timedelta(seconds=30),
+    )
+
+    history = await fake_price_repo.get_history(GUILD, "r1")
+    assert len(history) == 1
+    assert history[0].price == Decimal("120.00")
+
+
 async def test_eleventh_joiner_goes_to_extra_joiners(
     fake_user_repo: FakeUserRepo,
     fake_price_repo: FakePriceRepo,
@@ -364,7 +399,18 @@ async def test_host_does_not_reward_self_on_own_ping(
     fake_price_repo: FakePriceRepo,
     default_settings: Settings,
 ) -> None:
-    """A host joining their own ping's channel earns no responder reward."""
+    """Issue #84 M — a host joining their own ping awards NO responder credit.
+
+    Without this guard a host can ping a VC role, join the same channel, and
+    earn their own response engagement credit + price boost on top of the
+    one-time host credit they already received from
+    :meth:`register_ping_message`.
+
+    Stronger pin: assert the host's account fields are identical to the
+    post-register snapshot (no extra ``role_ping_join_minutes`` from the
+    speed-tier bonus, no second ``role_ping_joins`` from the host credit
+    side-effect), and that no first-N placement was recorded.
+    """
     store = VoicePingSessionStore()
     service = _make_service(fake_user_repo, fake_price_repo, default_settings, store)
     ping_time = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
@@ -374,6 +420,11 @@ async def test_host_does_not_reward_self_on_own_ping(
     await service.register_ping_message(
         message_id=1, host_id=HOST, channel_id=CHANNEL, timestamp=ping_time
     )
+    # Snapshot the host *after* register but *before* the self-response.
+    after_register = await fake_user_repo.get(GUILD, HOST)
+    assert after_register is not None
+    host_joins_after_register = after_register.today.role_ping_joins
+    host_minutes_after_register = after_register.today.role_ping_join_minutes
 
     await service.reward_voice_ping_response(
         responder_id=HOST, channel_id=CHANNEL, now=ping_time + timedelta(seconds=30)
@@ -382,9 +433,131 @@ async def test_host_does_not_reward_self_on_own_ping(
     session = await store.get(1)
     assert session is not None
     assert HOST not in session.first_10_joiners
+    assert HOST not in session.extra_joiners
     stock = await fake_price_repo.get(GUILD, HOST)
     assert stock is not None
     assert stock.current == Decimal("100.00")
+    # No credit awarded — neither speed-tier engagement nor host-credit
+    # side-effect fires when the responder is the host themselves.
+    after_self_response = await fake_user_repo.get(GUILD, HOST)
+    assert after_self_response is not None
+    assert after_self_response.today.role_ping_joins == host_joins_after_register
+    assert (
+        after_self_response.today.role_ping_join_minutes == host_minutes_after_register
+    )
+
+
+async def test_alt_account_with_same_vc_role_is_blocked(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """Issue #84 M — a responder sharing the host's VC role earns NO credit.
+
+    Alt-account farming exploit: the host (with VC role X) pings role X,
+    then their alt-account (also wearing role X) joins the VC and farms
+    the first-N price boost + speed-tier engagement credit. Both accounts
+    are controlled by the same person.
+
+    Mitigation: ``register_ping_message`` accepts the snapshot of the
+    host's VC-role member ids at ping time; ``reward_voice_ping_response``
+    rejects any responder in that set (the host is already covered by the
+    ``host_id == responder_id`` self-check; this guard catches the alts).
+
+    The check is opt-in (omitting ``host_role_member_ids`` retains the
+    historic behaviour) so the message-listener wiring can adopt it
+    without coordinated change.
+    """
+    store = VoicePingSessionStore()
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings, store)
+    ping_time = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+    alt_id = "alt-of-host"
+    legit_id = "legit-responder"
+
+    for uid in (alt_id, legit_id):
+        await fake_user_repo.upsert(GUILD, _account(uid))
+        await fake_price_repo.upsert(GUILD, _stock(uid, current=Decimal("100.00")))
+
+    # Register the ping with the host's role-member snapshot. Both the host
+    # and their alt wear the same VC role; ``legit_id`` does NOT.
+    await service.register_ping_message(
+        message_id=1,
+        host_id=HOST,
+        channel_id=CHANNEL,
+        timestamp=ping_time,
+        host_role_member_ids=frozenset({HOST, alt_id}),
+    )
+
+    # Alt-account tries to claim the ping reward.
+    await service.reward_voice_ping_response(
+        responder_id=alt_id,
+        channel_id=CHANNEL,
+        now=ping_time + timedelta(seconds=30),
+    )
+    # Legit responder (not in the host's role) claims normally.
+    await service.reward_voice_ping_response(
+        responder_id=legit_id,
+        channel_id=CHANNEL,
+        now=ping_time + timedelta(seconds=30),
+    )
+
+    session = await store.get(1)
+    assert session is not None
+    # The alt was rejected on every track — no first-N placement, no
+    # extra-joiner placement, and no price boost.
+    assert alt_id not in session.first_10_joiners
+    assert alt_id not in session.extra_joiners
+    alt_stock = await fake_price_repo.get(GUILD, alt_id)
+    assert alt_stock is not None
+    assert alt_stock.current == Decimal("100.00")
+    # The legit responder still received the full first-N reward.
+    assert legit_id in session.first_10_joiners
+    legit_stock = await fake_price_repo.get(GUILD, legit_id)
+    assert legit_stock is not None
+    assert legit_stock.current > Decimal("100.00")
+    # The alt earned no engagement credit either.
+    alt_account = await fake_user_repo.get(GUILD, alt_id)
+    assert alt_account is not None
+    assert alt_account.today.role_ping_join_minutes == 0.0
+
+
+async def test_role_member_check_is_backward_compatible_when_unset(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """Issue #84 M — omitting ``host_role_member_ids`` keeps historic behaviour.
+
+    The message-listener wiring may not always supply the role snapshot
+    (test doubles, simpler call sites); the absence of the snapshot must
+    leave the existing responder flow intact. This is a regression pin —
+    any future tightening that makes the snapshot mandatory must
+    explicitly update this test rather than accidentally breaking
+    callers that have not yet adopted the new kwarg.
+    """
+    store = VoicePingSessionStore()
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings, store)
+    ping_time = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+
+    await fake_user_repo.upsert(GUILD, _account("r1"))
+    await fake_price_repo.upsert(GUILD, _stock("r1", current=Decimal("100.00")))
+    # Omit host_role_member_ids — historic call signature.
+    await service.register_ping_message(
+        message_id=1, host_id=HOST, channel_id=CHANNEL, timestamp=ping_time
+    )
+
+    await service.reward_voice_ping_response(
+        responder_id="r1",
+        channel_id=CHANNEL,
+        now=ping_time + timedelta(seconds=30),
+    )
+
+    session = await store.get(1)
+    assert session is not None
+    assert "r1" in session.first_10_joiners
+    r1_stock = await fake_price_repo.get(GUILD, "r1")
+    assert r1_stock is not None
+    assert r1_stock.current == Decimal("120.00")  # one-time join boost applied
 
 
 async def test_response_after_window_is_ignored(
