@@ -3,8 +3,8 @@ name: security
 description: Boundary + money-flow + OWASP + economic-exploit review.
 reviewers:
   - ecc-security-reviewer
-  - security-reviewer
-  - silent-failure-hunter
+  - ecc-silent-failure-hunter
+  - critical-thinking
 ---
 
 # `security` mode

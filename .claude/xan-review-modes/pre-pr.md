@@ -2,9 +2,9 @@
 name: pre-pr
 description: Diff-only sanity check on the current worktree before opening a PR.
 reviewers:
-  - code-reviewer
-  - python-reviewer
-  - silent-failure-hunter
+  - ecc-code-reviewer
+  - ecc-python-reviewer
+  - ecc-silent-failure-hunter
 ---
 
 # `pre-pr` mode

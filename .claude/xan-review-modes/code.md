@@ -2,15 +2,16 @@
 name: code
 description: Correctness + atomicity + idiom + typing review using complementary lenses.
 reviewers:
-  - code-reviewer
+  - ecc-code-reviewer
   - python-pro
-  - python-reviewer
+  - ecc-python-reviewer
 ---
 
 # `code` mode
 
-Two-lens fan-out: `code-reviewer` (correctness, atomicity, money math, error
-taxonomy) plus `python-pro` / `python-reviewer` (idioms, typing, PEP 8).
+Two-lens fan-out: `ecc-code-reviewer` (correctness, atomicity, money math,
+error taxonomy) plus `python-pro` / `ecc-python-reviewer` (idioms, typing,
+PEP 8).
 Complementary findings on the same file without duplication.
 
 ## Layer-slice usage

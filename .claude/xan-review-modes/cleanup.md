@@ -3,8 +3,8 @@ name: cleanup
 description: Dead code, duplication, and unused-helper sweep — behaviour-preserving only.
 reviewers:
   - unused-code-cleaner
-  - refactor-cleaner
-  - code-simplifier
+  - ecc-refactor-cleaner
+  - ecc-code-simplifier
 ---
 
 # `cleanup` mode
