@@ -28,8 +28,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import event, func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from friendex.adapters.persistence.db import Base, build_engine, build_sessionmaker
 from friendex.adapters.persistence.orm import (
@@ -51,7 +53,7 @@ from friendex.domain.models import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
-    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
     from friendex.application.interfaces import IUserRepo
 
@@ -467,3 +469,171 @@ async def test_list_all_voice_channels_have_deterministic_order(
     listed = next(a for a in await repo.list_all(GUILD_ID) if a.user_id == "ordered")
 
     assert listed.today.voice_unique_channels == ["c1", "c2", "c3"]
+
+
+# ---------------------------------------------------------------------------
+# H9 — SQLite IN-clause chunking for large guilds (≥999 opted-in users)
+# ---------------------------------------------------------------------------
+
+
+def _minimal_account(user_id: str) -> UserAccount:
+    """A cheap, child-free aggregate so we can fan out to thousands quickly.
+
+    The chunking test pivots on the number of bound variables in the child
+    ``IN (...)`` queries (capped at SQLite's 999 per statement); the populated
+    aggregate state is incidental, so empty positions/buckets keep insert cost
+    low and the failure mode obvious.
+    """
+    return UserAccount(
+        user_id=user_id,
+        cash_balance=Decimal("10000.00"),
+        net_worth=Decimal("10000.00"),
+        month_start_net_worth=Decimal("10000.00"),
+        long_positions={},
+        short_positions={},
+        today=ActivityBucket(bucket_start=_utc(2026, 5, 23, 0)),
+        week=ActivityBucket(bucket_start=_utc(2026, 5, 18, 0)),
+        daily=DailyProgress(last_claim=None, streak=0),
+        last_activity=_utc(2026, 5, 23, 11),
+    )
+
+
+async def test_list_all_handles_exactly_1000_users(repo: SqlUserRepository) -> None:
+    """H9 — ``list_all`` over 1000 users returns the full set.
+
+    Smoke-level correctness on a large guild: a thousand users round-trips
+    through ``_rebuild_many`` and every aggregate comes back. (The 999-bound
+    cap is enforced per-connection by SQLite ≤3.31 via
+    ``SQLITE_MAX_VARIABLE_NUMBER``; newer SQLite raised the default to 32766,
+    so this test alone does not exercise the chunking — see
+    ``test_list_all_chunks_in_clause_below_bind_cap`` for the chunk-boundary
+    proof.)
+    """
+    user_ids = [f"u{n:04d}" for n in range(1000)]
+    for uid in user_ids:
+        await repo.upsert(GUILD_ID, _minimal_account(uid))
+
+    accounts = await repo.list_all(GUILD_ID)
+
+    assert len(accounts) == 1000
+    assert {a.user_id for a in accounts} == set(user_ids)
+
+
+async def test_list_active_in_last_handles_1500_users(repo: SqlUserRepository) -> None:
+    """H9 — well past the 999 cap, the hot path still returns every active user.
+
+    The activity-tick loop hits ``list_active_in_last`` every 15 minutes, so a
+    silent crash here freezes price evolution. 1500 users exercise the same
+    scale-out path as ``test_list_all_handles_exactly_1000_users``.
+    """
+    now = datetime.now(tz=UTC)
+    user_ids = [f"u{n:04d}" for n in range(1500)]
+    for uid in user_ids:
+        account = _minimal_account(uid)
+        account.last_activity = now - timedelta(minutes=5)
+        await repo.upsert(GUILD_ID, account)
+
+    accounts = await repo.list_active_in_last(GUILD_ID, seconds=3600)
+
+    assert len(accounts) == 1500
+    assert {a.user_id for a in accounts} == set(user_ids)
+
+
+async def test_list_all_chunks_in_clause_below_bind_cap(
+    repo: SqlUserRepository,
+    engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H9 — child ``IN (...)`` queries are split into chunks of ≤chunk-size.
+
+    SQLite ≥3.32 raised ``SQLITE_MAX_VARIABLE_NUMBER`` to 32766, so a test
+    against the in-memory engine cannot trigger the pre-fix
+    ``OperationalError: too many SQL variables`` directly. Instead, we shrink
+    the repository's chunk size to a number well below the user count and
+    verify two observable consequences: the result is still correct (every
+    user comes back, no chunk dropped on the seam) and the child-table reads
+    issue *multiple* parameterised statements per child table — the very
+    behaviour that keeps the call working on older SQLite where the cap is
+    still 999.
+    """
+    user_ids = [f"u{n:04d}" for n in range(25)]
+    for uid in user_ids:
+        await repo.upsert(GUILD_ID, _minimal_account(uid))
+
+    # Force chunking even at a tiny user count. After the fix this attribute
+    # is the public knob; before the fix it does not exist, and the test
+    # surfaces that gap.
+    import friendex.adapters.persistence.user_repo as user_repo_module
+
+    if not hasattr(user_repo_module, "_IN_CLAUSE_CHUNK_SIZE"):
+        pytest.fail(
+            "user_repo._IN_CLAUSE_CHUNK_SIZE is missing; H9 chunking is not in place"
+        )
+    monkeypatch.setattr(user_repo_module, "_IN_CLAUSE_CHUNK_SIZE", 10)
+
+    with _count_selects(engine) as tally:
+        accounts = await repo.list_all(GUILD_ID)
+
+    # Correctness: every user comes back, including the tail that crosses the
+    # final chunk boundary (25 = 10 + 10 + 5).
+    assert len(accounts) == 25
+    assert {a.user_id for a in accounts} == set(user_ids)
+    # Behaviour: with a chunk size of 10 over 25 ids, each of the 4 child
+    # tables (long, short, bucket, voice) is queried 3 times — plus the
+    # single parent query. The exact tally proves chunks are *being* issued
+    # and never accidentally short-circuited into one big IN.
+    expected_minimum = 1 + 3 * 4
+    assert tally[0] >= expected_minimum, (
+        f"list_all over 25 users with chunk size 10 issued {tally[0]} SELECTs; "
+        f"expected at least {expected_minimum} (parent + chunks per child table)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# H10 — explicit flush after merge() pins the merge→delete→insert ordering
+# ---------------------------------------------------------------------------
+
+
+async def test_upsert_replace_survives_autoflush_disabled(
+    engine: AsyncEngine,
+) -> None:
+    """H10 — ``upsert`` must work even when the session's ``autoflush=False``.
+
+    The implementation calls ``session.merge(parent)`` then ``DELETE`` children
+    then re-inserts. With autoflush on, the merged parent is implicitly flushed
+    before the ``DELETE`` so the FK target exists. Flipping autoflush off
+    (a future hardening sweep, or any session-config drift) silently breaks
+    that ordering — the explicit ``await session.flush()`` after ``merge()``
+    keeps the contract independent of the default.
+    """
+    autoflush_off = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    repo = SqlUserRepository(autoflush_off)
+
+    # First insert (creates the parent + children).
+    await repo.upsert(GUILD_ID, _rich_account("alice"))
+
+    # Replace the same aggregate; the second upsert is where the ordering bites:
+    # ``merge`` stages the parent, ``DELETE`` must see it, then the re-insert
+    # of child rows must satisfy the FK back to the (now-merged) parent.
+    replacement = UserAccount(
+        user_id="alice",
+        cash_balance=Decimal("250.00"),
+        net_worth=Decimal("250.00"),
+        month_start_net_worth=Decimal("250.00"),
+        long_positions={"zzz": LongPosition("zzz", 1, Decimal("70.00"))},
+        short_positions={},
+        today=ActivityBucket(bucket_start=_utc(2026, 5, 24, 0)),
+        week=ActivityBucket(bucket_start=_utc(2026, 5, 18, 0)),
+        daily=DailyProgress(last_claim=None, streak=0),
+        last_activity=_utc(2026, 5, 24, 9),
+    )
+
+    await repo.upsert(GUILD_ID, replacement)
+
+    loaded = await repo.get(GUILD_ID, "alice")
+    assert loaded == replacement

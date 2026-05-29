@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from sqlalchemy.orm import InstrumentedAttribute
     from sqlalchemy.sql._typing import ColumnExpressionArgument
 
     from friendex.domain.models import (
@@ -60,6 +61,14 @@ _ChildT = TypeVar("_ChildT")
 # The two activity buckets an account owns, by their ``bucket_type`` discriminator.
 _TODAY = "today"
 _WEEK = "week"
+
+# Maximum number of bound parameters in any one ``IN (...)`` clause emitted
+# by :meth:`_rebuild_many`. SQLite ≤3.31 caps
+# ``SQLITE_MAX_VARIABLE_NUMBER`` at 999 by default; modern builds raised it to
+# 32766 but server distros (Debian / Ubuntu LTS, embedded systems) can still
+# carry the older limit. 999 is safe across both — see #82 H9. Tests may
+# monkeypatch this down to force the chunking path on small fixtures.
+_IN_CLAUSE_CHUNK_SIZE = 999
 
 
 class SqlUserRepository:
@@ -104,16 +113,27 @@ class SqlUserRepository:
         UoW owns the commit so a sibling write failure can roll the row back);
         otherwise it falls back to the per-call session that every legacy
         caller relies on.
+
+        #82 H10 — ``session.flush()`` is called explicitly after ``merge`` so
+        the parent row is materialised before the child DELETE / INSERT chain
+        runs. Today's ``autoflush=True`` default would do this implicitly,
+        but a future flip to ``autoflush=False`` (a hardening sweep, or any
+        session-config drift) would silently break the merge → delete →
+        insert ordering and trip the FK constraint on the child re-inserts.
+        The explicit flush keeps the contract independent of the default —
+        applied identically on both the shared-session and per-call paths.
         """
         shared = current_session()
         if shared is not None:
             await shared.merge(UserORM.from_domain(guild_id, account))
+            await shared.flush()
             await self._delete_children(shared, guild_id, account.user_id)
             self._insert_children(shared, guild_id, account)
             await shared.flush()
             return
         async with self._sessionmaker() as session:
             await session.merge(UserORM.from_domain(guild_id, account))
+            await session.flush()
             await self._delete_children(session, guild_id, account.user_id)
             self._insert_children(session, guild_id, account)
             await session.commit()
@@ -299,42 +319,51 @@ class SqlUserRepository:
         guild_id: str,
         rows: Sequence[UserORM],
     ) -> list[UserAccount]:
-        """Rebuild many accounts with a constant number of queries.
+        """Rebuild many accounts with a bounded number of queries.
 
-        After the caller's single parent query, this loads each child table once
-        with a ``WHERE guild_id = :g AND <owner/user>_id IN (:ids)`` query, groups
-        the children in memory by user, and assembles each :class:`UserAccount`
-        from the pre-grouped maps. Total cost is ~5 queries (long + short +
-        bucket + voice, plus the parent query already spent) instead of the
-        per-user ~5N fan-out of :meth:`_rebuild`.
+        After the caller's single parent query, this loads each child table
+        once *per ``_IN_CLAUSE_CHUNK_SIZE``-sized chunk* of user ids with a
+        ``WHERE guild_id = :g AND <owner/user>_id IN (:ids)`` query, groups
+        the children in memory by user, and assembles each
+        :class:`UserAccount` from the pre-grouped maps. Total cost is
+        ``ceil(N / chunk_size)`` queries per child table (plus the parent
+        query) instead of the per-user ~5N fan-out of :meth:`_rebuild`.
+
+        Chunking (#82 H9) keeps the call working on SQLite ≤3.31 where the
+        per-statement bound-variable cap is 999; modern SQLite raised it but
+        the chunk still bounds memory and statement complexity at scale.
         """
         user_ids = [row.user_id for row in rows]
         if not user_ids:
             return []
 
-        long_rows = await self._children(
+        long_rows = await self._children_in_chunks(
             session,
             LongPositionORM,
+            LongPositionORM.owner_id,
+            user_ids,
             LongPositionORM.guild_id == guild_id,
-            LongPositionORM.owner_id.in_(user_ids),
         )
-        short_rows = await self._children(
+        short_rows = await self._children_in_chunks(
             session,
             ShortPositionORM,
+            ShortPositionORM.owner_id,
+            user_ids,
             ShortPositionORM.guild_id == guild_id,
-            ShortPositionORM.owner_id.in_(user_ids),
         )
-        bucket_rows = await self._children(
+        bucket_rows = await self._children_in_chunks(
             session,
             ActivityBucketORM,
+            ActivityBucketORM.user_id,
+            user_ids,
             ActivityBucketORM.guild_id == guild_id,
-            ActivityBucketORM.user_id.in_(user_ids),
         )
-        channel_rows = await self._children(
+        channel_rows = await self._children_in_chunks(
             session,
             VoiceUniqueChannelORM,
+            VoiceUniqueChannelORM.user_id,
+            user_ids,
             VoiceUniqueChannelORM.guild_id == guild_id,
-            VoiceUniqueChannelORM.user_id.in_(user_ids),
             order_by=VoiceUniqueChannelORM.channel_id,
         )
 
@@ -482,3 +511,36 @@ class SqlUserRepository:
         if order_by is not None:
             stmt = stmt.order_by(order_by)
         return list((await session.execute(stmt)).scalars().all())
+
+    @staticmethod
+    async def _children_in_chunks(
+        session: AsyncSession,
+        model: type[_ChildT],
+        in_column: InstrumentedAttribute[str],
+        values: Sequence[str],
+        *fixed_wheres: ColumnExpressionArgument[bool],
+        order_by: ColumnExpressionArgument[object] | None = None,
+    ) -> list[_ChildT]:
+        """Load every child row whose ``in_column`` is in ``values``, chunked.
+
+        Splits ``values`` into batches of at most ``_IN_CLAUSE_CHUNK_SIZE``
+        and issues one ``SELECT ... WHERE <fixed> AND in_column IN (:chunk)``
+        per batch — keeping the call working on SQLite ≤3.31 where the
+        per-statement bound-variable cap is 999 (#82 H9). Results are
+        concatenated in chunk order.
+
+        ``fixed_wheres`` is for guild scoping and any other filters that
+        apply to every chunk; ``order_by`` makes the result deterministic
+        where order matters (the voice-channel load).
+        """
+        if not values:
+            return []
+        chunk_size = _IN_CLAUSE_CHUNK_SIZE
+        out: list[_ChildT] = []
+        for start in range(0, len(values), chunk_size):
+            chunk = values[start : start + chunk_size]
+            stmt = select(model).where(*fixed_wheres, in_column.in_(chunk))
+            if order_by is not None:
+                stmt = stmt.order_by(order_by)
+            out.extend((await session.execute(stmt)).scalars().all())
+        return out
