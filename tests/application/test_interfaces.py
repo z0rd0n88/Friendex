@@ -373,6 +373,45 @@ def test_fake_system_state_repo_satisfies_protocol() -> None:
     assert repo is not None
 
 
+# --- Persistence-failure contract pins (review M2) -------------------------
+#
+# ``IFundRepo.get`` and ``IUserRepo.get`` MUST propagate persistence failures
+# rather than swallow them into a ``None`` return — the latter silently
+# re-introduces the #84 H ghost-fund regression because the trading service
+# cannot distinguish "absent" from "read failed". The contract lives in the
+# Protocol docstring (Protocols carry no runtime behaviour); these tests
+# pin that the docstring contains the load-bearing language so a docstring
+# rewrite that drops the contract fails CI before reviewers have to catch it.
+
+
+@pytest.mark.parametrize(
+    ("protocol", "load_bearing"),
+    [
+        (IFundRepo.get, "persistence failures"),
+        (IFundRepo.get, "must propagate"),
+        (IFundRepo.get, "ghost-fund"),
+        (IUserRepo.get, "persistence failures"),
+        (IUserRepo.get, "must propagate"),
+    ],
+)
+def test_get_protocol_docstring_pins_failure_propagation_contract(
+    protocol: object, load_bearing: str
+) -> None:
+    """Pin the load-bearing language in ``I*Repo.get`` Protocol docstrings.
+
+    The persistence-failure-propagation contract is the contract that
+    underwrites #84 H's ghost-fund guard. Rewording the docstring is
+    fine, but removing the load-bearing terms ("persistence failures",
+    "MUST propagate", "ghost-fund" for IFundRepo) breaks the contract.
+    Case-insensitive match so the docstring can use sentence-case
+    ("Persistence failures...") without the test falsely tripping.
+    """
+    doc = inspect.getdoc(protocol) or ""
+    assert load_bearing.lower() in doc.lower(), (
+        f"docstring must mention '{load_bearing}' — see review M2 / #84 H"
+    )
+
+
 # --- helpers ---------------------------------------------------------------
 
 

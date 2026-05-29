@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, cast
 from sqlalchemy import delete, select
 
 from friendex.adapters.persistence.orm import PriceHistoryORM, StockORM
+from friendex.adapters.persistence.unit_of_work import current_session
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -62,7 +63,20 @@ class SqlPriceRepository:
         self._sessionmaker = sessionmaker
 
     async def get(self, guild_id: str, user_id: str) -> Stock | None:
-        """Return the stock for ``(guild_id, user_id)`` or ``None``."""
+        """Return the stock for ``(guild_id, user_id)`` or ``None``.
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the read joins the shared session so it
+        observes the in-flight writes and does not provoke a StaticPool
+        rollback of the outer transaction.
+        """
+        shared = current_session()
+        if shared is not None:
+            row = await self._load_stock_row(shared, guild_id, user_id)
+            if row is None:
+                return None
+            rows = await self._load_history(shared, guild_id, user_id)
+            return row.to_domain([r.to_domain() for r in rows])
         async with self._sessionmaker() as session:
             row = await self._load_stock_row(session, guild_id, user_id)
             if row is None:
@@ -75,13 +89,34 @@ class SqlPriceRepository:
 
         History is append-only and is **not** rewritten here — use
         :meth:`append_history`.
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the upsert enrols into the shared session; the
+        UoW owns the commit so a sibling write failure can roll the row back.
         """
+        shared = current_session()
+        if shared is not None:
+            await shared.merge(StockORM.from_domain(guild_id, stock))
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             await session.merge(StockORM.from_domain(guild_id, stock))
             await session.commit()
 
     async def delete(self, guild_id: str, user_id: str) -> None:
-        """Delete the stock; price history cascades at the DB level (ADR-0002)."""
+        """Delete the stock; price history cascades at the DB level (ADR-0002).
+
+        Same shared-session opt-in as :meth:`upsert`.
+        """
+        shared = current_session()
+        if shared is not None:
+            await shared.execute(
+                delete(StockORM).where(
+                    StockORM.guild_id == guild_id, StockORM.user_id == user_id
+                )
+            )
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             await session.execute(
                 delete(StockORM).where(
@@ -94,8 +129,25 @@ class SqlPriceRepository:
         """Return every stock in ``guild_id``, each with its history rebuilt.
 
         History for all stocks is loaded in a single query and grouped in memory
-        to avoid an N+1 fan-out across the listed stocks.
+        to avoid an N+1 fan-out across the listed stocks. Same shared-session
+        opt-in as :meth:`get`.
         """
+        shared = current_session()
+        if shared is not None:
+            stock_rows = (
+                (
+                    await shared.execute(
+                        select(StockORM).where(StockORM.guild_id == guild_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            histories = await self._load_history_by_user(shared, guild_id)
+            return [
+                row.to_domain([p.to_domain() for p in histories[row.user_id]])
+                for row in stock_rows
+            ]
         async with self._sessionmaker() as session:
             stock_rows = (
                 (
@@ -115,7 +167,17 @@ class SqlPriceRepository:
     async def append_history(
         self, guild_id: str, user_id: str, point: PricePoint
     ) -> None:
-        """Append one :class:`PricePoint` to a stock's history (append-only)."""
+        """Append one :class:`PricePoint` to a stock's history (append-only).
+
+        Same shared-session opt-in as :meth:`upsert` — when a UoW is active
+        the history append joins the shared transaction so a mid-trade
+        rollback drops it along with the user / fund / cooldown writes.
+        """
+        shared = current_session()
+        if shared is not None:
+            shared.add(PriceHistoryORM.from_domain(guild_id, user_id, point))
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             session.add(PriceHistoryORM.from_domain(guild_id, user_id, point))
             await session.commit()
@@ -126,8 +188,12 @@ class SqlPriceRepository:
         """Return a stock's price history, oldest first.
 
         ``since`` (tz-aware UTC) restricts the result to points at or after that
-        instant.
+        instant. Same shared-session opt-in as :meth:`get`.
         """
+        shared = current_session()
+        if shared is not None:
+            rows = await self._load_history(shared, guild_id, user_id, since=since)
+            return [row.to_domain() for row in rows]
         async with self._sessionmaker() as session:
             rows = await self._load_history(session, guild_id, user_id, since=since)
             return [row.to_domain() for row in rows]

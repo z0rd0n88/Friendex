@@ -112,7 +112,17 @@ class IUserRepo(Protocol):
     """
 
     async def get(self, guild_id: str, user_id: str) -> UserAccount | None:
-        """Return the account for ``(guild_id, user_id)`` or ``None``."""
+        """Return the account for ``(guild_id, user_id)`` or ``None``.
+
+        Returns ``None`` for a genuinely-absent user (the row does not
+        exist in the store). **Persistence failures (engine error,
+        connection drop, schema mismatch, etc.) MUST propagate** —
+        implementations may not absorb an exception and return ``None``
+        in its place. This contract is symmetric with :meth:`IFundRepo.get`
+        and underwrites the ``_get_or_create_user`` auto-seed flow in
+        :class:`TradingService`: "user absent" → seed defaults, "user
+        read failed" → abort with the original exception.
+        """
         ...
 
     async def upsert(self, guild_id: str, account: UserAccount) -> None:
@@ -196,7 +206,21 @@ class IFundRepo(Protocol):
     """
 
     async def get(self, guild_id: str, fund_id: str) -> HedgeFund | None:
-        """Return the fund for ``(guild_id, fund_id)`` or ``None``."""
+        """Return the fund for ``(guild_id, fund_id)`` or ``None``.
+
+        Returns ``None`` for a genuinely-absent fund (the row does not
+        exist in the store).
+
+        **Persistence failures (engine error, connection drop, schema
+        mismatch, etc.) MUST propagate** — implementations may not
+        absorb an exception and return ``None`` in its place. This
+        contract underwrites :meth:`TradingService._get_fund_cash`'s
+        ghost-fund guard (#84 H): the trading service distinguishes
+        "fund absent" (legitimate $0 collateral) from "fund read failed"
+        (abort the trade entirely, do NOT build a position against a
+        phantom fund). Swallowing a failure into ``None`` silently
+        re-introduces the ghost-fund regression.
+        """
         ...
 
     async def upsert(self, guild_id: str, fund: HedgeFund) -> None:

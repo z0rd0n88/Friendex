@@ -40,6 +40,7 @@ from friendex.adapters.persistence.orm import (
     UserORM,
     VoiceUniqueChannelORM,
 )
+from friendex.adapters.persistence.unit_of_work import current_session
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -73,7 +74,22 @@ class SqlUserRepository:
         self._sessionmaker = sessionmaker
 
     async def get(self, guild_id: str, user_id: str) -> UserAccount | None:
-        """Return the account for ``(guild_id, user_id)`` or ``None``."""
+        """Return the account for ``(guild_id, user_id)`` or ``None``.
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the read joins the shared session so it
+        observes the in-flight writes the UoW has already made (and so it
+        does NOT open a competing transaction on the same connection — with
+        SQLite's :class:`~sqlalchemy.pool.StaticPool` the outer UoW
+        transaction would otherwise be rolled back by the per-call
+        session's exit).
+        """
+        shared = current_session()
+        if shared is not None:
+            row = await self._load_user_row(shared, guild_id, user_id)
+            if row is None:
+                return None
+            return await self._rebuild(shared, row)
         async with self._sessionmaker() as session:
             row = await self._load_user_row(session, guild_id, user_id)
             if row is None:
@@ -81,7 +97,21 @@ class SqlUserRepository:
             return await self._rebuild(session, row)
 
     async def upsert(self, guild_id: str, account: UserAccount) -> None:
-        """Insert or replace ``account`` (and all its children) under ``guild_id``."""
+        """Insert or replace ``account`` (and all its children) under ``guild_id``.
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the upsert enrols into the shared session (the
+        UoW owns the commit so a sibling write failure can roll the row back);
+        otherwise it falls back to the per-call session that every legacy
+        caller relies on.
+        """
+        shared = current_session()
+        if shared is not None:
+            await shared.merge(UserORM.from_domain(guild_id, account))
+            await self._delete_children(shared, guild_id, account.user_id)
+            self._insert_children(shared, guild_id, account)
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             await session.merge(UserORM.from_domain(guild_id, account))
             await self._delete_children(session, guild_id, account.user_id)
@@ -89,7 +119,20 @@ class SqlUserRepository:
             await session.commit()
 
     async def delete(self, guild_id: str, user_id: str) -> None:
-        """Delete the account; children cascade at the DB level (ADR-0002)."""
+        """Delete the account; children cascade at the DB level (ADR-0002).
+
+        Same shared-session opt-in as :meth:`upsert` — joins the active UoW
+        session when one is set, otherwise opens its own short-lived session.
+        """
+        shared = current_session()
+        if shared is not None:
+            await shared.execute(
+                delete(UserORM).where(
+                    UserORM.guild_id == guild_id, UserORM.user_id == user_id
+                )
+            )
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             await session.execute(
                 delete(UserORM).where(
@@ -104,7 +147,23 @@ class SqlUserRepository:
         Issues a constant number of queries (1 parent + one batched ``IN`` query
         per child table) regardless of the number of users, then groups children
         in memory — see :meth:`_rebuild_many`.
+
+        Same shared-session opt-in as :meth:`get` so a UoW-wrapped sweep
+        observes its own in-flight writes and does not provoke a
+        StaticPool rollback of the outer transaction.
         """
+        shared = current_session()
+        if shared is not None:
+            rows = (
+                (
+                    await shared.execute(
+                        select(UserORM).where(UserORM.guild_id == guild_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return await self._rebuild_many(shared, guild_id, rows)
         async with self._sessionmaker() as session:
             rows = (
                 (
@@ -124,9 +183,25 @@ class SqlUserRepository:
 
         On the activity-tick / inactivity-decay hot path, so it batches child
         loads the same way as :meth:`list_all` — a constant query count
-        independent of how many users match.
+        independent of how many users match. Same shared-session opt-in as
+        :meth:`get`.
         """
         cutoff = datetime.now(tz=UTC) - timedelta(seconds=seconds)
+        shared = current_session()
+        if shared is not None:
+            rows = (
+                (
+                    await shared.execute(
+                        select(UserORM).where(
+                            UserORM.guild_id == guild_id,
+                            UserORM.last_activity >= cutoff,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return await self._rebuild_many(shared, guild_id, rows)
         async with self._sessionmaker() as session:
             rows = (
                 (

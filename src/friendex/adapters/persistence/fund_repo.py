@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import delete, select
 
 from friendex.adapters.persistence.orm import FundInvestorORM, HedgeFundORM
+from friendex.adapters.persistence.unit_of_work import current_session
 from friendex.domain.models import HedgeFund
 
 if TYPE_CHECKING:
@@ -66,7 +67,26 @@ class SqlFundRepository:
         self._sessionmaker = sessionmaker
 
     async def get(self, guild_id: str, fund_id: str) -> HedgeFund | None:
-        """Return the fund for ``(guild_id, fund_id)`` or ``None``."""
+        """Return the fund for ``(guild_id, fund_id)`` or ``None``.
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the read joins the shared session so it
+        observes the in-flight writes and does not provoke a StaticPool
+        rollback of the outer transaction.
+
+        Persistence failures (engine error, connection drop, etc.) MUST
+        propagate — this is the contract the trading service's
+        :meth:`_get_fund_cash` ghost-fund guard (#84 H) relies on. The
+        method's only documented return for absence is ``None``; any
+        exception escapes to the caller.
+        """
+        shared = current_session()
+        if shared is not None:
+            row = await self._load_fund_row(shared, guild_id, fund_id)
+            if row is None:
+                return None
+            investors = await self._load_investors(shared, guild_id, fund_id)
+            return row.to_domain(investors)
         async with self._sessionmaker() as session:
             row = await self._load_fund_row(session, guild_id, fund_id)
             if row is None:
@@ -75,7 +95,21 @@ class SqlFundRepository:
             return row.to_domain(investors)
 
     async def upsert(self, guild_id: str, fund: HedgeFund) -> None:
-        """Insert or replace ``fund`` (and its investors) under ``guild_id``."""
+        """Insert or replace ``fund`` (and its investors) under ``guild_id``.
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the upsert enrols into the shared session (the
+        UoW owns the commit so a sibling write failure can roll the row back);
+        otherwise it falls back to the per-call session that every legacy
+        caller relies on.
+        """
+        shared = current_session()
+        if shared is not None:
+            await shared.merge(HedgeFundORM.from_domain(guild_id, fund))
+            await self._delete_investors(shared, guild_id, fund.fund_id)
+            self._insert_investors(shared, guild_id, fund)
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             await session.merge(HedgeFundORM.from_domain(guild_id, fund))
             await self._delete_investors(session, guild_id, fund.fund_id)
@@ -83,7 +117,21 @@ class SqlFundRepository:
             await session.commit()
 
     async def delete(self, guild_id: str, fund_id: str) -> None:
-        """Delete the fund; investor rows cascade at the DB level (ADR-0002)."""
+        """Delete the fund; investor rows cascade at the DB level (ADR-0002).
+
+        Same shared-session opt-in as :meth:`upsert` — joins the active UoW
+        session when one is set, otherwise opens its own short-lived session.
+        """
+        shared = current_session()
+        if shared is not None:
+            await shared.execute(
+                delete(HedgeFundORM).where(
+                    HedgeFundORM.guild_id == guild_id,
+                    HedgeFundORM.fund_id == fund_id,
+                )
+            )
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             await session.execute(
                 delete(HedgeFundORM).where(
@@ -97,8 +145,22 @@ class SqlFundRepository:
         """Return every fund in ``guild_id``, each with its investors rebuilt.
 
         Investors for all funds are loaded in a single query and grouped in
-        memory to avoid an N+1 fan-out across the listed funds.
+        memory to avoid an N+1 fan-out across the listed funds. Same
+        shared-session opt-in as :meth:`get`.
         """
+        shared = current_session()
+        if shared is not None:
+            fund_rows = (
+                (
+                    await shared.execute(
+                        select(HedgeFundORM).where(HedgeFundORM.guild_id == guild_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            investors_by_fund = await self._load_investors_by_fund(shared, guild_id)
+            return [row.to_domain(investors_by_fund[row.fund_id]) for row in fund_rows]
         async with self._sessionmaker() as session:
             fund_rows = (
                 (

@@ -21,6 +21,7 @@ import pytest
 
 from friendex.domain.fund_math import (
     compute_apy_accrual,
+    compute_apy_accrual_raw,
     compute_effective_apy,
     compute_net_worth,
 )
@@ -121,6 +122,41 @@ def test_accrual_is_quantised(period: str) -> None:
 def test_accrual_does_not_mutate_balance() -> None:
     balance = Decimal("1200.00")
     compute_apy_accrual(balance, 0.15, "monthly")
+    assert balance == Decimal("1200.00")
+
+
+# ---------------------------------------------------------------------------
+# compute_apy_accrual_raw — unquantised accrual for sum-then-quantise call sites
+# ---------------------------------------------------------------------------
+
+
+def test_raw_accrual_skips_quantisation_for_sub_cent_values() -> None:
+    """#82 H3: ``compute_apy_accrual_raw`` keeps sub-cent precision so callers
+    that sum many small accruals can quantise the total once instead of
+    individually rounding each share down to zero.
+    """
+    # 0.40 * 0.15 / 12 = 0.005 — under one cent.
+    raw = compute_apy_accrual_raw(Decimal("0.40"), 0.15, "monthly")
+    # The raw helper does NOT quantise; the unscaled multiplication is exact.
+    assert raw == Decimal("0.005")
+    # The quantising version rounds this away.
+    assert compute_apy_accrual(Decimal("0.40"), 0.15, "monthly") == Decimal("0.00")
+
+
+def test_raw_accrual_matches_quantised_when_total_is_clean() -> None:
+    """A balance large enough that the raw product is already at cent
+    precision must produce the same value through both APIs.
+    """
+    raw = compute_apy_accrual_raw(Decimal("1200.00"), 0.15, "monthly")
+    quantised = compute_apy_accrual(Decimal("1200.00"), 0.15, "monthly")
+    assert raw == Decimal("15.00")
+    assert quantised == Decimal("15.00")
+
+
+@pytest.mark.parametrize("period", ["monthly", "annual"])
+def test_raw_accrual_does_not_mutate_balance(period: str) -> None:
+    balance = Decimal("1200.00")
+    compute_apy_accrual_raw(balance, 0.15, period)  # type: ignore[arg-type]
     assert balance == Decimal("1200.00")
 
 

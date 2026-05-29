@@ -185,6 +185,32 @@ class Settings(BaseSettings):
     # credits the full ``balance * apy`` in a single call. See
     # ``docs/02-target-architecture.md`` §Open-Questions Q8.
     hedge_fund_base_apy_period: Literal["monthly", "annual"] = "monthly"
+    # APY rounding residual recipient (post-PR-88 H3 review). The H3 fix
+    # accumulates per-investor accruals unquantised and quantises the sum
+    # once; the resulting fractional-cent residual (= quantised sum minus
+    # the sum of per-stake quantised deltas) cannot be split into stakes
+    # without breaking per-investor cent precision, so it must be routed
+    # somewhere. Choose where:
+    #
+    # * ``"manager"`` (default — historic behaviour): credit the residual
+    #   to the manager's balance share. Operationally simplest; preserves
+    #   the fund's bookkeeping (``cash_balance == sum(stakes) +
+    #   manager_share``). Has a fairness consequence when many investors
+    #   hold sub-cent stakes — the residual silently flows to the manager.
+    # * ``"treasury"``: credit the residual to the per-guild
+    #   ``events_wallet`` pseudo-fund (the same treasury target as
+    #   ``/fund send_events``). Removes the manager's free-credit
+    #   incentive; the residual becomes server-collective wealth.
+    # * ``"drop"``: discard the residual (do not credit anywhere). The
+    #   fund's ``cash_balance`` does not move by the residual amount; the
+    #   sub-cent total is lost. Matches the pre-H3 original-monolith
+    #   behaviour where sub-cent accruals were silently dropped on the
+    #   floor.
+    #
+    # The default is ``"manager"`` to preserve the current behaviour; the
+    # toggle is here so operators can pick a different rule without
+    # changing the code.
+    apy_residual_recipient: Literal["manager", "treasury", "drop"] = "manager"
     early_withdraw_penalty: float = 0.05
     penalty_duration_days: int = 14
 

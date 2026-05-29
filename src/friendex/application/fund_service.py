@@ -74,6 +74,7 @@ from datetime import timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING
 
+from friendex.application.unit_of_work import NullUnitOfWork
 from friendex.domain.errors import (
     FundInsufficientBalance,
     InsufficientFunds,
@@ -81,6 +82,7 @@ from friendex.domain.errors import (
 )
 from friendex.domain.fund_math import (
     compute_apy_accrual,
+    compute_apy_accrual_raw,
     compute_effective_apy,
 )
 from friendex.domain.models import FundPenalty, HedgeFund
@@ -96,6 +98,7 @@ if TYPE_CHECKING:
     )
     from friendex.application.lock_manager import LockManager
     from friendex.application.snapshot_models import FundInfoResult
+    from friendex.application.unit_of_work import IUnitOfWork
 
 # Currency quantisation unit — two decimal places, banker's rounding.
 _CENT = Decimal("0.01")
@@ -137,6 +140,7 @@ class FundService:
         penalty_repo: IPenaltyRepo,
         lock_manager: LockManager,
         settings: Settings,
+        unit_of_work: IUnitOfWork | None = None,
     ) -> None:
         self._guild_id = guild_id
         self._user_repo = user_repo
@@ -144,6 +148,13 @@ class FundService:
         self._penalty_repo = penalty_repo
         self._locks = lock_manager
         self._settings = settings
+        # ``unit_of_work`` is the atomicity envelope wrapping every multi-write
+        # use case (withdraw / send_to_events / invest). Defaulting to
+        # ``NullUnitOfWork`` keeps the existing DI container wiring valid;
+        # production wiring passes a real :class:`SqlUnitOfWork`.
+        self._uow: IUnitOfWork = (
+            unit_of_work if unit_of_work is not None else NullUnitOfWork()
+        )
 
     # -- internal helpers ---------------------------------------------------
 
@@ -258,7 +269,10 @@ class FundService:
             raise InvalidAmount("amount must be positive")
         quantised_amount = _quantise(amount)
 
-        async with self._locks.locked(self._lock_key(user_id)):
+        async with (
+            self._locks.locked(self._lock_key(user_id)),
+            self._uow.transaction(),
+        ):
             fund = await self._get_or_create_fund(user_id)
             # Phase 17b B2: cap the withdraw at the manager's own share —
             # investor principal (``sum(investors.values())``) is untouchable.
@@ -268,8 +282,8 @@ class FundService:
             account = await self._user_repo.get(self._guild_id, user_id)
             if account is None:
                 # ``withdraw`` requires a real account — surface a stable
-                # error rather than auto-seed (the trading service owns the
-                # auto-seed flow).
+                # error rather than auto-seed (the trading service owns
+                # the auto-seed flow).
                 raise FundInsufficientBalance(
                     need=quantised_amount, have=manager_balance
                 )
@@ -318,8 +332,9 @@ class FundService:
         wallet is created lazily via
         :meth:`IFundRepo.ensure_events_wallet`. Raises
         :class:`InvalidAmount` for non-positive amounts and
-        :class:`FundInsufficientBalance` when the personal fund cannot cover
-        the transfer.
+        :class:`FundInsufficientBalance` when the manager's own balance share
+        (``cash_balance - sum(investors.values())``) cannot cover the
+        transfer.
 
         Locks both the user and the events-wallet pseudo-id in a single
         ``locked(...)`` call so the treasury update cannot interleave with
@@ -329,16 +344,24 @@ class FundService:
             raise InvalidAmount("amount must be positive")
         quantised_amount = _quantise(amount)
 
-        async with self._locks.locked(
-            self._lock_key(user_id),
-            self._lock_key(_EVENTS_WALLET_ID),
+        async with (
+            self._locks.locked(
+                self._lock_key(user_id),
+                self._lock_key(_EVENTS_WALLET_ID),
+            ),
+            self._uow.transaction(),
         ):
             fund = await self._get_or_create_fund(user_id)
             wallet = await self._fund_repo.ensure_events_wallet(self._guild_id)
 
-            if fund.cash_balance < quantised_amount:
+            # Mirror the withdraw guard: a manager cannot drain investor
+            # principal via ``send_to_events`` either (#82 H1).
+            manager_balance = _quantise(
+                fund.cash_balance - sum(fund.investors.values(), Decimal("0.00"))
+            )
+            if manager_balance < quantised_amount:
                 raise FundInsufficientBalance(
-                    need=quantised_amount, have=fund.cash_balance
+                    need=quantised_amount, have=manager_balance
                 )
 
             new_fund = replace(
@@ -371,6 +394,26 @@ class FundService:
         stake. A zero / sub-cent total accrual is skipped (idempotent
         no-op).
 
+        **Residual recipient (post-PR-88 H3 review).** The H3 fix
+        accumulates per-investor accruals unquantised and quantises the
+        sum once. The resulting ``quantised_sum - sum(per_stake_deltas)``
+        residual cannot land on any individual stake without breaking
+        per-investor cent precision, so it must be routed somewhere.
+        :attr:`Settings.apy_residual_recipient` chooses the rule:
+
+        * ``"manager"`` (default): credit to the manager's balance share.
+          Operationally simplest; preserves the fund's bookkeeping. Has
+          a fairness consequence when many investors hold sub-cent
+          stakes — the residual silently flows to the manager.
+        * ``"treasury"``: credit to the per-guild ``events_wallet``
+          pseudo-fund. Removes the manager's free-credit incentive;
+          residual becomes server-collective wealth.
+        * ``"drop"``: discard the residual (do not credit anywhere).
+          The fund's ``cash_balance`` does not move by the residual
+          amount; the sub-cent total is lost (matches the pre-H3
+          original-monolith behaviour where sub-cent accruals were
+          silently dropped).
+
         Called by the Phase 9 ``MonthlyRolloverTask`` on the 1st of each
         month at hour 0; safe to retry — accrual for one ``(fund, now)``
         invocation is deterministic. The cadence is
@@ -379,6 +422,12 @@ class FundService:
         """
         funds = await self._fund_repo.list_all(self._guild_id)
         period = self._settings.hedge_fund_base_apy_period
+        residual_recipient = self._settings.apy_residual_recipient
+        # Treasury accumulation across every fund this sweep — written as
+        # one events_wallet upsert at the end so the treasury credit cost
+        # is one extra repo write per sweep, not per fund. Routed only
+        # when residual_recipient == "treasury".
+        treasury_residual = Decimal("0.00")
         for fund in funds:
             if fund.fund_id == _EVENTS_WALLET_ID:
                 continue
@@ -398,21 +447,49 @@ class FundService:
                     effective_apy,
                     period=period,
                 )
+                # Accumulate per-investor raw accruals UNQUANTISED so the
+                # total reflects every sub-cent share before quantisation;
+                # pre-fix the per-stake quantisation rounded each tiny
+                # accrual to zero independently and silently dropped them
+                # all (#82 H3). The sum is quantised once below.
                 new_investors: dict[str, Decimal] = {}
-                total_investor_accrual = Decimal("0.00")
+                total_raw_investor_accrual = Decimal("0.00")
                 for investor_id, stake in fresh.investors.items():
-                    investor_accrual = compute_apy_accrual(
-                        stake,
-                        effective_apy,
-                        period=period,
+                    raw_accrual = compute_apy_accrual_raw(
+                        stake, effective_apy, period=period
                     )
-                    total_investor_accrual += investor_accrual
-                    new_investors[investor_id] = _quantise(stake + investor_accrual)
-                if manager_accrual + total_investor_accrual < _CENT:
+                    total_raw_investor_accrual += raw_accrual
+                    # Per-stake quantisation preserves the existing API:
+                    # individual stakes remain at cent precision. The
+                    # fractional remainder is captured via the
+                    # ``quantised_total - sum(per_stake_deltas)`` residual
+                    # below so no money is silently destroyed (or routed
+                    # by the recipient setting; see ``residual_recipient``).
+                    new_investors[investor_id] = _quantise(stake + raw_accrual)
+                quantised_investor_total = _quantise(total_raw_investor_accrual)
+                if manager_accrual + quantised_investor_total < _CENT:
                     continue
+                per_stake_delta_sum = sum(
+                    (new_investors[i] - fresh.investors[i] for i in fresh.investors),
+                    Decimal("0.00"),
+                )
+                investor_residual = quantised_investor_total - per_stake_delta_sum
+                # Route the residual per the configured recipient. The
+                # fund's new cash_balance is recomputed below from the
+                # post-accrual building blocks, so the route is just a
+                # decision about whether to ADD the residual when
+                # summing (manager / treasury) or to LEAVE IT OUT (drop).
+                if residual_recipient == "manager":
+                    fund_residual_share = investor_residual
+                elif residual_recipient == "treasury":
+                    fund_residual_share = Decimal("0.00")
+                    treasury_residual += investor_residual
+                else:  # "drop"
+                    fund_residual_share = Decimal("0.00")
                 new_cash = _quantise(
                     manager_balance
                     + manager_accrual
+                    + fund_residual_share
                     + sum(new_investors.values(), _ZERO)
                 )
                 updated = replace(
@@ -421,6 +498,18 @@ class FundService:
                     investors=new_investors,
                 )
                 await self._fund_repo.upsert(self._guild_id, updated)
+        # Apply any accumulated treasury residual in one final write so
+        # the events_wallet upsert happens at most once per sweep.
+        if treasury_residual > Decimal("0.00"):
+            async with self._locks.locked(self._lock_key(_EVENTS_WALLET_ID)):
+                wallet = await self._fund_repo.ensure_events_wallet(self._guild_id)
+                await self._fund_repo.upsert(
+                    self._guild_id,
+                    replace(
+                        wallet,
+                        cash_balance=_quantise(wallet.cash_balance + treasury_residual),
+                    ),
+                )
 
     # -- invest -------------------------------------------------------------
 
@@ -454,17 +543,26 @@ class FundService:
             raise InvalidAmount("amount must be positive")
         quantised_amount = _quantise(amount)
 
-        # Phase 17b §Q2 — a manager cannot invest in their own fund.
-        if investor_id == fund_id:
-            raise InvalidAmount("cannot invest in own fund")
-
-        async with self._locks.locked(
-            self._lock_key(investor_id),
-            self._lock_key(fund_id),
+        async with (
+            self._locks.locked(
+                self._lock_key(investor_id),
+                self._lock_key(fund_id),
+            ),
+            self._uow.transaction(),
         ):
             fund = await self._fund_repo.get(self._guild_id, fund_id)
             if fund is None:
                 raise InvalidAmount("fund does not exist")
+
+            # Phase 17b §Q2 — a manager cannot invest in their own fund.
+            # The check compares the actor's id to the fund's *manager*
+            # id (not its fund id) so a fund whose
+            # ``fund_id != manager_id`` (e.g. the events-wallet
+            # pseudo-fund, future shared-management vehicles) does not
+            # accidentally block an investor whose user id happens to
+            # equal the fund id (#84 H).
+            if investor_id == fund.manager_id:
+                raise InvalidAmount("cannot invest in own fund")
 
             account = await self._user_repo.get(self._guild_id, investor_id)
             if account is None or account.cash_balance < quantised_amount:
