@@ -2,18 +2,18 @@
 name: test
 description: Coverage gaps + fake parity + mock-spec adequacy.
 reviewers:
-  - tdd-guide
-  - python-reviewer
-  - code-reviewer
+  - ecc-tdd-guide
+  - ecc-python-reviewer
+  - ecc-code-reviewer
 ---
 
 # `test` mode
 
 Lenses:
 
-- `tdd-guide` — coverage gap + write-tests-first discipline
-- `python-reviewer` — fixture quality + `AsyncMock(spec=...)` drift
-- `code-reviewer` — parity between
+- `ecc-tdd-guide` — coverage gap + write-tests-first discipline
+- `ecc-python-reviewer` — fixture quality + `AsyncMock(spec=...)` drift
+- `ecc-code-reviewer` — parity between
   `tests/application/fakes/fake_repos.py` and concrete repos
 
 ## Layer-slice usage

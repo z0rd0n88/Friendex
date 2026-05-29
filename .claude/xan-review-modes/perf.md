@@ -2,7 +2,7 @@
 name: perf
 description: N+1, SQLite contention, hot-path Decimal cost, embed limits, task jitter.
 reviewers:
-  - performance-optimizer
+  - ecc-performance-optimizer
   - python-pro
   - code-explorer
 ---

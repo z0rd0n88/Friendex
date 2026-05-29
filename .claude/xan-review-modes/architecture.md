@@ -2,8 +2,8 @@
 name: architecture
 description: Hexagonal boundary check, deepening opportunities, silent-failure ladder.
 reviewers:
-  - code-architect
-  - silent-failure-hunter
+  - ecc-code-architect
+  - ecc-silent-failure-hunter
   - critical-thinking
 ---
 
