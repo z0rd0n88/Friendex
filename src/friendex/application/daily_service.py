@@ -42,6 +42,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING
 
+import structlog
+
 from friendex.application.daily_result import DailyClaimResult
 from friendex.domain.errors import AlreadyClaimedToday
 from friendex.domain.models import (
@@ -54,6 +56,11 @@ if TYPE_CHECKING:
     from friendex.adapters.config import Settings
     from friendex.application.interfaces import IUserRepo
     from friendex.application.lock_manager import LockManager
+
+
+# Module-level structlog logger — keyword arguments are picked up by the
+# configured processor chain in ``adapters/config.py``.
+_log = structlog.get_logger(__name__)
 
 
 # Currency quantisation unit — two decimal places, banker's rounding.
@@ -170,9 +177,31 @@ class DailyService:
         async with self._locks.locked(self._lock_key(user_id)):
             account = await self._get_or_create_account(user_id)
 
-            candidate_streak = _next_streak(
-                account.daily.streak, account.daily.last_claim, now
-            )
+            previous_streak = account.daily.streak
+            previous_last_claim = account.daily.last_claim
+            candidate_streak = _next_streak(previous_streak, previous_last_claim, now)
+
+            # Issue #84 L (silent-failures branch): the 48-hour streak-reset
+            # boundary is the most common support-ticket trigger ("why did
+            # my streak reset?"). Emit a structured debug-level log when the
+            # reset path fires (i.e. there WAS a prior claim and the gap is
+            # >= ``_STREAK_GAP``) so the operator can correlate the reset
+            # with the user's claim history without re-running the math.
+            # First-ever claims fall through ``_next_streak`` returning ``1``
+            # because ``last_claim is None`` — those are NOT a reset.
+            if (
+                previous_last_claim is not None
+                and candidate_streak == 1
+                and previous_streak >= 1
+            ):
+                _log.debug(
+                    "daily_streak_reset",
+                    user_id=user_id,
+                    guild_id=self._guild_id,
+                    previous_streak=previous_streak,
+                    gap_hours=(now - previous_last_claim).total_seconds() / 3600.0,
+                )
+
             is_bonus = candidate_streak == _STREAK_BONUS_LENGTH
 
             daily_reward = _quantise(Decimal(str(self._settings.daily_reward)))

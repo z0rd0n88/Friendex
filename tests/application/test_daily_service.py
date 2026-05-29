@@ -23,6 +23,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import pytest
+import structlog
 
 from friendex.application.daily_result import DailyClaimResult
 from friendex.application.daily_service import DailyService
@@ -197,6 +198,83 @@ async def test_skipping_a_day_resets_streak_to_1(
 
     assert result.streak == 1
     assert result.is_streak_bonus is False
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 L (silent-failures branch): streak-reset debug log
+#
+# A common support question is "why did my 6-day streak reset?". The user
+# crossed the 48-hour boundary and the streak silently reset to 1. Emit a
+# structured DEBUG-level log so the operator can correlate the reset with
+# the user's claim history without re-running the math by hand.
+
+
+def _rebind_daily_service_logger() -> None:
+    """Rebind ``daily_service._log`` to a fresh proxy at default levels.
+
+    ``adapters.config.configure_logging`` (exercised by the
+    ``test_configure_logging_*`` tests) installs a filtering wrapper-class
+    via ``structlog.make_filtering_bound_logger(INFO)``. Once a module-level
+    ``structlog.get_logger`` has bound against that filter, subsequent
+    ``capture_logs`` calls inherit the filter and DEBUG events are dropped.
+    The pragmatic fix in tests is to ``reset_defaults`` and *rebind* the
+    module attribute so the proxy re-resolves against the now-default
+    (unfiltered) wrapper class.
+    """
+    import friendex.application.daily_service as ds_module
+
+    structlog.reset_defaults()
+    ds_module._log = structlog.get_logger("friendex.application.daily_service")
+
+
+async def test_streak_reset_at_48h_boundary_logs_debug_event(
+    fake_user_repo: FakeUserRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Crossing the 48-hour boundary emits ``daily_streak_reset`` at debug."""
+    _rebind_daily_service_logger()
+    await fake_user_repo.upsert(GUILD, _account(USER, last_claim=_DAY_0, streak=6))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with structlog.testing.capture_logs() as captured:
+        await service.claim_daily(USER, now=_DAY_0 + timedelta(days=2, hours=1))
+
+    reset_records = [
+        r
+        for r in captured
+        if r.get("event") == "daily_streak_reset" and r.get("log_level") == "debug"
+    ]
+    assert reset_records, "expected a debug log entry for the streak reset"
+    rec = reset_records[0]
+    assert rec["user_id"] == USER
+    assert rec["guild_id"] == GUILD
+    assert rec["previous_streak"] == 6
+
+
+async def test_streak_continuation_does_not_log_reset(
+    fake_user_repo: FakeUserRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """A continuation (within 24-48h) does NOT emit the reset debug event."""
+    _rebind_daily_service_logger()
+    await fake_user_repo.upsert(GUILD, _account(USER, last_claim=_DAY_0, streak=3))
+    service = _make_service(
+        user_repo=fake_user_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with structlog.testing.capture_logs() as captured:
+        await service.claim_daily(USER, now=_DAY_1)
+
+    reset_records = [r for r in captured if r.get("event") == "daily_streak_reset"]
+    assert reset_records == []
 
 
 # ---------------------------------------------------------------------------
