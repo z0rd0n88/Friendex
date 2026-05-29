@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from friendex.adapters.config import Settings
 from friendex.application.fund_service import FundService
 from friendex.domain.errors import FundInsufficientBalance, InvalidAmount
 from friendex.domain.models import (
@@ -35,7 +36,6 @@ from friendex.domain.models import (
 )
 
 if TYPE_CHECKING:
-    from friendex.adapters.config import Settings
     from friendex.application.lock_manager import LockManager
     from tests.application.fakes.fake_repos import (
         FakeFundRepo,
@@ -186,6 +186,11 @@ async def test_accrue_apy_quantises_total_not_per_investor(
     accrual of exactly ``$0.005`` per stake — pre-fix each rounded to
     ``$0.00`` (a flat loss of half a cent times three); post-fix the
     sum is quantised once as ``$0.02``.
+
+    Default ``apy_residual_recipient="manager"`` so the quantised residual
+    flows to the manager balance (raw cash) — making the fund's total
+    cash_balance increase by the full sum even though no single investor
+    stake moved.
     """
     seeded = HedgeFund(
         fund_id=USER,
@@ -217,6 +222,136 @@ async def test_accrue_apy_quantises_total_not_per_investor(
     # Post-fix: 3 * 0.005 = 0.015 -> quantise to 0.02 by banker's rounding.
     # Cash balance gains the full quantised sum (no manager component here).
     assert fund_after.cash_balance == Decimal("1.22")
+    # Investor stakes do NOT move at this sub-cent regime — they all stay
+    # at the seeded $0.40 (cents precision).
+    assert fund_after.investors == {
+        "investor-a": Decimal("0.40"),
+        "investor-b": Decimal("0.40"),
+        "investor-c": Decimal("0.40"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# H3 residual recipient — manager / treasury / drop branches
+# ---------------------------------------------------------------------------
+
+
+def _override_recipient(
+    base: Settings,
+    recipient: str,
+) -> Settings:
+    """Build a fresh ``Settings`` with the residual-recipient overridden."""
+    return Settings(
+        discord_token="test-token",  # type: ignore[call-arg]
+        apy_residual_recipient=recipient,  # type: ignore[arg-type]
+        _env_file=None,  # type: ignore[call-arg]
+    )
+
+
+async def test_accrue_apy_residual_recipient_treasury_routes_to_events_wallet(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """H3 residual: treasury setting credits the residual to ``events_wallet``.
+
+    Same sub-cent-investor scenario as
+    :func:`test_accrue_apy_quantises_total_not_per_investor`. With the
+    residual recipient set to ``"treasury"`` the manager balance does
+    NOT receive the residual; the per-guild ``events_wallet`` pseudo-fund
+    gains it instead.
+    """
+    seeded = HedgeFund(
+        fund_id=USER,
+        name=f"Fund {USER}",
+        manager_id=USER,
+        cash_balance=Decimal("1.20"),
+        investors={
+            "investor-a": Decimal("0.40"),
+            "investor-b": Decimal("0.40"),
+            "investor-c": Decimal("0.40"),
+        },
+    )
+    await fake_fund_repo.upsert(GUILD, seeded)
+    treasury_settings = _override_recipient(default_settings, "treasury")
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=treasury_settings,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    events_after = await fake_fund_repo.get(GUILD, "events_wallet")
+    assert fund_after is not None
+    assert events_after is not None
+    # Fund cash stays put (the residual went to the treasury).
+    assert fund_after.cash_balance == Decimal("1.20")
+    # Investor stakes unchanged (same as manager branch).
+    assert fund_after.investors == {
+        "investor-a": Decimal("0.40"),
+        "investor-b": Decimal("0.40"),
+        "investor-c": Decimal("0.40"),
+    }
+    # The residual ($0.02 via the sub-cent math) lands in the events wallet.
+    assert events_after.cash_balance == Decimal("0.02")
+
+
+async def test_accrue_apy_residual_recipient_drop_discards_residual(
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """H3 residual: drop setting discards the residual entirely.
+
+    Same sub-cent-investor scenario; with the residual recipient set to
+    ``"drop"`` neither the manager balance nor the events wallet
+    receives the fractional accrual — the sub-cent sum is lost on the
+    floor, matching the pre-H3 original-monolith behaviour.
+    """
+    seeded = HedgeFund(
+        fund_id=USER,
+        name=f"Fund {USER}",
+        manager_id=USER,
+        cash_balance=Decimal("1.20"),
+        investors={
+            "investor-a": Decimal("0.40"),
+            "investor-b": Decimal("0.40"),
+            "investor-c": Decimal("0.40"),
+        },
+    )
+    await fake_fund_repo.upsert(GUILD, seeded)
+    drop_settings = _override_recipient(default_settings, "drop")
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=drop_settings,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    events_after = await fake_fund_repo.get(GUILD, "events_wallet")
+    assert fund_after is not None
+    # Fund cash stays exactly at the seeded value; the residual evaporated.
+    assert fund_after.cash_balance == Decimal("1.20")
+    # Investor stakes unchanged.
+    assert fund_after.investors == {
+        "investor-a": Decimal("0.40"),
+        "investor-b": Decimal("0.40"),
+        "investor-c": Decimal("0.40"),
+    }
+    # Events wallet is NEVER created in drop mode (no treasury credit ever lands).
+    assert events_after is None
 
 
 # ---------------------------------------------------------------------------

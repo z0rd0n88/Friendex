@@ -394,6 +394,26 @@ class FundService:
         stake. A zero / sub-cent total accrual is skipped (idempotent
         no-op).
 
+        **Residual recipient (post-PR-88 H3 review).** The H3 fix
+        accumulates per-investor accruals unquantised and quantises the
+        sum once. The resulting ``quantised_sum - sum(per_stake_deltas)``
+        residual cannot land on any individual stake without breaking
+        per-investor cent precision, so it must be routed somewhere.
+        :attr:`Settings.apy_residual_recipient` chooses the rule:
+
+        * ``"manager"`` (default): credit to the manager's balance share.
+          Operationally simplest; preserves the fund's bookkeeping. Has
+          a fairness consequence when many investors hold sub-cent
+          stakes — the residual silently flows to the manager.
+        * ``"treasury"``: credit to the per-guild ``events_wallet``
+          pseudo-fund. Removes the manager's free-credit incentive;
+          residual becomes server-collective wealth.
+        * ``"drop"``: discard the residual (do not credit anywhere).
+          The fund's ``cash_balance`` does not move by the residual
+          amount; the sub-cent total is lost (matches the pre-H3
+          original-monolith behaviour where sub-cent accruals were
+          silently dropped).
+
         Called by the Phase 9 ``MonthlyRolloverTask`` on the 1st of each
         month at hour 0; safe to retry — accrual for one ``(fund, now)``
         invocation is deterministic. The cadence is
@@ -402,6 +422,12 @@ class FundService:
         """
         funds = await self._fund_repo.list_all(self._guild_id)
         period = self._settings.hedge_fund_base_apy_period
+        residual_recipient = self._settings.apy_residual_recipient
+        # Treasury accumulation across every fund this sweep — written as
+        # one events_wallet upsert at the end so the treasury credit cost
+        # is one extra repo write per sweep, not per fund. Routed only
+        # when residual_recipient == "treasury".
+        treasury_residual = Decimal("0.00")
         for fund in funds:
             if fund.fund_id == _EVENTS_WALLET_ID:
                 continue
@@ -437,25 +463,33 @@ class FundService:
                     # individual stakes remain at cent precision. The
                     # fractional remainder is captured via the
                     # ``quantised_total - sum(per_stake_deltas)`` residual
-                    # below so no money is silently destroyed.
+                    # below so no money is silently destroyed (or routed
+                    # by the recipient setting; see ``residual_recipient``).
                     new_investors[investor_id] = _quantise(stake + raw_accrual)
                 quantised_investor_total = _quantise(total_raw_investor_accrual)
                 if manager_accrual + quantised_investor_total < _CENT:
                     continue
-                # The fractional cents that fell off the per-stake
-                # quantisation accrue to the manager balance — they belong
-                # to the fund as a whole, not any individual stake, and
-                # the manager balance is the only slot that can hold them
-                # without violating the per-investor cent precision.
                 per_stake_delta_sum = sum(
                     (new_investors[i] - fresh.investors[i] for i in fresh.investors),
                     Decimal("0.00"),
                 )
                 investor_residual = quantised_investor_total - per_stake_delta_sum
+                # Route the residual per the configured recipient. The
+                # fund's new cash_balance is recomputed below from the
+                # post-accrual building blocks, so the route is just a
+                # decision about whether to ADD the residual when
+                # summing (manager / treasury) or to LEAVE IT OUT (drop).
+                if residual_recipient == "manager":
+                    fund_residual_share = investor_residual
+                elif residual_recipient == "treasury":
+                    fund_residual_share = Decimal("0.00")
+                    treasury_residual += investor_residual
+                else:  # "drop"
+                    fund_residual_share = Decimal("0.00")
                 new_cash = _quantise(
                     manager_balance
                     + manager_accrual
-                    + investor_residual
+                    + fund_residual_share
                     + sum(new_investors.values(), _ZERO)
                 )
                 updated = replace(
@@ -464,6 +498,18 @@ class FundService:
                     investors=new_investors,
                 )
                 await self._fund_repo.upsert(self._guild_id, updated)
+        # Apply any accumulated treasury residual in one final write so
+        # the events_wallet upsert happens at most once per sweep.
+        if treasury_residual > Decimal("0.00"):
+            async with self._locks.locked(self._lock_key(_EVENTS_WALLET_ID)):
+                wallet = await self._fund_repo.ensure_events_wallet(self._guild_id)
+                await self._fund_repo.upsert(
+                    self._guild_id,
+                    replace(
+                        wallet,
+                        cash_balance=_quantise(wallet.cash_balance + treasury_residual),
+                    ),
+                )
 
     # -- invest -------------------------------------------------------------
 

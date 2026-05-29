@@ -35,6 +35,23 @@ forms coincide exactly **only while** the invariant
 at open equals the short's notional, and partial covers release it
 proportionally. The Phase-7/8 short service MUST preserve this invariant, or
 ``compute_net_worth`` will diverge from the spec's valuation.
+
+**Per-position vs. global drift on partial covers.** The trading service's
+partial-cover path quantises ``released_cash`` / ``released_fund`` per cover,
+so the **per-position** invariant ``locked_cash + locked_fund == shares *
+entry_price`` may drift by up to one cent per partial cover when the entry
+price does not divide evenly into the locked-cash / locked-fund split. The
+**global** invariant ``Σ released_cash + Σ released_fund + final remaining ==
+initial notional`` is preserved exactly across the full close — the full-cover
+path releases the position's exact stored locked values rather than
+recomputing them proportionally, so the totals reconcile bit-for-bit.
+``compute_net_worth`` reads ``locked_cash + locked_fund`` directly and
+inherits the per-position drift mid-sequence; consumers should treat
+mid-cover net-worth displays as accurate to within ``cents-per-partial-cover``
+of the spec's valuation, not bit-exact. The 2026-05-29 review's H2 case
+(``locked_cash=50.07``, ``locked_fund=49.93``, ``shares=7``, ``entry_price
+= 100/7``) demonstrates a 1¢ per-position drift that fully reconciles on
+close.
 """
 
 from __future__ import annotations

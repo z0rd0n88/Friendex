@@ -518,10 +518,14 @@ class TradingService:
             # pre-lock probe time — preserves the cooldown TTL even
             # when callers queue up behind a slow lock (#82 M12).
             now = datetime.now(tz=UTC)
-            # Re-check the cooldown inside the lock so two coroutines that
-            # both passed the pre-lock probe cannot both proceed (#82 C1).
-            await self._check_cooldown(shorter_id, now)
             async with self._uow.transaction():
+                # Re-check the cooldown INSIDE the UoW transaction so
+                # the read participates in the same session as the
+                # cooldown row's write below (#82 C1 + C2 / review H4):
+                # the in-lock recheck observes a sibling write that has
+                # been flushed but not yet committed, and a failure
+                # between recheck and write is rolled back atomically.
+                await self._check_cooldown(shorter_id, now)
                 target = await self._get_or_create_user(target_id)
                 self._check_opt_in(target)
                 shorter = await self._get_or_create_user(shorter_id)
@@ -648,10 +652,13 @@ class TradingService:
             # ``expires_at`` is anchored to the write time, not the
             # pre-lock probe time (#82 M12).
             now = datetime.now(tz=UTC)
-            # Re-check the cooldown inside the lock so two racing covers
-            # cannot both bypass the pre-lock probe (#82 C1).
-            await self._check_cooldown(coverer_id, now)
             async with self._uow.transaction():
+                # Re-check the cooldown INSIDE the UoW transaction so
+                # the read participates in the same session as the
+                # cooldown write below (#82 C1 + C2 / review H4): a
+                # failure between recheck and write is rolled back
+                # atomically with every money write in `_cover_internal`.
+                await self._check_cooldown(coverer_id, now)
                 result = await self._cover_internal(
                     coverer_id, target_id, shares, force=False
                 )
