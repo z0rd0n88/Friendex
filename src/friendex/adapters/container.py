@@ -76,6 +76,7 @@ from friendex.adapters.persistence.fund_repo import SqlFundRepository
 from friendex.adapters.persistence.penalty_repo import SqlPenaltyRepository
 from friendex.adapters.persistence.price_repo import SqlPriceRepository
 from friendex.adapters.persistence.system_state_repo import SqlSystemStateRepository
+from friendex.adapters.persistence.unit_of_work import SqlUnitOfWork
 from friendex.adapters.persistence.user_repo import SqlUserRepository
 from friendex.adapters.tasks.activity_tick_task import ActivityTickTask
 from friendex.adapters.tasks.daily_reset_task import DailyResetTask
@@ -199,6 +200,15 @@ class Container:
         self._cooldown_repo = SqlTradeCooldownRepository(sessionmaker)
         self._penalty_repo = SqlPenaltyRepository(sessionmaker)
         self._system_state_repo = SqlSystemStateRepository(sessionmaker)
+
+        # --- Unit of work (atomicity envelope) ---------------------------
+        # One ``SqlUnitOfWork`` shared across every per-guild factory: the
+        # adapter is stateless other than its sessionmaker reference, and
+        # repositories pick up the in-flight session via ``contextvars``
+        # rather than holding it directly, so the same instance is safe
+        # to thread into every TradingService / FundService that the
+        # factories build.
+        self._unit_of_work = SqlUnitOfWork(sessionmaker)
 
         # --- Concurrency primitives --------------------------------------
         self._lock_manager = LockManager()
@@ -392,6 +402,7 @@ class Container:
                 cooldown_repo=self._cooldown_repo,
                 lock_manager=self._lock_manager,
                 settings=self._settings,
+                unit_of_work=self._unit_of_work,
             )
 
         return factory
@@ -429,6 +440,7 @@ class Container:
                 penalty_repo=self._penalty_repo,
                 lock_manager=self._lock_manager,
                 settings=self._settings,
+                unit_of_work=self._unit_of_work,
             )
 
         return factory

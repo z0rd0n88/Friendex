@@ -8,12 +8,26 @@ opt into the shared session via :func:`current_session` instead of opening
 their own; if no transaction is active, :func:`current_session` returns
 ``None`` and the repositories fall back to their default short-lived sessions.
 
-This is the **minimal** persistence-side addition the unit-of-work seam needs.
-The existing :class:`SqlUserRepository` / :class:`SqlFundRepository` etc.
-remain unchanged for the lookup-the-session helper to be added later — the
-seam is in place at the application layer immediately, and individual
-repositories can be migrated to honour it incrementally without churning
-their tests.
+**Repository migration status.** :class:`SqlUserRepository`,
+:class:`SqlFundRepository`, :class:`SqlPriceRepository`, and
+:class:`SqlTradeCooldownRepository` honour the shared session on both
+read and write paths. When a UoW is active every method calls
+:func:`current_session`, enrols its statements into the shared session,
+and lets the UoW own the commit; when no UoW is active each falls through
+to its existing per-call session path so every legacy caller (background
+tasks, single-write code paths, fakes-only tests) keeps working unchanged.
+
+**Why reads must honour the shared session too.** SQLite's
+:class:`~sqlalchemy.pool.StaticPool` (the default for the in-memory
+test engine) shares one DBAPI connection across every session — so a
+per-call ``async with self._sessionmaker() as session:`` opened *inside*
+an active UoW issues its own ``BEGIN``/``ROLLBACK`` on the same
+connection, silently rolling back the outer UoW's pending writes. The
+production async engine pools differ in principle but the read-isolation
+contract is the same: a UoW transaction MUST see its own in-flight
+writes when it re-reads, and only the shared session can provide that
+read-your-writes guarantee. The read paths therefore route through the
+shared session whenever one is active.
 """
 
 from __future__ import annotations

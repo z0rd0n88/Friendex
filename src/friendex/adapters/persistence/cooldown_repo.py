@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, cast
 from sqlalchemy import delete, select
 
 from friendex.adapters.persistence.orm import TradeCooldownORM
+from friendex.adapters.persistence.unit_of_work import current_session
 from friendex.application.interfaces import TradeCooldown
 
 if TYPE_CHECKING:
@@ -75,7 +76,24 @@ class SqlTradeCooldownRepository:
         A row is expired (and excluded) once ``expires_at <= now``. ``now`` is
         keyword-only and required, so callers must pass a deterministic UTC
         instant (matches :class:`~friendex.application.interfaces.ITradeCooldownRepo`).
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the read joins the shared session so the
+        in-lock re-check (#82 C1) reads from the same session that holds
+        the not-yet-committed first-leg writes.
         """
+        shared = current_session()
+        if shared is not None:
+            row = (
+                await shared.execute(
+                    select(TradeCooldownORM).where(
+                        TradeCooldownORM.guild_id == guild_id,
+                        TradeCooldownORM.user_id == user_id,
+                        TradeCooldownORM.expires_at > now,
+                    )
+                )
+            ).scalar_one_or_none()
+            return None if row is None else _to_dto(row)
         async with self._sessionmaker() as session:
             row = (
                 await session.execute(
@@ -89,7 +107,24 @@ class SqlTradeCooldownRepository:
             return None if row is None else _to_dto(row)
 
     async def upsert(self, cooldown: TradeCooldown) -> None:
-        """Insert or replace a cooldown (scope carried in the DTO)."""
+        """Insert or replace a cooldown (scope carried in the DTO).
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the cooldown row enrols into the shared
+        session so a mid-``short``/``cover`` failure rolls it back along
+        with the money writes.
+        """
+        shared = current_session()
+        if shared is not None:
+            await shared.merge(
+                TradeCooldownORM.create(
+                    cooldown.guild_id,
+                    user_id=cooldown.user_id,
+                    expires_at=cooldown.expires_at,
+                )
+            )
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             await session.merge(
                 TradeCooldownORM.create(
@@ -101,7 +136,20 @@ class SqlTradeCooldownRepository:
             await session.commit()
 
     async def delete(self, guild_id: str, user_id: str) -> None:
-        """Delete the cooldown for ``(guild_id, user_id)``."""
+        """Delete the cooldown for ``(guild_id, user_id)``.
+
+        Same shared-session opt-in as :meth:`upsert`.
+        """
+        shared = current_session()
+        if shared is not None:
+            await shared.execute(
+                delete(TradeCooldownORM).where(
+                    TradeCooldownORM.guild_id == guild_id,
+                    TradeCooldownORM.user_id == user_id,
+                )
+            )
+            await shared.flush()
+            return
         async with self._sessionmaker() as session:
             await session.execute(
                 delete(TradeCooldownORM).where(
@@ -112,7 +160,24 @@ class SqlTradeCooldownRepository:
             await session.commit()
 
     async def list_all(self, guild_id: str) -> list[TradeCooldown]:
-        """Return every cooldown row in ``guild_id`` (including expired ones)."""
+        """Return every cooldown row in ``guild_id`` (including expired ones).
+
+        Same shared-session opt-in as :meth:`get`.
+        """
+        shared = current_session()
+        if shared is not None:
+            rows = (
+                (
+                    await shared.execute(
+                        select(TradeCooldownORM).where(
+                            TradeCooldownORM.guild_id == guild_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return [_to_dto(row) for row in rows]
         async with self._sessionmaker() as session:
             rows = (
                 (
