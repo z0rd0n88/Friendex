@@ -231,6 +231,55 @@ async def test_weekly_reset_isolates_service_exception_per_guild(
     assert s2 is not None and s2.last_weekly_reset is not None
 
 
+async def test_weekly_reset_does_not_refire_on_backward_clock_drift(
+    fake_system_state_repo: FakeSystemStateRepo,
+) -> None:
+    """W8: a backward clock jump must NOT re-trigger the weekly reset.
+
+    Wave 1 PR #89 fix-up (L-2): the stale-check used ``!=`` to compare ISO
+    ``(year, week)`` pairs, so a *backward* clock jump (clock skew, manual DB
+    edit, NTP correction) into a prior ISO week would re-fire the reset
+    every tick until wall-clock caught up. The fix: use ``>`` so the
+    comparison is monotonic — only forward week rollovers fire.
+
+    Concretely: seed ``last_weekly_reset`` to ISO week 23 of 2026, then
+    drive a tick at a clock pointing to ISO week 22 of 2026. The reset
+    MUST NOT fire.
+    """
+    svc = MagicMock()
+    svc.reset_week_buckets = AsyncMock(return_value=None)
+
+    # Seed: last weekly reset happened in ISO week 23 of 2026 (2026-06-01 is
+    # Mon of week 23).
+    future_marker = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    await fake_system_state_repo.upsert(
+        SystemState(
+            guild_id=GUILD,
+            last_daily_reset=None,
+            last_weekly_reset=future_marker,
+        )
+    )
+
+    async def iter_guilds() -> list[str]:
+        return [GUILD]
+
+    task = WeeklyResetTask(
+        service_factory=_factory({GUILD: svc}),
+        iter_guild_ids=iter_guilds,
+        system_state_repo=fake_system_state_repo,
+    )
+
+    # Tick at an EARLIER ISO week (week 22 of 2026 = 2026-05-25 Mon).
+    with freeze_time("2026-05-25 12:00:00", tz_offset=0):
+        await task._run()
+
+    # Reset must NOT have re-fired — the stored marker is in the future.
+    svc.reset_week_buckets.assert_not_awaited()
+    state = await fake_system_state_repo.get(GUILD)
+    assert state is not None
+    assert state.last_weekly_reset == future_marker
+
+
 async def test_weekly_reset_preserves_daily_reset_field(
     fake_system_state_repo: FakeSystemStateRepo,
 ) -> None:

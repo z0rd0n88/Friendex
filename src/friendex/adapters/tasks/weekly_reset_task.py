@@ -14,6 +14,13 @@ component being part of the key. Conversely, ``utcnow().weekday() == 0``
 no others. The pair check is the cleanest expression of "did the ISO week
 roll between this tick and the last persisted reset?"
 
+**Monotonic ``>`` comparison (PR #89 fix-up L-2).** The stale-check uses
+``>`` on the ``(iso_year, iso_week)`` pair rather than ``!=`` so a
+*backward* clock jump (clock skew, manual DB edit, NTP correction) does
+not re-fire the reset every tick until wall-clock catches up. A stored
+marker in the future is treated as already-reset, mirroring the daily
+task's ``>`` comparison.
+
 The reset-then-advance-state order mirrors the daily task: a service
 failure leaves state unadvanced so the next tick retries; the upsert
 preserves ``last_daily_reset``.
@@ -85,11 +92,19 @@ class WeeklyResetTask(BackgroundTask):
         await self._advance_state(guild_id, now)
 
     async def _is_stale(self, guild_id: str, now: datetime) -> bool:
-        """``True`` iff the persisted ISO ``(year, week)`` is older than now's."""
+        """``True`` iff the persisted ISO ``(year, week)`` is strictly older than now's.
+
+        The comparison is ``>`` (not ``!=``) so a *backward* clock jump
+        (clock skew, manual DB edit, NTP correction into a prior week) does
+        NOT re-fire the reset on every tick until wall-clock catches up.
+        Forward-only is the correct monotonic check for "did we cross into
+        a new week?" — a stored marker in the future is still considered
+        already-reset, mirroring the daily task's ``>`` comparison.
+        """
         state = await self._state_repo.get(guild_id)
         if state is None or state.last_weekly_reset is None:
             return True
-        return _iso_year_week(now) != _iso_year_week(state.last_weekly_reset)
+        return _iso_year_week(now) > _iso_year_week(state.last_weekly_reset)
 
     async def _advance_state(self, guild_id: str, now: datetime) -> None:
         """Upsert :class:`SystemState` with ``last_weekly_reset = now``.
