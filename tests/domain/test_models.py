@@ -252,6 +252,32 @@ def test_user_account_rejects_negative_cash() -> None:
         _account(cash_balance=Decimal("-0.01"))
 
 
+# Issue #84 L (silent-failures branch): the original ``__post_init__`` only
+# guarded ``cash_balance``; both ``net_worth`` and ``month_start_net_worth``
+# could silently be persisted negative. The leaderboard / monthly snapshot
+# math depends on them being non-negative.
+
+
+def test_user_account_rejects_negative_net_worth() -> None:
+    with pytest.raises(ValueError, match="net_worth must be non-negative"):
+        _account(net_worth=Decimal("-0.01"))
+
+
+def test_user_account_rejects_negative_month_start_net_worth() -> None:
+    with pytest.raises(ValueError, match="month_start_net_worth must be non-negative"):
+        _account(month_start_net_worth=Decimal("-0.01"))
+
+
+def test_user_account_zero_net_worth_allowed() -> None:
+    account = _account(net_worth=Decimal("0.00"))
+    assert account.net_worth == Decimal("0.00")
+
+
+def test_user_account_zero_month_start_net_worth_allowed() -> None:
+    account = _account(month_start_net_worth=Decimal("0.00"))
+    assert account.month_start_net_worth == Decimal("0.00")
+
+
 def test_user_account_equality() -> None:
     bucket_today = ActivityBucket(bucket_start=NOW)
     bucket_week = ActivityBucket(bucket_start=NOW)
@@ -495,6 +521,30 @@ def test_vc_extra_boost_equality() -> None:
             manager_id="u1",
             cash_balance=Decimal("-1.00"),
             investors={},
+        ),
+        lambda: UserAccount(
+            user_id="u1",
+            cash_balance=Decimal("0.00"),
+            net_worth=Decimal("-1.00"),
+            month_start_net_worth=Decimal("0.00"),
+            long_positions={},
+            short_positions={},
+            today=ActivityBucket(),
+            week=ActivityBucket(),
+            daily=DailyProgress(last_claim=None, streak=0),
+            last_activity=NOW,
+        ),
+        lambda: UserAccount(
+            user_id="u1",
+            cash_balance=Decimal("0.00"),
+            net_worth=Decimal("0.00"),
+            month_start_net_worth=Decimal("-1.00"),
+            long_positions={},
+            short_positions={},
+            today=ActivityBucket(),
+            week=ActivityBucket(),
+            daily=DailyProgress(last_claim=None, streak=0),
+            last_activity=NOW,
         ),
     ],
 )

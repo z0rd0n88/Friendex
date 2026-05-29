@@ -238,3 +238,33 @@ def test_is_market_open_returns_bool() -> None:
         is_market_open(_at(SATURDAY, 12, 0), MARKET_OPEN, MARKET_CLOSE),
         bool,
     )
+
+
+# ---------------------------------------------------------------------------
+# Naive datetime guard
+#
+# Issue #84 L (silent-failures branch): a naive ``datetime.now()`` call at a
+# call site produced a silently wrong market-hours decision because the
+# function happily computed ``dt.time()`` without checking ``dt.tzinfo``.
+# The fix is to raise ``ValueError`` so the caller has to think about the
+# timezone — match the Phase 3.1 UTC-aware invariant.
+# ---------------------------------------------------------------------------
+
+
+def test_is_market_open_rejects_naive_datetime() -> None:
+    """A naive ``datetime`` instance must raise rather than silently mis-deciding."""
+    naive_saturday = datetime(2026, 5, 23, 12, 0)  # tzinfo=None
+    with pytest.raises(ValueError, match="tz-aware"):
+        is_market_open(naive_saturday, MARKET_OPEN, MARKET_CLOSE)
+
+
+def test_is_market_open_rejects_naive_even_with_sunday_buy_allowed() -> None:
+    """The naive-tz guard fires before the sunday-buy branch."""
+    naive_sunday = datetime(2026, 5, 24, 12, 0)
+    with pytest.raises(ValueError, match="tz-aware"):
+        is_market_open(
+            naive_sunday,
+            MARKET_OPEN,
+            MARKET_CLOSE,
+            sunday_buy_allowed=True,
+        )

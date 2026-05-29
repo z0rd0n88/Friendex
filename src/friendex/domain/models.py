@@ -112,6 +112,14 @@ class UserAccount:
     def __post_init__(self) -> None:
         if self.cash_balance < 0:
             raise ValueError("cash_balance must be non-negative")
+        # Issue #84 L (silent-failures branch): the leaderboard, trending and
+        # monthly-rollover paths read these as non-negative; an off-by-one in
+        # net-worth math previously persisted silently because no invariant
+        # guarded the values. Match the cash_balance tolerance (strict ``< 0``).
+        if self.net_worth < 0:
+            raise ValueError("net_worth must be non-negative")
+        if self.month_start_net_worth < 0:
+            raise ValueError("month_start_net_worth must be non-negative")
 
 
 @dataclass

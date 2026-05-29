@@ -59,7 +59,17 @@ def is_market_open(
     the window wraps past midnight, so an instant is inside it when its time is
     at/after ``market_open`` *or* strictly before ``market_close``. ``dt`` is
     not mutated.
+
+    ``dt`` must be timezone-aware (Phase 3.1 invariant). A naive
+    :class:`datetime` is rejected with :class:`ValueError` because a caller
+    that passed ``datetime.now()`` (without ``tz=UTC``) would otherwise get a
+    silently wrong open/closed decision when the host timezone differs from
+    UTC. The check fires before the Sunday + time-of-day branches so the same
+    error surfaces for every input.
     """
+    if dt.tzinfo is None:
+        raise ValueError("is_market_open requires a tz-aware datetime")
+
     if is_sunday(dt) and not sunday_buy_allowed:
         return False
 
