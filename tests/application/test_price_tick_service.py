@@ -27,6 +27,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import structlog
+
 from friendex.application.lock_manager import LockManager
 from friendex.application.price_tick_service import PriceTickService
 from friendex.application.voice_session_store import VoiceSessionStore
@@ -345,6 +347,76 @@ async def test_vc_boost_tick_boosts_only_in_voice_users(
     assert away_user in survivors_by_id
     assert survivors_by_id[in_voice_user].last_boost > last_boost_past
     assert survivors_by_id[away_user].last_boost == last_boost_past
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 M (silent-failures branch): VC boost — missing-stock survivor drop
+#
+# Pre-fix code kept the boost entry in the survivor list when the stock was
+# missing, causing the silent-skip to recur on every subsequent tick. The
+# fix drops the entry AND logs a structured warning so the operator sees
+# the drift.
+
+
+async def test_vc_boost_tick_drops_entry_and_warns_when_stock_missing(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """A boost recipient with no Stock row is dropped from survivors + warned."""
+    now = datetime.now(tz=UTC)
+    ping_time = now - timedelta(minutes=20)
+    end_time = ping_time + timedelta(seconds=default_settings.voice_ping_window_seconds)
+    last_boost_past = now - timedelta(
+        seconds=default_settings.vc_extra_boost_interval_seconds + 60
+    )
+
+    ghost_user = "boost_no_stock"
+    boost = VcExtraBoost(
+        user_id=ghost_user,
+        ping_time=ping_time,
+        last_boost=last_boost_past,
+        end_time=end_time,
+    )
+
+    # The ghost IS in voice (so we pass the voice-session gate) but has no
+    # Stock row.
+    voice_sessions = VoiceSessionStore()
+    await voice_sessions.set(
+        VoiceSession(
+            user_id=ghost_user,
+            channel_id=42,
+            start=ping_time,
+            from_ping_message_ids=set(),
+        )
+    )
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+        voice_sessions=voice_sessions,
+    )
+
+    with structlog.testing.capture_logs() as captured:
+        survivors = await service.vc_boost_tick(extra_boosts=[boost], now=now)
+
+    # Entry dropped — the boost cannot silently recur on every subsequent
+    # tick now that the row stays absent.
+    assert survivors == []
+
+    # Structured warning surfaced for the operator.
+    warn_records = [
+        r
+        for r in captured
+        if r.get("log_level") == "warning" and r.get("event") == "vc_boost_no_stock"
+    ]
+    assert warn_records, "expected a structured warning for missing-stock VC boost"
+    rec = warn_records[0]
+    assert rec["user_id"] == ghost_user
+    assert rec["guild_id"] == GUILD
 
 
 async def test_vc_boost_tick_drops_expired_window(

@@ -33,6 +33,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import structlog
+
 from friendex.domain.models import (
     ActivityBucket,
     DailyProgress,
@@ -47,6 +49,10 @@ if TYPE_CHECKING:
     from friendex.application.interfaces import IPriceRepo, IUserRepo
     from friendex.application.lock_manager import LockManager
     from friendex.application.voice_session_store import VoicePingSessionStore
+
+# Module-level structlog logger — keyword arguments are picked up by the
+# configured processor chain in ``adapters/config.py``.
+_log = structlog.get_logger(__name__)
 
 
 class VoicePingService:
@@ -267,12 +273,23 @@ class VoicePingService:
         return f"{self._guild_id}:ping:{message_id}"
 
     async def _apply_join_boost(self, responder_id: str) -> None:
-        """Apply the one-time first-N-joiner price boost to ``responder_id``."""
+        """Apply the one-time first-N-joiner price boost to ``responder_id``.
+
+        Logs ``join_boost_no_stock`` (warning) when the responder's stock row
+        is missing — issue #84 M (silent-failures branch). Silently dropping
+        the boost hid a persistence drift; the structured log lets the
+        operator catch it without changing user-visible behaviour.
+        """
         min_price = Decimal(str(self._settings.min_price))
         boost = Decimal(str(self._settings.voice_ping_join_boost))
         async with self._locks.locked(self._lock_key(responder_id)):
             stock = await self._price_repo.get(self._guild_id, responder_id)
             if stock is None:
+                _log.warning(
+                    "join_boost_no_stock",
+                    user_id=responder_id,
+                    guild_id=self._guild_id,
+                )
                 return
             proposed = stock.current * boost
             new_price = apply_floor_stall(stock.current, proposed, min_price)

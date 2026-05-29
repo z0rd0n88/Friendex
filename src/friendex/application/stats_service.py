@@ -27,6 +27,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import structlog
+
 from friendex.application.snapshot_models import (
     PriceStats,
     TrendingEntry,
@@ -54,6 +56,10 @@ _ZERO_PRICE = Decimal("0.00")
 _DEFAULT_TRENDING_LIMIT = 15
 # Width of the rolling price-stats window per §Open-Q9.
 _PRICE_STATS_WINDOW = timedelta(hours=24)
+
+# Module-level structlog logger — keyword arguments are picked up by the
+# configured processor chain in ``adapters/config.py``.
+_log = structlog.get_logger(__name__)
 
 
 class StatsService:
@@ -106,6 +112,17 @@ class StatsService:
         entries: list[TrendingEntry] = []
         for rank, (score, account) in enumerate(top, start=1):
             price = await self._current_price(account.user_id)
+            if price is None:
+                # Issue #84 M (silent-failures branch): a leaderboard entry
+                # with no Stock row indicates a persistence drift (every
+                # account upserted by TradingService also upserts a stock).
+                # Emit a structured warning so the operator sees it in
+                # production logs instead of silently falling back to $0.00.
+                _log.warning(
+                    "leaderboard_ghost",
+                    user_id=account.user_id,
+                    guild_id=self._guild_id,
+                )
             entries.append(
                 TrendingEntry(
                     rank=rank,

@@ -22,6 +22,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import structlog
+
 from friendex.application.lock_manager import LockManager
 from friendex.application.voice_ping_service import VoicePingService
 from friendex.application.voice_session_store import VoicePingSessionStore
@@ -176,6 +178,48 @@ async def test_first_joiner_gets_price_boost_and_is_tracked(
     session = await store.get(1)
     assert session is not None
     assert session.first_10_joiners == ["r1"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 M (silent-failures branch): _apply_join_boost missing-stock warning
+#
+# When a first-N joiner has no Stock row, the pre-fix code silently dropped
+# the price boost. Now we log a structured warning so the operator sees the
+# drift in production.
+
+
+async def test_join_boost_logs_warning_when_stock_missing(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """A first-N joiner with no Stock row emits ``join_boost_no_stock``."""
+    store = VoicePingSessionStore()
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings, store)
+    ping_time = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+
+    # User exists but their stock does NOT.
+    await fake_user_repo.upsert(GUILD, _account("ghost"))
+    await service.register_ping_message(
+        message_id=1, host_id=HOST, channel_id=CHANNEL, timestamp=ping_time
+    )
+
+    with structlog.testing.capture_logs() as captured:
+        await service.reward_voice_ping_response(
+            responder_id="ghost",
+            channel_id=CHANNEL,
+            now=ping_time + timedelta(seconds=30),
+        )
+
+    warn_records = [
+        r
+        for r in captured
+        if r.get("log_level") == "warning" and r.get("event") == "join_boost_no_stock"
+    ]
+    assert warn_records, "expected a structured warning for missing-stock join boost"
+    rec = warn_records[0]
+    assert rec["user_id"] == "ghost"
+    assert rec["guild_id"] == GUILD
 
 
 async def test_eleventh_joiner_goes_to_extra_joiners(

@@ -68,6 +68,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import structlog
+
 from friendex.domain.models import PricePoint
 from friendex.domain.price_engine import (
     apply_floor_stall,
@@ -90,6 +92,10 @@ if TYPE_CHECKING:
 # constant rather than a magic literal in the call site.
 _PERCENT = Decimal("100")
 _ONE = Decimal("1")
+
+# Module-level structlog logger — keyword arguments are picked up by the
+# configured processor chain in ``adapters/config.py``.
+_log = structlog.get_logger(__name__)
 
 
 class PriceTickService:
@@ -278,7 +284,16 @@ class PriceTickService:
 
             stock = await self._price_repo.get(self._guild_id, boost.user_id)
             if stock is None:
-                survivors.append(boost)  # no stock to boost (silent skip)
+                # Issue #84 M (silent-failures branch): the pre-fix code
+                # appended the boost to the survivor list, causing the silent
+                # skip to recur on every subsequent tick. Drop the entry so
+                # the cycle terminates AND log a structured warning so the
+                # operator catches the persistence drift.
+                _log.warning(
+                    "vc_boost_no_stock",
+                    user_id=boost.user_id,
+                    guild_id=self._guild_id,
+                )
                 continue
 
             def compute(stock_now: Stock) -> Decimal:

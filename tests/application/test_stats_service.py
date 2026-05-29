@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import structlog
 from freezegun import freeze_time
 
 from friendex.application.stats_service import StatsService
@@ -362,6 +363,68 @@ async def test_user_stats_engagement_tier_covers_boundaries(
     assert high is not None and high.engagement_tier == "High"
     assert medium is not None and medium.engagement_tier == "Medium"
     assert low is not None and low.engagement_tier == "Low"
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 M (silent-failures branch): leaderboard ghost warning
+#
+# When a user has an account row (so their bucket is scored) but no Stock
+# row, the leaderboard fallback used to silently return a $0.00 price. That
+# value is meaningless (every other read path treats a missing stock as
+# absent) and it silently masks a persistence drift. Emit a structured
+# warning so the operator sees the drift in production logs.
+
+
+async def test_trending_snapshot_logs_leaderboard_ghost_for_missing_stock(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """A user with activity but no stock row emits ``leaderboard_ghost``."""
+    # User has an active bucket but no Stock row in price_repo.
+    await fake_user_repo.upsert(GUILD, _account("ghost", today=_bucket(text=5)))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        settings=default_settings,
+    )
+
+    with structlog.testing.capture_logs() as captured:
+        snapshot = await service.trending_snapshot()
+
+    # The entry is still returned (we don't drop it — operator-only signal).
+    assert len(snapshot) == 1
+    assert snapshot[0].user_id == "ghost"
+
+    warn_records = [r for r in captured if r["log_level"] == "warning"]
+    assert warn_records, "expected a warning-level log entry for the missing stock"
+    rec = warn_records[0]
+    assert rec["event"] == "leaderboard_ghost"
+    assert rec["user_id"] == "ghost"
+    assert rec["guild_id"] == GUILD
+
+
+async def test_trending_snapshot_does_not_warn_when_stock_exists(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """The warning fires ONLY for missing stocks; the happy path is silent."""
+    await fake_user_repo.upsert(GUILD, _account("active", today=_bucket(text=5)))
+    await fake_price_repo.upsert(GUILD, _stock("active"))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        settings=default_settings,
+    )
+
+    with structlog.testing.capture_logs() as captured:
+        await service.trending_snapshot()
+
+    ghost = [r for r in captured if r.get("event") == "leaderboard_ghost"]
+    assert ghost == []
 
 
 async def test_user_stats_empty_population_returns_low(
