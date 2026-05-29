@@ -25,10 +25,16 @@ if TYPE_CHECKING:
 # Helpers
 
 
-def _reaction(*, author_id: int, guild_id: int) -> MagicMock:
+def _reaction(
+    *,
+    author_id: int,
+    guild_id: int,
+    author_bot: bool = False,
+) -> MagicMock:
     """Build a stub :class:`discord.Reaction` carrying author + guild."""
     reaction = MagicMock(name="Reaction")
     reaction.message.author.id = author_id
+    reaction.message.author.bot = author_bot
     reaction.message.guild.id = guild_id
     return reaction
 
@@ -111,6 +117,32 @@ async def test_on_reaction_add_skips_bot_reactor(
     listener = ReactionListener(activity_service_factory=activity_service_factory)
     reaction = _reaction(author_id=10, guild_id=999)
     user = _user(user_id=42, is_bot=True)
+
+    await listener.on_reaction_add(reaction, user)
+
+    activity_service.record_reaction.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Bot-author guard
+#
+# Issue #84 L (silent-failures branch): an uncached partial message authored
+# by a bot (e.g. this bot reacting to its own message) can carry a sparsely
+# populated ``author`` attribute that crashes downstream listener code. The
+# guard mirrors the message_listener.py pattern (``author.bot``) so any
+# bot-authored message — including this bot's — is dropped before the
+# service call.
+
+
+async def test_on_reaction_add_skips_bot_authored_message(
+    activity_service: AsyncMock,
+    activity_service_factory: Callable[[str], object],
+) -> None:
+    """Reactions on bot-authored messages are silently dropped."""
+    listener = ReactionListener(activity_service_factory=activity_service_factory)
+    # The reactor is a real user, but the message author is a bot — drop.
+    reaction = _reaction(author_id=10, guild_id=999, author_bot=True)
+    user = _user(user_id=42, is_bot=False)
 
     await listener.on_reaction_add(reaction, user)
 

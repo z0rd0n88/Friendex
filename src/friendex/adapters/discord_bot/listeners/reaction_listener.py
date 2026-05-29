@@ -60,12 +60,19 @@ class ReactionListener(commands.Cog):
         Skips silently when:
 
         * ``user.bot`` is :data:`True` (all bots — see signoff decision 3); or
-        * the reactor is the message author (self-reaction; original bot rule).
+        * the reactor is the message author (self-reaction; original bot rule);
+          or
+        * the *message author* is a bot (uncached partial reactions on
+          bot-authored messages — including this bot's own — can carry a
+          sparsely populated ``author`` payload that crashes downstream code;
+          issue #84 L).
 
         Otherwise delegates to
         :meth:`ActivityService.record_reaction` for the reactor.
         """
         if user.bot:
+            return
+        if reaction.message.author.bot:
             return
         if user.id == reaction.message.author.id:
             return
