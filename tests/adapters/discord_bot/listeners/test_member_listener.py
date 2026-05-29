@@ -15,9 +15,10 @@ Tests instantiate the listener and ``await`` each event handler directly
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -26,18 +27,67 @@ from friendex.domain.errors import DomainError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from unittest.mock import AsyncMock
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 
 
-def _guild(*, guild_id: int) -> MagicMock:
-    """Build a stub :class:`discord.Guild`."""
+def _guild(*, guild_id: int, audit_user_id: int | None = None) -> MagicMock:
+    """Build a stub :class:`discord.Guild`.
+
+    ``audit_user_id`` mimics the moderator the audit-log lookup will surface
+    when the listener calls ``guild.audit_logs(...)``. Pass ``None`` to
+    simulate a guild where the bot lacks ``view_audit_log`` permission (or
+    the action has no recent audit entry) — the listener falls back to a
+    sentinel actor id.
+    """
     guild = MagicMock(name="Guild")
     guild.id = guild_id
+    guild.audit_logs = _audit_logs_factory(audit_user_id)
     return guild
+
+
+def _audit_logs_factory(audit_user_id: int | None) -> MagicMock:
+    """Return a callable that yields an async iterable of one audit entry.
+
+    ``discord.Guild.audit_logs`` returns an async-iterator-shaped object;
+    the listener iterates it for the first entry to identify the actor.
+    The factory returns a sync callable (matching the API surface) that
+    produces an async iterator yielding either one entry with
+    ``entry.user.id = audit_user_id`` or no entries when
+    ``audit_user_id is None`` — letting tests drive both the happy path
+    and the fallback path.
+    """
+
+    class _AsyncIter:
+        def __init__(self) -> None:
+            if audit_user_id is None:
+                self._entries: list[MagicMock] = []
+            else:
+                entry = MagicMock(name="AuditLogEntry")
+                entry.user = MagicMock(name="AuditLogEntry.user")
+                entry.user.id = audit_user_id
+                self._entries = [entry]
+            self._index = 0
+
+        def __aiter__(self) -> _AsyncIter:
+            return self
+
+        async def __anext__(self) -> MagicMock:
+            if self._index >= len(self._entries):
+                raise StopAsyncIteration
+            entry = self._entries[self._index]
+            self._index += 1
+            return entry
+
+    # ``Guild.audit_logs(...)`` is invoked synchronously; the returned
+    # value supports ``__aiter__``. Use a plain callable so the listener
+    # can pass action= / limit= kwargs without the mock complaining.
+    def _factory(*_args: object, **_kwargs: object) -> _AsyncIter:
+        return _AsyncIter()
+
+    return MagicMock(name="Guild.audit_logs", side_effect=_factory)
 
 
 def _make_member(
@@ -46,10 +96,20 @@ def _make_member(
     user_id: int,
     guild_id: int,
     timed_out_until: datetime | None,
+    audit_user_id: int | None = None,
 ) -> MagicMock:
-    return fake_member(
+    """Build a stub member and override its guild's audit-log iterable.
+
+    ``audit_user_id`` propagates to ``member.guild.audit_logs(...)`` via
+    :func:`_audit_logs_factory`. Pass an int to drive the cooldown's
+    actor-resolution happy path; pass ``None`` to drive the
+    no-audit-permission / no-entry fallback path.
+    """
+    member = fake_member(
         user_id=user_id, guild_id=guild_id, timed_out_until=timed_out_until
     )
+    member.guild.audit_logs = _audit_logs_factory(audit_user_id)
+    return member
 
 
 # ---------------------------------------------------------------------------
@@ -315,3 +375,263 @@ def test_member_listener_registers_update_and_ban_listeners(
     names = [name for name, _ in listener.get_listeners()]
     assert "on_member_update" in names
     assert "on_member_ban" in names
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 M — audit log + per-(guild, target, actor) cooldown
+# ---------------------------------------------------------------------------
+
+
+def _logger_name() -> str:
+    """Module logger name used by :class:`MemberListener` for audit lines."""
+    return "friendex.adapters.discord_bot.listeners.member_listener"
+
+
+async def test_on_member_update_emits_audit_log_entry(
+    fake_member: Callable[..., MagicMock],
+    discipline_service: AsyncMock,
+    discipline_service_factory: Callable[[str], object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #84 M — every applied timeout penalty emits a structured audit line.
+
+    Operators need a stable signal in the log stream when discipline fires
+    so a sudden spike of mass-timeouts is observable without scraping the
+    raw Discord event stream. The line has the canonical event name
+    ``discipline_penalty_applied`` and carries ``guild_id`` / ``target_id``
+    / ``actor_id`` / ``reason`` as structured ``extra`` fields.
+    """
+    listener = MemberListener(discipline_service_factory=discipline_service_factory)
+    before = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    after = _make_member(
+        fake_member,
+        user_id=42,
+        guild_id=999,
+        timed_out_until=datetime.now(tz=UTC) + timedelta(minutes=10),
+        audit_user_id=7777,
+    )
+
+    with caplog.at_level(logging.INFO, logger=_logger_name()):
+        await listener.on_member_update(before, after)
+
+    matching = [
+        r
+        for r in caplog.records
+        if r.name == _logger_name() and r.message == "discipline_penalty_applied"
+    ]
+    assert len(matching) == 1
+    record = matching[0]
+    assert record.levelno == logging.INFO
+    assert getattr(record, "guild_id", None) == "999"
+    assert getattr(record, "target_id", None) == "42"
+    assert getattr(record, "reason", None) == "timeout"
+    # The audit-log lookup found user 7777, so that's the actor id.
+    assert getattr(record, "actor_id", None) == "7777"
+
+
+async def test_on_member_ban_emits_audit_log_entry(
+    fake_member: Callable[..., MagicMock],
+    discipline_service: AsyncMock,
+    discipline_service_factory: Callable[[str], object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #84 M — every applied ban penalty emits a structured audit line."""
+    listener = MemberListener(discipline_service_factory=discipline_service_factory)
+    member = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    guild = _guild(guild_id=999, audit_user_id=8888)
+
+    with caplog.at_level(logging.INFO, logger=_logger_name()):
+        await listener.on_member_ban(guild, member)
+
+    matching = [
+        r
+        for r in caplog.records
+        if r.name == _logger_name() and r.message == "discipline_penalty_applied"
+    ]
+    assert len(matching) == 1
+    record = matching[0]
+    assert getattr(record, "guild_id", None) == "999"
+    assert getattr(record, "target_id", None) == "42"
+    assert getattr(record, "reason", None) == "ban"
+    assert getattr(record, "actor_id", None) == "8888"
+
+
+async def test_on_member_update_falls_back_to_unknown_actor_when_audit_missing(
+    fake_member: Callable[..., MagicMock],
+    discipline_service: AsyncMock,
+    discipline_service_factory: Callable[[str], object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #84 M — missing audit entry yields ``actor_id="unknown"``.
+
+    When the bot lacks ``view_audit_log`` permission (or the action has no
+    recent audit entry within the lookup window), the listener still
+    applies the penalty but tags the audit line + cooldown key with the
+    sentinel ``"unknown"`` so the cooldown semantics still bucket all
+    "unknown-actor" rapid-fires together — defensive: it prevents a
+    permission misconfiguration from silently disabling the cooldown.
+    """
+    listener = MemberListener(discipline_service_factory=discipline_service_factory)
+    before = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    after = _make_member(
+        fake_member,
+        user_id=42,
+        guild_id=999,
+        timed_out_until=datetime.now(tz=UTC) + timedelta(minutes=10),
+        # No audit entry — simulate missing permission.
+        audit_user_id=None,
+    )
+
+    with caplog.at_level(logging.INFO, logger=_logger_name()):
+        await listener.on_member_update(before, after)
+
+    matching = [
+        r
+        for r in caplog.records
+        if r.name == _logger_name() and r.message == "discipline_penalty_applied"
+    ]
+    assert len(matching) == 1
+    assert getattr(matching[0], "actor_id", None) == "unknown"
+    # The service still ran — the audit gap must NOT silently swallow the
+    # disciplinary action.
+    discipline_service.apply_discipline_penalty.assert_awaited_once_with(
+        "42", "timeout"
+    )
+
+
+async def test_cooldown_blocks_second_penalty_within_window(
+    fake_member: Callable[..., MagicMock],
+    discipline_service: AsyncMock,
+    discipline_service_factory: Callable[[str], object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #84 M — same (guild, target, actor) twice in window: second is dropped.
+
+    A moderator re-timing-out the same member within the 24h cooldown
+    window does not re-fire the discipline service: the service is
+    awaited exactly once, and the second call emits a
+    ``discipline_penalty_skipped_cooldown`` audit line so operators can
+    still see the attempt.
+    """
+    listener = MemberListener(discipline_service_factory=discipline_service_factory)
+    before_1 = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    after_1 = _make_member(
+        fake_member,
+        user_id=42,
+        guild_id=999,
+        timed_out_until=datetime.now(tz=UTC) + timedelta(minutes=10),
+        audit_user_id=7777,
+    )
+    # The cooldown is keyed (guild, target, actor). Re-fire with the same
+    # actor 7777 → blocked.
+    before_2 = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    after_2 = _make_member(
+        fake_member,
+        user_id=42,
+        guild_id=999,
+        timed_out_until=datetime.now(tz=UTC) + timedelta(minutes=30),
+        audit_user_id=7777,
+    )
+
+    with caplog.at_level(logging.INFO, logger=_logger_name()):
+        await listener.on_member_update(before_1, after_1)
+        await listener.on_member_update(before_2, after_2)
+
+    # Service ran exactly once — the second call was gated by the cooldown.
+    assert discipline_service.apply_discipline_penalty.await_count == 1
+    skipped = [
+        r
+        for r in caplog.records
+        if r.name == _logger_name()
+        and r.message == "discipline_penalty_skipped_cooldown"
+    ]
+    assert len(skipped) == 1
+    record = skipped[0]
+    assert getattr(record, "actor_id", None) == "7777"
+    assert getattr(record, "target_id", None) == "42"
+
+
+async def test_cooldown_allows_different_actor_within_window(
+    fake_member: Callable[..., MagicMock],
+    discipline_service: AsyncMock,
+    discipline_service_factory: Callable[[str], object],
+) -> None:
+    """Issue #84 M — a *different* moderator within the window still triggers.
+
+    The cooldown key is ``(guild, target, actor)``; two distinct moderators
+    timing-out the same target back-to-back is a legitimate signal (e.g.
+    one moderator escalating after a peer review) and must not be muted.
+    """
+    listener = MemberListener(discipline_service_factory=discipline_service_factory)
+    before_1 = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    after_1 = _make_member(
+        fake_member,
+        user_id=42,
+        guild_id=999,
+        timed_out_until=datetime.now(tz=UTC) + timedelta(minutes=10),
+        audit_user_id=7777,
+    )
+    before_2 = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    after_2 = _make_member(
+        fake_member,
+        user_id=42,
+        guild_id=999,
+        timed_out_until=datetime.now(tz=UTC) + timedelta(minutes=15),
+        # Different moderator.
+        audit_user_id=9999,
+    )
+
+    await listener.on_member_update(before_1, after_1)
+    await listener.on_member_update(before_2, after_2)
+
+    # Both fired — distinct actor cooldown buckets.
+    assert discipline_service.apply_discipline_penalty.await_count == 2
+
+
+async def test_cooldown_expires_after_window(
+    fake_member: Callable[..., MagicMock],
+    discipline_service: AsyncMock,
+    discipline_service_factory: Callable[[str], object],
+) -> None:
+    """Issue #84 M — a re-fire after the cooldown elapses succeeds.
+
+    A short ``cooldown_seconds`` injected at construction time makes the
+    expiry behaviour testable without freezing the clock. The injected
+    ``clock`` callable advances between the two events to step past the
+    cooldown boundary.
+    """
+    now_holder = [datetime(2026, 5, 28, 12, 0, tzinfo=UTC)]
+
+    def fake_clock() -> datetime:
+        return now_holder[0]
+
+    listener = MemberListener(
+        discipline_service_factory=discipline_service_factory,
+        cooldown_seconds=60,
+        clock=fake_clock,
+    )
+    before_1 = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    after_1 = _make_member(
+        fake_member,
+        user_id=42,
+        guild_id=999,
+        timed_out_until=now_holder[0] + timedelta(minutes=10),
+        audit_user_id=7777,
+    )
+    await listener.on_member_update(before_1, after_1)
+
+    # Step the clock past the 60 s cooldown.
+    now_holder[0] = now_holder[0] + timedelta(seconds=61)
+
+    before_2 = _make_member(fake_member, user_id=42, guild_id=999, timed_out_until=None)
+    after_2 = _make_member(
+        fake_member,
+        user_id=42,
+        guild_id=999,
+        timed_out_until=now_holder[0] + timedelta(minutes=10),
+        audit_user_id=7777,
+    )
+    await listener.on_member_update(before_2, after_2)
+
+    # Second fired — the cooldown window had elapsed.
+    assert discipline_service.apply_discipline_penalty.await_count == 2
