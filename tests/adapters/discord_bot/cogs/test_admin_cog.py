@@ -15,8 +15,13 @@ from friendex.adapters.discord_bot.embeds import COLOR_INFO
 
 
 def _send_call_kwargs(interaction) -> dict:  # type: ignore[no-untyped-def]
-    assert interaction.response.send_message.await_count >= 1
-    return interaction.response.send_message.await_args.kwargs
+    """Return the kwargs of the last user-visible reply.
+
+    Wave 1 (#82 H13) routed cog replies through ``followup.send`` after a
+    ``response.defer(...)``.
+    """
+    assert interaction.followup.send.await_count >= 1
+    return interaction.followup.send.await_args.kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -103,3 +108,39 @@ def test_game_intro_has_manage_guild_permission_check() -> None:
 def test_admin_cog_registers_help_and_game_intro_app_commands() -> None:
     assert isinstance(AdminCog.help, app_commands.Command)
     assert isinstance(AdminCog.game_intro, app_commands.Command)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 contracts
+
+
+async def test_help_defers_ephemerally(
+    fake_interaction,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/help`` is ephemeral — defer with ``ephemeral=True``."""
+    cog = AdminCog()
+    interaction = fake_interaction()
+
+    await AdminCog.help.callback(cog, interaction)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+
+
+async def test_game_intro_defers_publicly(
+    fake_interaction,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/game_intro`` is public — defer with ``ephemeral=False``."""
+    cog = AdminCog()
+    interaction = fake_interaction()
+
+    await AdminCog.game_intro.callback(cog, interaction)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=False)
+
+
+def test_admin_commands_are_guild_only() -> None:
+    """Wave 1 (#82 H14): both admin commands refuse DM dispatch."""
+    for cmd in (AdminCog.help, AdminCog.game_intro):
+        assert getattr(cmd, "guild_only", None) is True, (
+            f"{cmd.name}: must be decorated @app_commands.guild_only()"
+        )

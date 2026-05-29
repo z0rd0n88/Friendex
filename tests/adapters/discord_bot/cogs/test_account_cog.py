@@ -49,9 +49,14 @@ def _snapshot(
 
 
 def _send_call_kwargs(interaction) -> dict:  # type: ignore[no-untyped-def]
-    """Return the kwargs dict of the last ``send_message`` call."""
-    assert interaction.response.send_message.await_count >= 1
-    return interaction.response.send_message.await_args.kwargs
+    """Return the kwargs dict of the last user-visible reply.
+
+    Wave 1 (issue #82 H13) routed every cog reply through
+    ``interaction.followup.send`` after ``interaction.response.defer(...)``.
+    The helper inspects ``followup.send`` (the new reply seam).
+    """
+    assert interaction.followup.send.await_count >= 1
+    return interaction.followup.send.await_args.kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -421,3 +426,100 @@ def test_account_cog_registers_balance_optin_optout_app_commands() -> None:
     assert isinstance(AccountCog.balance, app_commands.Command)
     assert isinstance(AccountCog.optin, app_commands.Command)
     assert isinstance(AccountCog.optout, app_commands.Command)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1: defer + followup ack-within-3s contract (issue #82 H13)
+
+
+async def test_balance_defers_ephemerally_before_followup(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    portfolio_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/balance`` defers ephemerally, then sends via followup.
+
+    Mutation-hardening: the defer must run BEFORE the service call (the
+    3 s ack deadline is the whole point). Order check uses ``parent.attach_mock``.
+    """
+    portfolio_service.portfolio_snapshot.return_value = _snapshot()
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction()
+
+    parent = MagicMock(name="parent")
+    parent.attach_mock(interaction.response.defer, "defer")
+    parent.attach_mock(portfolio_service.portfolio_snapshot, "snapshot")
+    parent.attach_mock(interaction.followup.send, "followup")
+
+    await AccountCog.balance.callback(cog, interaction)
+
+    # Defer ran with ephemeral=True (the /balance reply is ephemeral).
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+    # Followup carried the embed; initial response was NOT used.
+    interaction.followup.send.assert_awaited_once()
+    interaction.response.send_message.assert_not_awaited()
+
+    # Order: defer → service → followup
+    call_names = [c[0] for c in parent.mock_calls if c[0]]
+    assert call_names[0] == "defer", f"expected defer first, got {call_names!r}"
+    assert call_names.index("snapshot") < call_names.index("followup")
+
+
+async def test_optin_defers_ephemerally(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    activity_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/optin`` defers ephemerally (Discord 3 s ack deadline)."""
+    activity_service.opt_in_and_consume_intro.return_value = False
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction()
+    _attach_user_send(interaction)
+
+    await AccountCog.optin.callback(cog, interaction)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+
+
+async def test_optout_defers_ephemerally(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/optout`` defers ephemerally."""
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction()
+
+    await AccountCog.optout.callback(cog, interaction)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1: @app_commands.guild_only() — every command refuses DM dispatch
+
+
+def test_account_cog_commands_are_guild_only() -> None:
+    """Wave 1 (#82 H14): every command carries ``@app_commands.guild_only``.
+
+    discord.py stamps the decorated command's ``guild_only`` attribute as
+    ``True``. The gateway then never dispatches the command in a DM
+    context. ``guild_id_of`` raises ``NoPrivateMessage`` as a belt-and-
+    braces guard if Discord ever lets one through.
+    """
+    for cmd in (AccountCog.balance, AccountCog.optin, AccountCog.optout):
+        # discord.py 2.4+ exposes this as ``guild_only`` on the Command.
+        assert getattr(cmd, "guild_only", None) is True, (
+            f"{cmd.name}: must be decorated @app_commands.guild_only()"
+        )

@@ -15,10 +15,15 @@ slash-only deployments; :func:`commands.when_mentioned` is the
 documentation-sanctioned inert value (the bot only treats a literal mention as
 a prefix, which it ignores because no prefix commands exist).
 
-**Why ``Intents.all()``.** Phase 12 listeners need ``message_content``,
-``members``, ``voice_states``, and ``reactions``; Phase 12b additionally needs
-``guilds`` and ``presences``. Opting into every privileged intent up front
-keeps this list short and matches the Phase-14 STATE.md signoff.
+**Why explicit intents.** The bot declares the **five** intents its listeners
+actually consume — ``message_content`` (Phase 12 message activity / opt-in
+keywords), ``members`` (Phase 12 member discipline + voice resolution),
+``voice_states`` (Phase 12 voice-join/leave fan-out), ``reactions`` (Phase 12
+reaction credit), and ``guilds`` (``Bot.guilds`` walk for task fan-out + the
+:func:`Container.build_runners` ``iter_guild_ids`` closure). ``presences``
+(the privileged intent ``Intents.all()`` would silently flip on) has no
+consumer and blocks bot verification past 100 guilds — it stays OFF
+(see Wave 1 remediation for issue #82 H12).
 
 **setup_hook contract.** discord.py invokes :meth:`Bot.setup_hook` once, after
 login but before the gateway connects, on the bot's own event loop. Phase 14
@@ -79,9 +84,19 @@ def build_bot(settings: Settings, container: Container) -> commands.Bot:
         A ready-to-start bot. The caller (``main.amain``) is responsible for
         :meth:`Bot.start` and engine disposal.
     """
+    # Explicit intent declaration — Wave 1 hardening for issue #82 H12.
+    # ``Intents.all()`` would enable ``presences`` (a privileged intent with
+    # no consumer in Friendex) and block bot verification past 100 guilds.
+    # Add a new flag here only when a listener actually consumes that event.
+    intents = discord.Intents.none()
+    intents.message_content = True
+    intents.members = True
+    intents.voice_states = True
+    intents.reactions = True
+    intents.guilds = True
     bot = commands.Bot(
         command_prefix=commands.when_mentioned,
-        intents=discord.Intents.all(),
+        intents=intents,
     )
 
     async def setup_hook() -> None:

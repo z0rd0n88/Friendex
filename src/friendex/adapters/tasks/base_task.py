@@ -76,6 +76,20 @@ class BackgroundTask(ABC):
     #: and external assignment does not require ``# type: ignore[attr-defined]``.
     _iter_guild_ids: Callable[[], Awaitable[Iterable[str]]]
 
+    def bind_guild_id_provider(
+        self, provider: Callable[[], Awaitable[Iterable[str]]]
+    ) -> None:
+        """Public seam for installing the live ``iter_guild_ids`` closure.
+
+        Wave 1 (#82 H15 / #84 H): replaces direct
+        ``task._iter_guild_ids = fn`` mutation from the container. Keeping
+        the assignment behind a method gives the container a typed seam
+        the static checker can follow, and gives subclasses a single place
+        to override if they ever need to do post-bind work (e.g. cache
+        warmup) before the first tick.
+        """
+        self._iter_guild_ids = provider
+
     @abstractmethod
     async def _run(self) -> None:
         """Per-tick body — subclasses implement."""

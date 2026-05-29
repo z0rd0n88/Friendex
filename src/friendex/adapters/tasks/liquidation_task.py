@@ -60,6 +60,18 @@ class LiquidationTask(BackgroundTask):
         # are deterministic in tests. Default to wall-clock UTC.
         self._clock: Callable[[], datetime] = clock or (lambda: _datetime.now(tz=UTC))
 
+    def bind_notifier(
+        self, notifier: Callable[[LiquidationEvent], Awaitable[None]]
+    ) -> None:
+        """Public seam for installing the live notifier callback.
+
+        Wave 1 (#82 H15 / #84 H): replaces direct ``task._notifier = fn``
+        mutation from the container. The notifier is intentionally a
+        plain ``Callable[[LiquidationEvent], Awaitable[None]]`` so the
+        task itself stays free of any ``discord`` import (Phase 9 AC3).
+        """
+        self._notifier = notifier
+
     async def _run(self) -> None:
         """Per-tick body — sweep each guild, then notify each emitted event."""
         for guild_id in await self._iter_guild_ids():

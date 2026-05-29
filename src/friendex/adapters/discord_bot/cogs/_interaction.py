@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from discord import app_commands
+
 if TYPE_CHECKING:
     import discord
 
@@ -16,11 +18,20 @@ if TYPE_CHECKING:
 def guild_id_of(interaction: discord.Interaction) -> str:
     """Return ``str(interaction.guild.id)`` after narrowing the ``None`` case.
 
-    Slash commands sync globally (per the project ``CLAUDE.md``); the bot
-    intentionally does not support DM-scoped slash commands, so a missing
-    ``interaction.guild`` would be a wiring bug. The assert narrows the
-    ``Guild | None`` type for :mod:`mypy` and surfaces the misconfiguration
-    eagerly at runtime — see Phase 11 signoff decision 3.
+    Slash commands sync globally (per the project ``CLAUDE.md``) and the
+    project commands also carry ``dm_permission=False`` decorators so Discord
+    never dispatches them in a DM context. If a misconfigured deployment lets
+    one slip through, we raise :class:`discord.app_commands.NoPrivateMessage`
+    — discord.py's canonical DM-context error — instead of an ``assert``
+    (which the central handler would route to the CRITICAL "Unexpected
+    error" fallthrough). ``NoPrivateMessage`` subclasses
+    :class:`app_commands.CheckFailure`, so the central error handler's
+    CheckFailure branch already renders a user-facing reply.
+
+    Wave 1 (issues #82 H14 / #84 M): the previous ``assert`` form was a
+    type-narrowing hack rather than a real defence — bare asserts can be
+    stripped by ``python -O`` and they leak internals when they do fire.
     """
-    assert interaction.guild is not None, "Slash commands require a guild"
+    if interaction.guild is None:
+        raise app_commands.NoPrivateMessage
     return str(interaction.guild.id)

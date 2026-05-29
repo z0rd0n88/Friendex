@@ -8,12 +8,25 @@ exception lands here.
 
 Behaviour, in classification order:
 
+* :class:`discord.app_commands.errors.CheckFailure` — discord.py dispatches
+  permission-check failures (``has_permissions``, ``has_role``, custom
+  ``app_commands.check`` decorators) without wrapping them in a
+  ``CommandInvokeError``, so the branch sits BEFORE the unwrap loop. Reply
+  ephemerally with a fixed user-facing permission-denied message; do NOT
+  log at CRITICAL — a denied permission is a routine outcome, not an
+  operator-visible incident.
 * If the raised exception is wrapped in one or more
   :class:`discord.app_commands.errors.CommandInvokeError` layers, unwrap
   recursively to ``.original`` before classification. Discord wraps every
   exception raised from a slash callback in a single
   ``CommandInvokeError``; nested wraps are rare but possible (e.g. when a
   cog's own decorator re-raises). One ``while``-loop unwrap covers both.
+* After unwrapping, a second :class:`CheckFailure` test catches the
+  defence-in-depth case where a custom decorator (or a future discord.py
+  release) raises ``CommandInvokeError(CheckFailure(...))``. The unwrapped
+  inner exception is still a routine permission denial; without this
+  follow-up branch it would fall through to the CRITICAL "Unexpected
+  error" path. Reviewer's MEDIUM-1 hardener.
 * :class:`DomainError` → ephemeral red embed whose ``description`` is the
   ``user_facing_message`` verbatim (palette pinned via
   :data:`friendex.adapters.discord_bot.embeds.COLOR_ERROR`). The user sees
@@ -66,6 +79,7 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_PERSISTENCE_REPLY = "Internal error, please try again"
 _GENERIC_UNEXPECTED_REPLY = "Unexpected error"
+_GENERIC_CHECK_FAILURE_REPLY = "You don't have permission to use that command."
 
 
 def _unwrap(error: BaseException) -> BaseException:
@@ -140,7 +154,27 @@ def register_error_handler(
         error: app_commands.AppCommandError,
     ) -> None:
         """Single error-routing entry point for every slash command."""
+        # ``CheckFailure`` covers permission checks (``has_permissions``,
+        # ``has_role``, custom checks). discord.py dispatches these without
+        # wrapping in ``CommandInvokeError``, so the branch sits BEFORE the
+        # unwrap loop. Reply ephemerally with a user-facing message; do NOT
+        # log at CRITICAL — a denied permission is a routine outcome, not an
+        # operator-visible incident.
+        if isinstance(error, app_commands.CheckFailure):
+            await _reply_content(interaction, _GENERIC_CHECK_FAILURE_REPLY)
+            return
+
         unwrapped = _unwrap(error)
+
+        # Defence in depth (Wave 1 review MEDIUM-1): a custom decorator (or
+        # a future discord.py release) may raise
+        # ``CommandInvokeError(CheckFailure(...))``. After the unwrap loop,
+        # re-check for ``CheckFailure`` so a wrapped routine permission
+        # denial still routes to the friendly ephemeral reply instead of
+        # the CRITICAL "Unexpected error" fallthrough.
+        if isinstance(unwrapped, app_commands.CheckFailure):
+            await _reply_content(interaction, _GENERIC_CHECK_FAILURE_REPLY)
+            return
 
         if isinstance(unwrapped, DomainError):
             await _reply_embed(interaction, build_error_embed(unwrapped))

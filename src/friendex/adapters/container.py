@@ -64,6 +64,9 @@ from friendex.adapters.discord_bot.embeds import (
     build_liquidation_notification_embed,
 )
 from friendex.adapters.discord_bot.error_handler import register_error_handler
+from friendex.adapters.discord_bot.listeners.lifecycle_listener import (
+    LifecycleListener,
+)
 from friendex.adapters.discord_bot.listeners.member_listener import MemberListener
 from friendex.adapters.discord_bot.listeners.message_listener import MessageListener
 from friendex.adapters.discord_bot.listeners.reaction_listener import ReactionListener
@@ -317,6 +320,24 @@ class Container:
             self._ping_sessions[guild_id] = store
         return store
 
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        """Evict the departing guild's volatile per-guild stores.
+
+        Wave 1 (#82 M2): the container lazily seeds ``_voice_sessions`` and
+        ``_ping_sessions`` on first access — but never garbage-collects
+        them. A bot left running across thousands of guild adds/removes
+        (e.g. brief Lyra-style test deployments) would accumulate dead
+        entries forever. Popping on ``on_guild_remove`` keeps the maps
+        bounded by the live guild set.
+
+        Using ``dict.pop(key, default)`` makes the eviction idempotent — a
+        guild that was never seeded (e.g. removed before any voice
+        activity ran) is a quiet no-op rather than a ``KeyError``.
+        """
+        guild_id = str(guild.id)
+        self._voice_sessions.pop(guild_id, None)
+        self._ping_sessions.pop(guild_id, None)
+
     # ------------------------------------------------------------------
     # Factory builders — each closes over ``self`` and returns a callable
     # ------------------------------------------------------------------
@@ -486,9 +507,13 @@ class Container:
         async def iter_guild_ids() -> Iterable[str]:
             return [str(g.id) for g in bot.guilds]
 
+        # Wave 1 (#82 H15 / #84 H): the public ``bind_guild_id_provider`` and
+        # ``bind_notifier`` setters replace direct attribute mutation on the
+        # task instances. The task classes declare these as typed seams so
+        # mypy can follow the injection without ``# type: ignore``.
         for task in self.raw_tasks:
-            task._iter_guild_ids = iter_guild_ids
-        self._liquidation_task._notifier = _make_liquidation_notifier(bot)
+            task.bind_guild_id_provider(iter_guild_ids)
+        self._liquidation_task.bind_notifier(_make_liquidation_notifier(bot))
 
         return tuple(TaskRunner(task) for task in self.raw_tasks)
 
@@ -500,9 +525,21 @@ class Container:
         cog) and ``commands.Cog.listener()`` decorators. Listeners are added
         via the same call — they are :class:`commands.Cog` subclasses by
         Phase-12 convention.
+
+        Wave 1 (#82 M2 + review LOW-3): a thin :class:`LifecycleListener`
+        is also added so the bot's ``on_guild_remove`` event evicts the
+        departing guild's volatile per-guild stores from the container's
+        maps. The listener lives under
+        ``adapters/discord_bot/listeners/lifecycle_listener.py`` — keeping
+        the bridge in its own Cog (rather than smuggling it onto an
+        existing listener) preserves the Phase 12 listener taxonomy. The
+        listener takes the container's cleanup method as a bare callback
+        so the listener module never imports :class:`Container` (the
+        composition root imports listeners, not the reverse).
         """
         for cog in self.cogs:
             await bot.add_cog(cog)
         for listener in self.listeners:
             await bot.add_cog(listener)
+        await bot.add_cog(LifecycleListener(on_guild_remove=self.on_guild_remove))
         register_error_handler(bot, self._settings)

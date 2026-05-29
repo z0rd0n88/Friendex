@@ -115,9 +115,14 @@ def _cover_result() -> CoverResult:
 
 
 def _send_call_kwargs(interaction) -> dict:  # type: ignore[no-untyped-def]
-    """Return the kwargs dict of the last ``send_message`` call."""
-    assert interaction.response.send_message.await_count >= 1
-    return interaction.response.send_message.await_args.kwargs
+    """Return the kwargs dict of the last user-visible reply.
+
+    Wave 1 (issue #82 H13) routed every cog reply through
+    ``interaction.followup.send`` after ``interaction.response.defer(...)``.
+    The helper inspects ``followup.send`` (the new reply seam).
+    """
+    assert interaction.followup.send.await_count >= 1
+    return interaction.followup.send.await_args.kwargs
 
 
 def _make_member(user_id: int):  # type: ignore[no-untyped-def]
@@ -207,7 +212,7 @@ async def test_buy_propagates_insufficient_funds(
     target = _make_member(555)
     with pytest.raises(InsufficientFunds):
         await TradingCog.buy.callback(cog, interaction, user=target, shares=10)
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +266,7 @@ async def test_sell_propagates_no_position(
     target = _make_member(555)
     with pytest.raises(NoPosition):
         await TradingCog.sell.callback(cog, interaction, user=target, shares=1)
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +320,7 @@ async def test_short_propagates_opted_out(
     target = _make_member(555)
     with pytest.raises(OptedOut):
         await TradingCog.short.callback(cog, interaction, user=target, shares=1)
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +374,7 @@ async def test_cover_propagates_position_frozen(
     target = _make_member(555)
     with pytest.raises(PositionFrozen):
         await TradingCog.cover.callback(cog, interaction, user=target, shares=1)
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -384,3 +389,119 @@ def test_trading_cog_registers_all_four_app_commands() -> None:
     assert isinstance(TradingCog.sell, app_commands.Command)
     assert isinstance(TradingCog.short, app_commands.Command)
     assert isinstance(TradingCog.cover, app_commands.Command)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1: defer(ephemeral=False) + guild_only — pinning the boundary contract
+
+
+async def test_buy_defers_publicly_before_service_call(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    trading_service: AsyncMock,
+    trading_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/buy`` defers with ``ephemeral=False`` (public reply) before the service.
+
+    Wave 1 (#82 H13): action commands stay PUBLIC, so the defer also reserves
+    a public reply slot. ``ephemeral=False`` is load-bearing on the defer —
+    if the defer is ephemeral the followup must also be ephemeral.
+    """
+    trading_service.buy.return_value = _buy_result()
+    cog = TradingCog(trading_service_factory=trading_service_factory)
+    interaction = fake_interaction()
+    target = _make_member(555)
+
+    await TradingCog.buy.callback(cog, interaction, user=target, shares=3)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=False)
+
+
+async def test_buy_defer_runs_before_service_call(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    trading_service: AsyncMock,
+    trading_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """The defer must happen BEFORE the service call (3 s ack deadline)."""
+    from unittest.mock import MagicMock
+
+    trading_service.buy.return_value = _buy_result()
+    cog = TradingCog(trading_service_factory=trading_service_factory)
+    interaction = fake_interaction()
+    target = _make_member(555)
+
+    parent = MagicMock(name="parent")
+    parent.attach_mock(interaction.response.defer, "defer")
+    parent.attach_mock(trading_service.buy, "buy")
+
+    await TradingCog.buy.callback(cog, interaction, user=target, shares=3)
+
+    names = [c[0] for c in parent.mock_calls if c[0]]
+    assert names[0] == "defer"
+    assert names.index("defer") < names.index("buy")
+
+
+def test_trading_cog_commands_are_guild_only() -> None:
+    """Wave 1 (#82 H14): every command refuses DM dispatch."""
+    for cmd in (TradingCog.buy, TradingCog.sell, TradingCog.short, TradingCog.cover):
+        assert getattr(cmd, "guild_only", None) is True, (
+            f"{cmd.name}: must be decorated @app_commands.guild_only()"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 review LOW-2: defer(ephemeral=False) coverage matrix
+#
+# The original Wave 1 cog tests pinned ``/buy`` defer-public; the other
+# three trading commands relied on the public-reply test asserting the
+# followup's ephemeral flag, which is a softer signal (a regression that
+# flips defer to ``ephemeral=True`` would surface as a followup mismatch
+# downstream rather than a direct diagnostic). Close the matrix with one
+# explicit defer assertion per command.
+
+
+async def test_sell_defers_publicly_before_service_call(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    trading_service: AsyncMock,
+    trading_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/sell`` defers with ``ephemeral=False`` (public reply)."""
+    trading_service.sell.return_value = _sell_result()
+    cog = TradingCog(trading_service_factory=trading_service_factory)
+    interaction = fake_interaction()
+    target = _make_member(555)
+
+    await TradingCog.sell.callback(cog, interaction, user=target, shares=2)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=False)
+
+
+async def test_short_defers_publicly_before_service_call(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    trading_service: AsyncMock,
+    trading_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/short`` defers with ``ephemeral=False`` (public reply)."""
+    trading_service.short.return_value = _short_result()
+    cog = TradingCog(trading_service_factory=trading_service_factory)
+    interaction = fake_interaction()
+    target = _make_member(555)
+
+    await TradingCog.short.callback(cog, interaction, user=target, shares=2)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=False)
+
+
+async def test_cover_defers_publicly_before_service_call(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    trading_service: AsyncMock,
+    trading_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/cover`` defers with ``ephemeral=False`` (public reply)."""
+    trading_service.cover.return_value = _cover_result()
+    cog = TradingCog(trading_service_factory=trading_service_factory)
+    interaction = fake_interaction()
+    target = _make_member(555)
+
+    await TradingCog.cover.callback(cog, interaction, user=target, shares=2)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=False)

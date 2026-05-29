@@ -43,9 +43,14 @@ def _snapshot(
 
 
 def _send_call_kwargs(interaction) -> dict:  # type: ignore[no-untyped-def]
-    """Return the kwargs dict of the last ``send_message`` call."""
-    assert interaction.response.send_message.await_count >= 1
-    return interaction.response.send_message.await_args.kwargs
+    """Return the kwargs dict of the last user-visible reply.
+
+    Wave 1 (#82 H13) routed every cog reply through
+    ``interaction.followup.send`` after ``interaction.response.defer(...)``.
+    The helper inspects ``followup.send`` (the new reply seam).
+    """
+    assert interaction.followup.send.await_count >= 1
+    return interaction.followup.send.await_args.kwargs
 
 
 def _make_member(user_id: int):  # type: ignore[no-untyped-def]
@@ -174,3 +179,27 @@ def test_portfolio_cog_registers_portfolio_app_command() -> None:
     import discord.app_commands as app_commands
 
     assert isinstance(PortfolioCog.portfolio, app_commands.Command)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 contracts
+
+
+async def test_portfolio_defers_ephemerally(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    portfolio_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/portfolio`` is ephemeral — defer with ``ephemeral=True``."""
+    portfolio_service.portfolio_snapshot.return_value = _snapshot()
+    cog = PortfolioCog(portfolio_service_factory=portfolio_service_factory)
+    interaction = fake_interaction()
+
+    await PortfolioCog.portfolio.callback(cog, interaction, user=None)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+
+
+def test_portfolio_command_is_guild_only() -> None:
+    """Wave 1 (#82 H14): ``/portfolio`` refuses DM dispatch."""
+    assert getattr(PortfolioCog.portfolio, "guild_only", None) is True

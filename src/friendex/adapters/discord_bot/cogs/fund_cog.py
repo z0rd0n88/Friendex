@@ -34,6 +34,13 @@ notification; the kwarg is load-bearing.
 converted to :class:`Decimal` via ``Decimal(str(amount))`` — never
 ``Decimal(amount)`` directly, which would carry IEEE-754 noise.
 
+**Wave 1 (#82 H13)**: every subcommand defers (``info`` ephemerally,
+mutations publicly) before the service call, then replies via
+``interaction.followup.send``. **Wave 1 (#82 H14)**:
+``@app_commands.guild_only()`` is applied to the parent
+``FundGroup`` — Discord refuses DM dispatch for every subcommand under a
+guild-only group.
+
 Domain errors **propagate uncaught**; Phase 13 owns the tree-wide
 ``app_commands`` error handler.
 """
@@ -62,6 +69,7 @@ if TYPE_CHECKING:
     from friendex.application.snapshot_models import FundInfoResult
 
 
+@app_commands.guild_only()
 class FundGroup(app_commands.Group):
     """``app_commands.Group`` exposing the ``/fund`` subcommand namespace.
 
@@ -70,6 +78,10 @@ class FundGroup(app_commands.Group):
     ``bot.tree.add_command(group_instance)``. Subclassing also lets us hold
     the per-guild :class:`FundService` factory as instance state without
     monkey-patching attributes onto a stock ``app_commands.Group``.
+
+    The ``@app_commands.guild_only()`` decorator on the group propagates to
+    every subcommand under it — Discord refuses DM dispatch for the whole
+    ``/fund`` namespace.
 
     Ctor takes a per-guild :class:`FundService` factory. APY values and
     penalty state are returned by :meth:`FundService.fund_info` as a
@@ -107,6 +119,7 @@ class FundGroup(app_commands.Group):
         path consistent with ``/fund info`` and avoids needing
         :class:`Settings` in the cog.
         """
+        await interaction.response.defer(ephemeral=False)
         now = datetime.now(tz=UTC)
         fund_service = self._fund_factory(guild_id_of(interaction))
         await fund_service.create_or_rename(str(interaction.user.id), name=name)
@@ -118,7 +131,7 @@ class FundGroup(app_commands.Group):
                 title="Hedge Fund", color=COLOR_SUCCESS, description="Fund created."
             )
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -144,6 +157,7 @@ class FundGroup(app_commands.Group):
         embed — mirroring the no-fund / brand-new account path in
         :class:`AccountCog.balance` and :class:`PortfolioCog.portfolio`.
         """
+        await interaction.response.defer(ephemeral=True)
         target_user = user if user is not None else interaction.user
         now = datetime.now(tz=UTC)
         fund_service = self._fund_factory(guild_id_of(interaction))
@@ -156,7 +170,7 @@ class FundGroup(app_commands.Group):
             )
         else:
             embed = self._build_fund_info_embed_for(result)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -183,6 +197,7 @@ class FundGroup(app_commands.Group):
         UTC-aware boundary value (the service uses it to decide whether the
         early-withdrawal penalty applies — spec line 1434 ``if now.day != 1``).
         """
+        await interaction.response.defer(ephemeral=False)
         fund_service = self._fund_factory(guild_id_of(interaction))
         decimal_amount = Decimal(str(amount))
         now = datetime.now(tz=UTC)
@@ -192,7 +207,7 @@ class FundGroup(app_commands.Group):
             color=COLOR_NEUTRAL,
             description=f"Withdrew **${decimal_amount:,.2f}** from your hedge fund.",
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -216,6 +231,7 @@ class FundGroup(app_commands.Group):
         Exempt from the early-withdrawal penalty (spec line 1475). The cog
         uses ``Decimal(str(amount))`` to avoid IEEE-754 noise.
         """
+        await interaction.response.defer(ephemeral=False)
         fund_service = self._fund_factory(guild_id_of(interaction))
         decimal_amount = Decimal(str(amount))
         await fund_service.send_to_events(str(interaction.user.id), decimal_amount)
@@ -226,7 +242,7 @@ class FundGroup(app_commands.Group):
                 f"Sent **${decimal_amount:,.2f}** from your fund to the events wallet."
             ),
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -263,6 +279,7 @@ class FundGroup(app_commands.Group):
         tree-wide ``app_commands`` error handler renders them for the
         user.
         """
+        await interaction.response.defer(ephemeral=False)
         fund_service = self._fund_factory(guild_id_of(interaction))
         decimal_amount = Decimal(str(amount))
         await fund_service.invest(
@@ -277,7 +294,7 @@ class FundGroup(app_commands.Group):
                 f"Invested **${decimal_amount:,.2f}** into <@{user.id}>'s hedge fund."
             ),
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )

@@ -17,6 +17,16 @@ confirmation embeds today only mention real Discord snowflakes (from service
 result DTOs, not user-provided text), the carry-forward bar applies uniformly
 to every send in the cog package.
 
+**Wave 1: defer + followup** (issue #82 H13). Every callback ``await
+interaction.response.defer(ephemeral=False)`` as its FIRST line, then replies
+via ``interaction.followup.send(...)``. ``defer(ephemeral=False)`` keeps the
+reply visible in-channel — Discord requires a 3 s ack and the service call
+(which acquires a per-guild lock and may flush to SQLite) can exceed that
+window.
+
+**Wave 1: ``@app_commands.guild_only()``** (issue #82 H14). Every command
+refuses DM dispatch at the Discord level.
+
 The cog holds a per-guild :class:`TradingService` *factory*, not an instance
 (Phase 9 service_factory convention). On each invocation it calls the factory
 with ``guild_id_of(interaction)`` and delegates to the service. Service calls
@@ -73,6 +83,7 @@ class TradingCog(commands.Cog):
         name="buy",
         description="Buy shares of a member's stock (open or add to a long).",
     )
+    @app_commands.guild_only()
     @app_commands.describe(
         user="The member whose stock you want to buy.",
         shares="Number of shares to buy (must be at least 1).",
@@ -84,12 +95,13 @@ class TradingCog(commands.Cog):
         shares: app_commands.Range[int, 1, None],
     ) -> None:
         """Open or add to a long position on ``user`` and confirm publicly."""
+        await interaction.response.defer(ephemeral=False)
         trading_service = self._trading_factory(guild_id_of(interaction))
         result = await trading_service.buy(
             str(interaction.user.id), str(user.id), shares
         )
         embed = build_buy_confirmation_embed(result)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -100,6 +112,7 @@ class TradingCog(commands.Cog):
         name="sell",
         description="Sell shares of a member's stock (close some/all of a long).",
     )
+    @app_commands.guild_only()
     @app_commands.describe(
         user="The member whose stock you want to sell.",
         shares="Number of shares to sell (must be at least 1).",
@@ -111,12 +124,13 @@ class TradingCog(commands.Cog):
         shares: app_commands.Range[int, 1, None],
     ) -> None:
         """Close some/all of a long position on ``user`` and confirm publicly."""
+        await interaction.response.defer(ephemeral=False)
         trading_service = self._trading_factory(guild_id_of(interaction))
         result = await trading_service.sell(
             str(interaction.user.id), str(user.id), shares
         )
         embed = build_sell_confirmation_embed(result)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -127,6 +141,7 @@ class TradingCog(commands.Cog):
         name="short",
         description="Open a short position on a member's stock (15-min cooldown).",
     )
+    @app_commands.guild_only()
     @app_commands.describe(
         user="The member whose stock you want to short.",
         shares="Number of shares to short (must be at least 1).",
@@ -138,12 +153,13 @@ class TradingCog(commands.Cog):
         shares: app_commands.Range[int, 1, None],
     ) -> None:
         """Open or add to a short position on ``user`` and confirm publicly."""
+        await interaction.response.defer(ephemeral=False)
         trading_service = self._trading_factory(guild_id_of(interaction))
         result = await trading_service.short(
             str(interaction.user.id), str(user.id), shares
         )
         embed = build_short_confirmation_embed(result)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -154,6 +170,7 @@ class TradingCog(commands.Cog):
         name="cover",
         description="Cover (close) a short position on a member's stock.",
     )
+    @app_commands.guild_only()
     @app_commands.describe(
         user="The member whose short you want to cover.",
         shares="Number of shares to cover (must be at least 1).",
@@ -165,12 +182,13 @@ class TradingCog(commands.Cog):
         shares: app_commands.Range[int, 1, None],
     ) -> None:
         """Close some/all of a short position on ``user`` and confirm publicly."""
+        await interaction.response.defer(ephemeral=False)
         trading_service = self._trading_factory(guild_id_of(interaction))
         result = await trading_service.cover(
             str(interaction.user.id), str(user.id), shares
         )
         embed = build_cover_confirmation_embed(result)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )

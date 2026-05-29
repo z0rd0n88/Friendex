@@ -9,7 +9,14 @@ the help-text noise stays on the requester's side.
 :func:`~friendex.adapters.discord_bot.embeds.build_intro_embed`) publicly —
 moderators run it once per server when on-boarding. The command is gated by
 ``@app_commands.checks.has_permissions(manage_guild=True)``, so only members
-with the *Manage Server* permission can broadcast the intro.
+with the *Manage Server* permission can broadcast the intro. A denial
+surfaces as ``app_commands.MissingPermissions`` — a ``CheckFailure`` subclass —
+which Wave 1 (#84 C) routes to the central handler's friendly ephemeral
+"you don't have permission" reply.
+
+**Wave 1 (#82 H13)**: ``defer`` + ``followup.send`` so the Discord 3 s ack
+deadline cannot fire on a slow channel send.
+**Wave 1 (#82 H14)**: ``@app_commands.guild_only()`` refuses DM dispatch.
 
 The cog needs no application-service deps; the embeds are static so we have
 no per-guild routing to perform. Phase 13/14 will instantiate this cog
@@ -40,15 +47,18 @@ class AdminCog(commands.Cog):
         name="help",
         description="List every Friendex slash command.",
     )
+    @app_commands.guild_only()
     async def help(self, interaction: discord.Interaction) -> None:
         """Reply ephemerally with the static help embed."""
+        await interaction.response.defer(ephemeral=True)
         embed = build_help_embed()
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="game_intro",
         description="Post the Friendex introduction embed for this server.",
     )
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(manage_guild=True)
     async def game_intro(self, interaction: discord.Interaction) -> None:
         """Reply publicly with the static intro embed.
@@ -56,6 +66,9 @@ class AdminCog(commands.Cog):
         Gated by ``manage_guild`` — Discord will reject the command for
         members without the *Manage Server* permission via the local
         permission check installed by :func:`app_commands.checks.has_permissions`.
+        The denial is ``app_commands.MissingPermissions`` (a ``CheckFailure``
+        subclass), routed through the central error handler.
         """
+        await interaction.response.defer(ephemeral=False)
         embed = build_intro_embed()
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
