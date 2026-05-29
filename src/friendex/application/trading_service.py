@@ -75,6 +75,7 @@ from friendex.application.trade_results import (
     SellResult,
     ShortResult,
 )
+from friendex.application.unit_of_work import NullUnitOfWork
 from friendex.domain.errors import (
     InsufficientFunds,
     InsufficientShares,
@@ -108,6 +109,7 @@ if TYPE_CHECKING:
         IUserRepo,
     )
     from friendex.application.lock_manager import LockManager
+    from friendex.application.unit_of_work import IUnitOfWork
 
 # Currency quantisation unit — two decimal places, banker's rounding.
 _CENT = Decimal("0.01")
@@ -133,6 +135,7 @@ class TradingService:
         cooldown_repo: ITradeCooldownRepo,
         lock_manager: LockManager,
         settings: Settings,
+        unit_of_work: IUnitOfWork | None = None,
     ) -> None:
         self._guild_id = guild_id
         self._user_repo = user_repo
@@ -141,6 +144,14 @@ class TradingService:
         self._cooldown_repo = cooldown_repo
         self._locks = lock_manager
         self._settings = settings
+        # ``unit_of_work`` is the atomicity envelope wrapping every multi-write
+        # use case (short / cover / cover_internal). Defaulting to
+        # ``NullUnitOfWork`` keeps the existing DI container wiring valid;
+        # production wiring (and any caller that needs SQL-level atomicity)
+        # passes a ``SqlUnitOfWork`` from ``adapters/persistence``.
+        self._uow: IUnitOfWork = (
+            unit_of_work if unit_of_work is not None else NullUnitOfWork()
+        )
 
     # -- internal helpers ---------------------------------------------------
 
@@ -253,6 +264,12 @@ class TradingService:
         Personal funds are keyed by ``fund_id == user_id`` (per the original
         ``funds_data[user_id]`` shape). A user who has never created a fund
         contributes nothing to short collateral.
+
+        Persistence failures (e.g. the SQL fund repository raising) MUST
+        propagate — silently returning ``Decimal("0")`` on error would let
+        ``short`` and ``cover`` build a position against a phantom fund
+        (#84 H, ghost-fund guard). The ``None`` short-circuit covers only
+        the genuinely-absent case and never wraps a try / except.
         """
         fund = await self._fund_repo.get(self._guild_id, user_id)
         if fund is None:
@@ -488,80 +505,94 @@ class TradingService:
         self._validate_shares(shares)
         self._check_not_self(shorter_id, target_id)
         self._check_market_open(allow_sunday=False)
-        now = datetime.now(tz=UTC)
-        await self._check_cooldown(shorter_id, now)
+        # Cheap pre-lock probe so a known-cooled user fails fast without
+        # contending on the lock; the authoritative check happens inside
+        # the critical section against the in-lock ``now`` (see M12).
+        await self._check_cooldown(shorter_id, datetime.now(tz=UTC))
 
         async with self._locks.locked(
             self._lock_key(shorter_id), self._lock_key(target_id)
         ):
-            target = await self._get_or_create_user(target_id)
-            self._check_opt_in(target)
-            shorter = await self._get_or_create_user(shorter_id)
-            stock = await self._get_or_create_stock(target_id)
-            price = stock.current
-            notional = _quantise(price * Decimal(shares))
+            # Sample ``now`` AFTER lock acquisition so the cooldown row's
+            # ``expires_at`` is anchored to the write time, not the
+            # pre-lock probe time — preserves the cooldown TTL even
+            # when callers queue up behind a slow lock (#82 M12).
+            now = datetime.now(tz=UTC)
+            # Re-check the cooldown inside the lock so two coroutines that
+            # both passed the pre-lock probe cannot both proceed (#82 C1).
+            await self._check_cooldown(shorter_id, now)
+            async with self._uow.transaction():
+                target = await self._get_or_create_user(target_id)
+                self._check_opt_in(target)
+                shorter = await self._get_or_create_user(shorter_id)
+                stock = await self._get_or_create_stock(target_id)
+                price = stock.current
+                notional = _quantise(price * Decimal(shares))
 
-            cash_available = shorter.cash_balance
-            fund_cash = await self._get_fund_cash(shorter_id)
-            fund_available = _quantise(fund_cash * _FUND_COLLATERAL_FRACTION)
-            total_collateral = cash_available + fund_available
-            if total_collateral < notional:
-                raise InsufficientFunds(need=notional, have=total_collateral)
+                cash_available = shorter.cash_balance
+                fund_cash = await self._get_fund_cash(shorter_id)
+                fund_available = _quantise(fund_cash * _FUND_COLLATERAL_FRACTION)
+                total_collateral = cash_available + fund_available
+                if total_collateral < notional:
+                    raise InsufficientFunds(need=notional, have=total_collateral)
 
-            locked_cash = min(cash_available, notional)
-            locked_fund = min(fund_available, notional - locked_cash)
-            locked_cash = _quantise(locked_cash)
-            locked_fund = _quantise(locked_fund)
+                locked_cash = min(cash_available, notional)
+                locked_fund = min(fund_available, notional - locked_cash)
+                locked_cash = _quantise(locked_cash)
+                locked_fund = _quantise(locked_fund)
 
-            existing = shorter.short_positions.get(target_id)
-            if existing is not None:
-                if existing.frozen:
-                    raise PositionFrozen(target_id=target_id)
-                new_shares = existing.shares + shares
-                new_entry = _quantise(
-                    (
-                        existing.entry_price * Decimal(existing.shares)
-                        + price * Decimal(shares)
+                existing = shorter.short_positions.get(target_id)
+                if existing is not None:
+                    if existing.frozen:
+                        raise PositionFrozen(target_id=target_id)
+                    new_shares = existing.shares + shares
+                    new_entry = _quantise(
+                        (
+                            existing.entry_price * Decimal(existing.shares)
+                            + price * Decimal(shares)
+                        )
+                        / Decimal(new_shares)
                     )
-                    / Decimal(new_shares)
-                )
-                position = ShortPosition(
-                    target_user_id=target_id,
-                    shares=new_shares,
-                    entry_price=new_entry,
-                    locked_cash=_quantise(existing.locked_cash + locked_cash),
-                    locked_fund=_quantise(existing.locked_fund + locked_fund),
-                    created_at=existing.created_at,
-                    frozen=False,
-                )
-            else:
-                position = ShortPosition(
-                    target_user_id=target_id,
-                    shares=shares,
-                    entry_price=price,
-                    locked_cash=locked_cash,
-                    locked_fund=locked_fund,
-                    created_at=now,
-                    frozen=False,
-                )
+                    position = ShortPosition(
+                        target_user_id=target_id,
+                        shares=new_shares,
+                        entry_price=new_entry,
+                        locked_cash=_quantise(existing.locked_cash + locked_cash),
+                        locked_fund=_quantise(existing.locked_fund + locked_fund),
+                        created_at=existing.created_at,
+                        frozen=False,
+                    )
+                else:
+                    position = ShortPosition(
+                        target_user_id=target_id,
+                        shares=shares,
+                        entry_price=price,
+                        locked_cash=locked_cash,
+                        locked_fund=locked_fund,
+                        created_at=now,
+                        frozen=False,
+                    )
 
-            new_cash = _quantise(cash_available - locked_cash)
-            new_fund_cash = _quantise(fund_cash - locked_fund)
-            new_shorts = {**shorter.short_positions, target_id: position}
-            updated_shorter = replace(
-                shorter, cash_balance=new_cash, short_positions=new_shorts
-            )
-            if await self._user_repo.get(self._guild_id, target_id) is None:
-                await self._user_repo.upsert(self._guild_id, target)
-            await self._user_repo.upsert(self._guild_id, updated_shorter)
-            await self._write_fund_cash(shorter_id, new_fund_cash)
-            if await self._price_repo.get(self._guild_id, target_id) is None:
-                await self._price_repo.upsert(self._guild_id, stock)
-            old_price, new_price, _ = await self._apply_price_impact_unlocked(
-                target_id, stock, shares, is_buy=False
-            )
-
-        await self._set_cooldown(shorter_id, now)
+                new_cash = _quantise(cash_available - locked_cash)
+                new_fund_cash = _quantise(fund_cash - locked_fund)
+                new_shorts = {**shorter.short_positions, target_id: position}
+                updated_shorter = replace(
+                    shorter, cash_balance=new_cash, short_positions=new_shorts
+                )
+                if await self._user_repo.get(self._guild_id, target_id) is None:
+                    await self._user_repo.upsert(self._guild_id, target)
+                await self._user_repo.upsert(self._guild_id, updated_shorter)
+                await self._write_fund_cash(shorter_id, new_fund_cash)
+                if await self._price_repo.get(self._guild_id, target_id) is None:
+                    await self._price_repo.upsert(self._guild_id, stock)
+                old_price, new_price, _ = await self._apply_price_impact_unlocked(
+                    target_id, stock, shares, is_buy=False
+                )
+                # Cooldown write is inside the lock + the same UoW as the
+                # money writes, so two racing shorts cannot both bypass the
+                # pre-lock probe and a mid-sequence failure rolls the
+                # cooldown row back along with the rest (#82 C1 + C2).
+                await self._set_cooldown(shorter_id, now)
 
         return ShortResult(
             shorter_id=shorter_id,
@@ -605,17 +636,29 @@ class TradingService:
         self._validate_shares(shares)
         self._check_not_self(coverer_id, target_id)
         self._check_market_open(allow_sunday=False)
-        now = datetime.now(tz=UTC)
-        await self._check_cooldown(coverer_id, now)
+        # Cheap pre-lock probe so a known-cooled user fails fast without
+        # contending on the lock; the authoritative check happens inside
+        # the critical section against the in-lock ``now`` (see M12).
+        await self._check_cooldown(coverer_id, datetime.now(tz=UTC))
 
         async with self._locks.locked(
             self._lock_key(coverer_id), self._lock_key(target_id)
         ):
-            result = await self._cover_internal(
-                coverer_id, target_id, shares, force=False
-            )
-
-        await self._set_cooldown(coverer_id, now)
+            # Sample ``now`` AFTER lock acquisition so the cooldown row's
+            # ``expires_at`` is anchored to the write time, not the
+            # pre-lock probe time (#82 M12).
+            now = datetime.now(tz=UTC)
+            # Re-check the cooldown inside the lock so two racing covers
+            # cannot both bypass the pre-lock probe (#82 C1).
+            await self._check_cooldown(coverer_id, now)
+            async with self._uow.transaction():
+                result = await self._cover_internal(
+                    coverer_id, target_id, shares, force=False
+                )
+                # Cooldown write joins the same UoW as the money writes so
+                # a mid-sequence failure rolls them all back together
+                # (#82 C1 + C2).
+                await self._set_cooldown(coverer_id, now)
         return result
 
     async def _cover_internal(
@@ -664,18 +707,27 @@ class TradingService:
         if coverer.cash_balance < cost:
             raise InsufficientFunds(need=cost, have=coverer.cash_balance)
 
-        proportion = Decimal(shares) / Decimal(existing.shares)
-        released_cash = _quantise(existing.locked_cash * proportion)
-        released_fund = _quantise(existing.locked_fund * proportion)
+        remaining = existing.shares - shares
         pnl = _quantise((existing.entry_price - price) * Decimal(shares))
 
-        remaining = existing.shares - shares
         new_shorts = dict(coverer.short_positions)
         position_after: ShortPosition | None
         if remaining == 0:
+            # Full cover: release the position's exact locked values rather
+            # than recomputing them proportionally. Quantising
+            # ``locked * 1.0`` is exact for an unchanged ``Decimal`` but
+            # quantising ``locked * (n / n)`` can drift if ``n / n`` is
+            # represented inexactly during intermediate arithmetic; pinning
+            # the exact values keeps the collateral invariant
+            # ``locked_cash + locked_fund == shares * entry_price`` (#82 H2).
+            released_cash = existing.locked_cash
+            released_fund = existing.locked_fund
             del new_shorts[target_id]
             position_after = None
         else:
+            proportion = Decimal(shares) / Decimal(existing.shares)
+            released_cash = _quantise(existing.locked_cash * proportion)
+            released_fund = _quantise(existing.locked_fund * proportion)
             position_after = ShortPosition(
                 target_user_id=target_id,
                 shares=remaining,
