@@ -219,9 +219,9 @@ async def test_runner_resets_consecutive_failures_on_clean_tick(
     Wave 1 PR #89 fix-up (M-1): without the reset, an isolated crash months
     after a pile-up still triggers the 5-minute cap. The fix: after every
     successful ``_tick`` body, set ``_consecutive_failures = 0`` so the next
-    unrelated failure starts at 1× base backoff, not 2^N × base.
+    unrelated failure starts at 1x base backoff, not 2^N x base.
 
-    Scenario: one failure (counter → 1), then a clean tick (counter → 0),
+    Scenario: one failure (counter -> 1), then a clean tick (counter -> 0),
     then another failure — the second failure's sleep MUST be the 1-second
     base, not the 2-second second-attempt level.
     """
@@ -251,7 +251,7 @@ async def test_runner_resets_consecutive_failures_on_clean_tick(
     await runner._on_loop_error(RuntimeError("second fail"))
     assert sleeps == [1.0, 1.0], (
         "after a clean tick the failure counter must reset so the next "
-        "unrelated failure starts at the base backoff, not 2× base"
+        "unrelated failure starts at the base backoff, not 2x base"
     )
 
 

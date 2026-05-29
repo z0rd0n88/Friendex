@@ -90,7 +90,7 @@ class TaskRunner:
         # we are deliberately registering a callable whose signature mypy
         # cannot match against the generic, and the runtime semantics are
         # well-defined.
-        cast(Any, self._loop).error(self._on_loop_error)
+        cast("Any", self._loop).error(self._on_loop_error)
         self._loop.before_loop(self._before_first_tick)
 
     async def _tick(self) -> None:
