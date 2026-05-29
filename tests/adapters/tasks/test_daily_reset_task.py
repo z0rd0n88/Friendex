@@ -145,12 +145,11 @@ async def test_daily_reset_state_not_advanced_on_service_failure(
 ) -> None:
     """D5: a failing service call does NOT advance state — next tick retries.
 
-    The exception propagates from ``_run()`` (the runner layer catches it).
-    Because ``_advance_state`` is only called after a successful reset, the
-    failure path leaves the state unchanged and the next tick retries.
+    Each per-guild call is wrapped under ``_safe_run`` so the exception is
+    isolated (does NOT propagate). Because ``_advance_state`` is only called
+    after a successful reset, the failure path leaves the state unchanged
+    and the next tick retries.
     """
-    import pytest
-
     svc = MagicMock()
     svc.reset_today_buckets = AsyncMock(side_effect=RuntimeError("oops"))
 
@@ -163,15 +162,98 @@ async def test_daily_reset_state_not_advanced_on_service_failure(
         system_state_repo=fake_system_state_repo,
     )
 
-    with (
-        freeze_time("2026-05-25 10:00:00", tz_offset=0),
-        pytest.raises(RuntimeError, match="oops"),
-    ):
+    # Must NOT raise.
+    with freeze_time("2026-05-25 10:00:00", tz_offset=0):
         await task._run()
 
+    svc.reset_today_buckets.assert_awaited_once()
     state = await fake_system_state_repo.get(GUILD)
     # No upsert on failure path — state is None (or its last_daily_reset is None).
     assert state is None or state.last_daily_reset is None
+
+
+async def test_daily_reset_isolates_service_exception_per_guild(
+    fake_system_state_repo: FakeSystemStateRepo,
+) -> None:
+    """A failing guild does not abort processing of the next guild.
+
+    Per the Wave 1 #82 H8 fix, per-guild service calls are wrapped under
+    ``_safe_run``; one guild's exception must not silence the rest. The
+    successful guild still advances its state; the failed guild does not.
+    """
+    svc_a = MagicMock()
+    svc_a.reset_today_buckets = AsyncMock(side_effect=RuntimeError("a-boom"))
+    svc_b = MagicMock()
+    svc_b.reset_today_buckets = AsyncMock(return_value=None)
+
+    async def iter_guilds() -> list[str]:
+        return ["g1", "g2"]
+
+    task = DailyResetTask(
+        service_factory=_factory({"g1": svc_a, "g2": svc_b}),
+        iter_guild_ids=iter_guilds,
+        system_state_repo=fake_system_state_repo,
+    )
+
+    # Must NOT raise.
+    with freeze_time("2026-05-25 10:00:00", tz_offset=0):
+        await task._run()
+
+    svc_a.reset_today_buckets.assert_awaited_once()
+    svc_b.reset_today_buckets.assert_awaited_once()
+
+    s1 = await fake_system_state_repo.get("g1")
+    s2 = await fake_system_state_repo.get("g2")
+    # g1 failed: state not advanced.
+    assert s1 is None or s1.last_daily_reset is None
+    # g2 succeeded: state advanced.
+    assert s2 is not None and s2.last_daily_reset is not None
+
+
+async def test_daily_reset_isolates_state_repo_exception_per_guild(
+    fake_system_state_repo: FakeSystemStateRepo,
+) -> None:
+    """A state-repo IO failure on guild A does not abort guild B's processing.
+
+    Per the Wave 1 #84 H audit, the per-guild block — including the
+    stale-check read against the state repo — is wrapped under ``_safe_run``
+    so a transient repo failure on one guild cannot silence the rest of the
+    sweep. Guild B still ticks against the working state repo.
+    """
+    from unittest.mock import patch
+
+    svc_a = MagicMock()
+    svc_a.reset_today_buckets = AsyncMock(return_value=None)
+    svc_b = MagicMock()
+    svc_b.reset_today_buckets = AsyncMock(return_value=None)
+
+    async def iter_guilds() -> list[str]:
+        return ["g1", "g2"]
+
+    task = DailyResetTask(
+        service_factory=_factory({"g1": svc_a, "g2": svc_b}),
+        iter_guild_ids=iter_guilds,
+        system_state_repo=fake_system_state_repo,
+    )
+
+    original_get = fake_system_state_repo.get
+    call_count = {"n": 0}
+
+    async def flaky_get(guild_id: str) -> object:
+        call_count["n"] += 1
+        if guild_id == "g1":
+            raise RuntimeError("g1 state repo down")
+        return await original_get(guild_id)
+
+    with (
+        freeze_time("2026-05-25 10:00:00", tz_offset=0),
+        patch.object(fake_system_state_repo, "get", side_effect=flaky_get),
+    ):
+        await task._run()  # Must NOT raise.
+
+    # g1 service NOT called (stale-check raised first); g2 service called.
+    svc_a.reset_today_buckets.assert_not_awaited()
+    svc_b.reset_today_buckets.assert_awaited_once()
 
 
 async def test_daily_reset_only_fires_for_stale_guilds(

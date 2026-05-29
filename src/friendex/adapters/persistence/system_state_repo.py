@@ -42,6 +42,7 @@ def _to_dto(row: SystemStateORM) -> SystemState:
         guild_id=row.guild_id,
         last_daily_reset=row.last_daily_reset,
         last_weekly_reset=row.last_weekly_reset,
+        last_monthly_rollover=row.last_monthly_rollover,
     )
 
 
@@ -78,6 +79,7 @@ class SqlSystemStateRepository:
                     state.guild_id,
                     last_daily_reset=state.last_daily_reset,
                     last_weekly_reset=state.last_weekly_reset,
+                    last_monthly_rollover=state.last_monthly_rollover,
                 )
             )
             await session.commit()

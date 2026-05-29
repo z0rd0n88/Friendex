@@ -56,13 +56,27 @@ class DailyResetTask(BackgroundTask):
         self._clock: Callable[[], datetime] = clock or (lambda: datetime.now(tz=UTC))
 
     async def _run(self) -> None:
-        """Per-tick body — act per stale guild; service-then-state ordering."""
+        """Per-tick body — act per stale guild; service-then-state ordering.
+
+        Each guild's full processing block (stale-check + reset + state
+        advance) is wrapped in :meth:`BackgroundTask._safe_run` so a
+        per-guild exception in ANY phase — service call OR state repo IO —
+        does not silence the rest of the sweep (Wave 1 #82 H8 / #84 H). The
+        state is advanced ONLY on a successful service call, so failed
+        guilds retry on the next tick (preserves the service-then-state
+        ordering invariant).
+        """
         now = self._clock()
         for guild_id in await self._iter_guild_ids():
-            if not await self._is_stale(guild_id, now):
-                continue
-            await self._try_reset(guild_id)
-            await self._advance_state(guild_id, now)
+            await self._safe_run(self._process_guild(guild_id, now))
+
+    async def _process_guild(self, guild_id: str, now: datetime) -> None:
+        """Process one guild's daily reset: stale-check, reset, advance state."""
+        if not await self._is_stale(guild_id, now):
+            return
+        service = self._service_factory(guild_id)
+        await service.reset_today_buckets()
+        await self._advance_state(guild_id, now)
 
     async def _is_stale(self, guild_id: str, now: datetime) -> bool:
         """Return ``True`` iff the guild's last reset is older than today (UTC)."""
@@ -71,21 +85,19 @@ class DailyResetTask(BackgroundTask):
             return True
         return now.date() > state.last_daily_reset.date()
 
-    async def _try_reset(self, guild_id: str) -> None:
-        """Call the reset service for the given guild."""
-        service = self._service_factory(guild_id)
-        await service.reset_today_buckets()
-
     async def _advance_state(self, guild_id: str, now: datetime) -> None:
         """Upsert :class:`SystemState` with ``last_daily_reset = now``.
 
-        Preserves ``last_weekly_reset`` if it was already set (read-modify-
-        write on the existing row).
+        Preserves ``last_weekly_reset`` and ``last_monthly_rollover`` if they
+        were already set (read-modify-write on the existing row).
         """
         existing = await self._state_repo.get(guild_id)
         new_state = SystemState(
             guild_id=guild_id,
             last_daily_reset=now,
             last_weekly_reset=(existing.last_weekly_reset if existing else None),
+            last_monthly_rollover=(
+                existing.last_monthly_rollover if existing else None
+            ),
         )
         await self._state_repo.upsert(new_state)

@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from datetime import date, datetime
 
     from friendex.domain.models import (
         FundPenalty,
@@ -62,11 +62,17 @@ class SystemState:
     Mirrors ``SystemStateORM``. ``guild_id`` is the whole identity (one row per
     guild). Lives in the application layer because there is no domain dataclass
     for it and the interfaces must not import the ORM.
+
+    ``last_monthly_rollover`` is a :class:`date` (year+month suffices for
+    boundary checks) rather than a :class:`datetime` — month-granular
+    bookkeeping reads "first of this month" naturally as ``date(y, m, 1)`` and
+    avoids tz nuance for a field whose comparison is month-scope.
     """
 
     guild_id: str
     last_daily_reset: datetime | None = None
     last_weekly_reset: datetime | None = None
+    last_monthly_rollover: date | None = None
 
 
 @dataclass(frozen=True)

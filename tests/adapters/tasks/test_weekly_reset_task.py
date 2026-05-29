@@ -168,12 +168,11 @@ async def test_weekly_reset_state_not_advanced_on_service_failure(
 ) -> None:
     """W6: a failing service call does NOT advance ``last_weekly_reset``.
 
-    The exception propagates from ``_run()`` (the runner layer catches it).
-    Because ``_advance_state`` is only called after a successful reset, the
-    failure path leaves the state unchanged and the next tick retries.
+    Each per-guild call is wrapped under ``_safe_run`` so the exception is
+    isolated (does NOT propagate). Because ``_advance_state`` is only called
+    after a successful reset, the failure path leaves the state unchanged
+    and the next tick retries.
     """
-    import pytest
-
     svc = MagicMock()
     svc.reset_week_buckets = AsyncMock(side_effect=RuntimeError("oops"))
 
@@ -186,14 +185,50 @@ async def test_weekly_reset_state_not_advanced_on_service_failure(
         system_state_repo=fake_system_state_repo,
     )
 
-    with (
-        freeze_time("2026-05-25 10:00:00", tz_offset=0),
-        pytest.raises(RuntimeError, match="oops"),
-    ):
+    # Must NOT raise.
+    with freeze_time("2026-05-25 10:00:00", tz_offset=0):
         await task._run()
 
+    svc.reset_week_buckets.assert_awaited_once()
     state = await fake_system_state_repo.get(GUILD)
     assert state is None or state.last_weekly_reset is None
+
+
+async def test_weekly_reset_isolates_service_exception_per_guild(
+    fake_system_state_repo: FakeSystemStateRepo,
+) -> None:
+    """A failing guild does not abort processing of the next guild.
+
+    Per the Wave 1 #82 H8 fix, per-guild service calls are wrapped under
+    ``_safe_run``; one guild's exception must not silence the rest.
+    """
+    svc_a = MagicMock()
+    svc_a.reset_week_buckets = AsyncMock(side_effect=RuntimeError("a-boom"))
+    svc_b = MagicMock()
+    svc_b.reset_week_buckets = AsyncMock(return_value=None)
+
+    async def iter_guilds() -> list[str]:
+        return ["g1", "g2"]
+
+    task = WeeklyResetTask(
+        service_factory=_factory({"g1": svc_a, "g2": svc_b}),
+        iter_guild_ids=iter_guilds,
+        system_state_repo=fake_system_state_repo,
+    )
+
+    # Must NOT raise.
+    with freeze_time("2026-05-25 10:00:00", tz_offset=0):
+        await task._run()
+
+    svc_a.reset_week_buckets.assert_awaited_once()
+    svc_b.reset_week_buckets.assert_awaited_once()
+
+    s1 = await fake_system_state_repo.get("g1")
+    s2 = await fake_system_state_repo.get("g2")
+    # g1 failed: weekly state not advanced.
+    assert s1 is None or s1.last_weekly_reset is None
+    # g2 succeeded: weekly state advanced.
+    assert s2 is not None and s2.last_weekly_reset is not None
 
 
 async def test_weekly_reset_preserves_daily_reset_field(

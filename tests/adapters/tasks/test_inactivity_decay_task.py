@@ -42,8 +42,12 @@ async def test_inactivity_decay_task_invokes_service_per_guild() -> None:
     svc_b.inactivity_decay_tick.assert_awaited_once()
 
 
-async def test_inactivity_decay_task_propagates_service_exception() -> None:
-    """A per-guild failure propagates from ``_run()``; the runner layer catches it."""
+async def test_inactivity_decay_task_isolates_service_exception_per_guild() -> None:
+    """Per-guild failure isolation: g1 raises, g2 still ticks; ``_run`` does NOT raise.
+
+    Each per-guild call is wrapped under ``_safe_run`` so a transient service
+    failure on one guild cannot abort the sweep over the others.
+    """
     svc_a = MagicMock()
     svc_a.inactivity_decay_tick = AsyncMock(side_effect=RuntimeError("nope"))
     svc_b = MagicMock()
@@ -56,10 +60,12 @@ async def test_inactivity_decay_task_propagates_service_exception() -> None:
         service_factory=_factory({"g1": svc_a, "g2": svc_b}),
         iter_guild_ids=iter_guilds,
     )
-    import pytest
 
-    with pytest.raises(RuntimeError, match="nope"):
-        await task._run()
+    # Must NOT raise.
+    await task._run()
+
+    svc_a.inactivity_decay_tick.assert_awaited_once()
+    svc_b.inactivity_decay_tick.assert_awaited_once()
 
 
 def test_inactivity_decay_task_cadence_is_five_minutes() -> None:

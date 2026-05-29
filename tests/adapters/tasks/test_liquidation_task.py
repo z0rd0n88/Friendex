@@ -118,22 +118,26 @@ async def test_liquidation_task_swallows_service_exception() -> None:
     assert len(seen) == 1
 
 
-async def test_liquidation_task_propagates_notifier_exception() -> None:
-    """L2: a notifier failure propagates from ``_run()``; caught by the runner."""
-    import pytest
+async def test_liquidation_task_isolates_notifier_exception_per_event() -> None:
+    """L2: a notifier failure on one event does NOT block subsequent notifications.
 
+    Per the Wave 1 #82 H5 fix, each notifier invocation is wrapped under
+    ``_safe_run`` so a malformed embed / permission error on one event does
+    not abort the rest of the per-tick stream.
+    """
     e1 = _event(holder="h1", target="t1")
     e2 = _event(holder="h2", target="t2")
+    e3 = _event(holder="h3", target="t3")
 
     svc = MagicMock()
-    svc.check_and_liquidate_shorts = AsyncMock(return_value=[e1, e2])
+    svc.check_and_liquidate_shorts = AsyncMock(return_value=[e1, e2, e3])
 
     seen: list[LiquidationEvent] = []
 
     async def notifier(event: LiquidationEvent) -> None:
-        seen.append(event)
         if event is e1:
             raise RuntimeError("notifier oops")
+        seen.append(event)
 
     async def iter_guilds() -> list[str]:
         return ["g1"]
@@ -143,10 +147,12 @@ async def test_liquidation_task_propagates_notifier_exception() -> None:
         iter_guild_ids=iter_guilds,
         notifier=notifier,
     )
-    with pytest.raises(RuntimeError, match="notifier oops"):
-        await task._run()
 
-    assert seen == [e1]
+    # Must NOT raise.
+    await task._run()
+
+    # e1 raised — silently dropped. e2 and e3 still delivered.
+    assert seen == [e2, e3]
 
 
 def test_liquidation_task_cadence_is_five_minutes() -> None:

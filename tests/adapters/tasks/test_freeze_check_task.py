@@ -54,8 +54,12 @@ async def test_freeze_check_task_invokes_service_per_guild() -> None:
     svc_b.update_frozen_shorts.assert_awaited_once()
 
 
-async def test_freeze_check_task_propagates_service_exception() -> None:
-    """F2: per-guild service exception propagates from ``_run()``; caught by runner."""
+async def test_freeze_check_task_isolates_service_exception_per_guild() -> None:
+    """F2: per-guild service exception is isolated; ``_run`` does NOT raise.
+
+    Each per-guild call is wrapped under ``_safe_run`` so one guild's exception
+    cannot silence the rest of the sweep; ``g2`` still ticks after ``g1`` raises.
+    """
     svc_a = MagicMock()
     svc_a.update_frozen_shorts = AsyncMock(side_effect=RuntimeError("kaboom"))
     svc_b = MagicMock()
@@ -67,10 +71,12 @@ async def test_freeze_check_task_propagates_service_exception() -> None:
         return ["g1", "g2"]
 
     task = FreezeCheckTask(service_factory=factory, iter_guild_ids=iter_guilds)
-    import pytest
 
-    with pytest.raises(RuntimeError, match="kaboom"):
-        await task._run()
+    # Must NOT raise.
+    await task._run()
+
+    svc_a.update_frozen_shorts.assert_awaited_once()
+    svc_b.update_frozen_shorts.assert_awaited_once()
 
 
 def test_freeze_check_task_cadence_is_five_minutes() -> None:

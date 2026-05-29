@@ -73,12 +73,18 @@ class LiquidationTask(BackgroundTask):
         self._notifier = notifier
 
     async def _run(self) -> None:
-        """Per-tick body — sweep each guild, then notify each emitted event."""
+        """Per-tick body — sweep each guild, then notify each emitted event.
+
+        Each notifier invocation is wrapped in
+        :meth:`BackgroundTask._safe_run` so one bad embed / permission error
+        does not abort the rest of the per-tick notification stream
+        (Wave 1 #82 H5).
+        """
         for guild_id in await self._iter_guild_ids():
             service = self._service_factory(guild_id)
             events = await self._collect_events(service)
             for event in events:
-                await self._notifier(event)
+                await self._safe_run(self._notifier(event))
 
     async def _collect_events(
         self, service: LiquidationService
