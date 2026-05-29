@@ -28,7 +28,7 @@ after **both** services succeed for that guild. A mid-sweep failure on guild B
 means B is replayed on the next tick (every hour), while guild A is skipped
 because its state already shows the current month. The field is a
 :class:`date` because month-granular bookkeeping reads naturally as
-``date(y, m, 1)``; we never compare hour or minute components.
+``date(y, m, 1)`` and the comparison is exclusively at month granularity.
 
 **Why fund accrual is skipped when portfolio failed.** ``accrue_apy`` depends
 on the freshly-captured month-start baseline; running it against the stale

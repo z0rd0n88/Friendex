@@ -89,7 +89,14 @@ class LiquidationTask(BackgroundTask):
     async def _collect_events(
         self, service: LiquidationService
     ) -> list[LiquidationEvent]:
-        """Run the service sweep and return its events; on failure, return []."""
+        """Run the service sweep and return its events; on failure, return ``[]``.
+
+        Failure path: a raised exception inside ``service.check_and_liquidate_shorts``
+        is swallowed by :meth:`BackgroundTask._safe_run` (logged with traceback
+        via the base class), and the helper returns the empty list it was
+        already accumulating into — so callers should expect ``[]`` on a
+        service exception and not a propagated raise.
+        """
         events: list[LiquidationEvent] = []
         now = self._clock()
 
