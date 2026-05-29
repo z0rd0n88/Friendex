@@ -735,6 +735,14 @@ class TradingService:
         set a cooldown at all (a force-cover is a system action, not a
         user-initiated short/cover).
 
+        **Opt-out exemption (issue #84 M).** Cover deliberately does NOT
+        call :meth:`_check_opt_in` on the target. A short can outlive the
+        target's consent: the target may have opted out *after* the short
+        was opened. Blocking cover would trap the holder with no exit and
+        leave their locked collateral stranded indefinitely. Open-position
+        directions (``buy``/``sell``/``short``) still enforce the opt-in
+        gate at the public-method boundary.
+
         **UoW envelope responsibility (PR #94 review L2 — pre-existing
         gap, tracked in issue #95).** ``cover()`` wraps its call to
         this helper in ``async with self._uow.transaction()`` so the
@@ -753,7 +761,6 @@ class TradingService:
         rather than bundled into this Wave 2 silent-failures PR.
         """
         target, target_created = await self._resolve_user(target_id)
-        self._check_opt_in(target)
         coverer = await self._get_or_create_user(coverer_id)
         existing = coverer.short_positions.get(target_id)
         if existing is None:
