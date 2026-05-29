@@ -272,6 +272,36 @@ async def test_voice_leave_long_stay_logs_warning_when_stock_missing(
     assert rec["guild_id"] == GUILD
 
 
+async def test_stay_boost_appends_price_history_when_price_changes(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """Issue #82 M6 — ``_apply_stay_boost`` must append a :class:`PricePoint`.
+
+    The boost upserts the stock with a new ``current`` price but the pre-fix
+    code skipped the ``append_history`` call, so 24h-window aggregations
+    in :class:`PortfolioService` (high/low derived from history) silently
+    missed every long-stay boost. Mirrors
+    :meth:`PriceTickService._rmw_price`'s ``if new_price != stock.current``
+    guard so a no-op boost does not pad history with duplicate points.
+    """
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    await fake_price_repo.upsert(GUILD, _stock(USER, current=Decimal("100.00")))
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings)
+
+    await service.handle_voice_leave(
+        user_id=USER,
+        channel_id=PLAIN_CHANNEL,
+        stay_minutes=75.0,
+        joined_from_ping=True,
+    )
+
+    history = await fake_price_repo.get_history(GUILD, USER)
+    assert len(history) == 1
+    assert history[0].price == Decimal("150.00")
+
+
 async def test_voice_leave_short_stay_no_boost(
     fake_user_repo: FakeUserRepo,
     fake_price_repo: FakePriceRepo,

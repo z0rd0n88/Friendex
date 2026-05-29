@@ -43,6 +43,7 @@ from friendex.domain.activity import reset_activity_bucket
 from friendex.domain.models import (
     ActivityBucket,
     DailyProgress,
+    PricePoint,
     UserAccount,
     VoiceSession,
 )
@@ -299,6 +300,14 @@ class ActivityService:
         missing — issue #84 M (silent-failures branch). Silently dropping the
         boost hid a persistence drift; the structured log lets the operator
         catch it without changing user-visible behaviour.
+
+        Issue #82 M6 — the upsert is paired with an ``append_history`` call
+        on a real price change so the 24h-window aggregations
+        (:class:`PortfolioService` high/low derived from history) include
+        this boost. The ``if new_price != stock.current`` guard mirrors
+        :meth:`PriceTickService._rmw_price` and avoids padding history
+        with duplicate points when the boost rounds to a no-op (e.g. the
+        floor stall stalled the rise).
         """
         min_price = Decimal(str(self._settings.min_price))
         boost = Decimal(str(self._settings.voice_stay_boost))
@@ -313,8 +322,15 @@ class ActivityService:
                 return
             proposed = stock.current * boost
             new_price = apply_floor_stall(stock.current, proposed, min_price)
+            if new_price == stock.current:
+                return
             await self._price_repo.upsert(
                 self._guild_id, replace(stock, current=new_price)
+            )
+            await self._price_repo.append_history(
+                self._guild_id,
+                user_id,
+                PricePoint(price=new_price, timestamp=datetime.now(tz=UTC)),
             )
 
     # -- consent + intro ----------------------------------------------------
