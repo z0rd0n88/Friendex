@@ -181,3 +181,42 @@ def test_liquidation_task_module_does_not_import_discord() -> None:
     assert "from discord" not in code_after_docstring, (
         "liquidation_task.py must not contain `from discord...`"
     )
+
+
+async def test_liquidation_task_bind_notifier_replaces_callable() -> None:
+    """``bind_notifier`` is the public seam used by the container.
+
+    Wave 1 PR #89 fix-up (M-2): replaces direct ``task._notifier = fn``
+    mutation. Pins the contract that calling the setter swaps the live
+    notifier without recreating the task — so the per-event dispatch loop
+    in ``_run`` uses the new callable on the next tick.
+    """
+    seen_first: list[LiquidationEvent] = []
+
+    async def notifier_first(event: LiquidationEvent) -> None:
+        seen_first.append(event)
+
+    seen_second: list[LiquidationEvent] = []
+
+    async def notifier_second(event: LiquidationEvent) -> None:
+        seen_second.append(event)
+
+    svc = MagicMock()
+    svc.check_and_liquidate_shorts = AsyncMock(return_value=[_event()])
+
+    async def iter_guilds() -> list[str]:
+        return ["g1"]
+
+    task = LiquidationTask(
+        service_factory=_factory({"g1": svc}),
+        iter_guild_ids=iter_guilds,
+        notifier=notifier_first,
+    )
+
+    # Live swap via the public seam.
+    task.bind_notifier(notifier_second)
+    await task._run()
+
+    # Only the post-bind notifier saw the event.
+    assert len(seen_first) == 0
+    assert len(seen_second) == 1

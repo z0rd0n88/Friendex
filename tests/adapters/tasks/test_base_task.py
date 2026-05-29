@@ -76,6 +76,26 @@ def test_base_task_is_abstract() -> None:
         BackgroundTask()  # type: ignore[abstract]
 
 
+async def test_bind_guild_id_provider_installs_provider() -> None:
+    """``bind_guild_id_provider`` is the public seam used by the container.
+
+    Wave 1 PR #89 fix-up (M-2): replaces direct ``task._iter_guild_ids = fn``
+    mutation. Pins the contract that the setter assigns the callable to
+    ``_iter_guild_ids`` so future readers can find the wiring through a
+    typed method instead of an attribute write.
+    """
+    task = _NoOpTask()
+
+    async def provider() -> list[str]:
+        return ["g1", "g2"]
+
+    task.bind_guild_id_provider(provider)
+
+    # Round-trip: the bound provider returns what we registered.
+    guilds = list(await task._iter_guild_ids())
+    assert guilds == ["g1", "g2"]
+
+
 async def test_safe_run_logs_exception_with_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
