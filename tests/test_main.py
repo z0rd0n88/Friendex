@@ -19,6 +19,7 @@ import importlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import SecretStr
 
 # ``friendex/__init__.py`` re-exports ``friendex.main.main`` as ``friendex.main``,
 # which shadows the submodule attribute on the package. Resolve the actual
@@ -36,7 +37,7 @@ def patched_settings(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     """Stub ``Settings`` so ``amain`` does not touch the real env."""
     settings = MagicMock(name="Settings")
     settings.database_url = "sqlite+aiosqlite:///:memory:"
-    settings.discord_token = _VALID_TOKEN
+    settings.discord_token = SecretStr(_VALID_TOKEN)
     settings.dev_guild_id = None
     monkeypatch.setattr(main_module, "Settings", MagicMock(return_value=settings))
     monkeypatch.setattr(main_module, "configure_logging", MagicMock())
