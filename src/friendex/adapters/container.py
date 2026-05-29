@@ -260,6 +260,7 @@ class Container:
                 portfolio_service_factory=self.portfolio_service_factory,
                 fund_service_factory=self.fund_service_factory,
                 iter_guild_ids=_empty_guild_ids,
+                system_state_repo=self._system_state_repo,
             ),
             self._vc_boost_task,
             WeeklyResetTask(

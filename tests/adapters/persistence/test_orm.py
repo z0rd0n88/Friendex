@@ -18,7 +18,7 @@ write session and the read session.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -573,10 +573,16 @@ async def test_fund_penalty_round_trip(session: AsyncSession) -> None:
 async def test_system_state_round_trip(session: AsyncSession) -> None:
     last_daily = _utc(2026, 5, 23, 4)
     last_weekly = _utc(2026, 5, 18, 4)
+    last_monthly = date(2026, 5, 1)
+    last_portfolio = date(2026, 5, 1)
 
     session.add(
         SystemStateORM.create(
-            GUILD_ID, last_daily_reset=last_daily, last_weekly_reset=last_weekly
+            GUILD_ID,
+            last_daily_reset=last_daily,
+            last_weekly_reset=last_weekly,
+            last_monthly_rollover=last_monthly,
+            last_portfolio_capture=last_portfolio,
         )
     )
     await session.commit()
@@ -593,11 +599,19 @@ async def test_system_state_round_trip(session: AsyncSession) -> None:
     assert loaded.last_weekly_reset == last_weekly
     assert loaded.last_weekly_reset is not None
     assert loaded.last_weekly_reset.tzinfo is not None
+    assert loaded.last_monthly_rollover == last_monthly
+    assert loaded.last_portfolio_capture == last_portfolio
 
 
 async def test_system_state_null_resets_round_trip(session: AsyncSession) -> None:
     session.add(
-        SystemStateORM.create(GUILD_ID, last_daily_reset=None, last_weekly_reset=None)
+        SystemStateORM.create(
+            GUILD_ID,
+            last_daily_reset=None,
+            last_weekly_reset=None,
+            last_monthly_rollover=None,
+            last_portfolio_capture=None,
+        )
     )
     await session.commit()
 
@@ -609,6 +623,8 @@ async def test_system_state_null_resets_round_trip(session: AsyncSession) -> Non
 
     assert loaded.last_daily_reset is None
     assert loaded.last_weekly_reset is None
+    assert loaded.last_monthly_rollover is None
+    assert loaded.last_portfolio_capture is None
 
 
 async def test_trade_cooldown_round_trip(session: AsyncSession) -> None:

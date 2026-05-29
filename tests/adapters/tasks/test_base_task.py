@@ -74,3 +74,61 @@ def test_base_task_is_abstract() -> None:
     """The :class:`BackgroundTask` class cannot be instantiated directly."""
     with pytest.raises(TypeError):
         BackgroundTask()  # type: ignore[abstract]
+
+
+async def test_bind_guild_id_provider_installs_provider() -> None:
+    """``bind_guild_id_provider`` is the public seam used by the container.
+
+    Wave 1 PR #89 fix-up (M-2): replaces direct ``task._iter_guild_ids = fn``
+    mutation. Pins the contract that the setter assigns the callable to
+    ``_iter_guild_ids`` so future readers can find the wiring through a
+    typed method instead of an attribute write.
+    """
+    task = _NoOpTask()
+
+    async def provider() -> list[str]:
+        return ["g1", "g2"]
+
+    task.bind_guild_id_provider(provider)
+
+    # Round-trip: the bound provider returns what we registered.
+    guilds = list(await task._iter_guild_ids())
+    assert guilds == ["g1", "g2"]
+
+
+async def test_safe_run_logs_exception_with_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_safe_run`` passes ``exc_info=True`` so structlog captures the traceback.
+
+    Per the Wave 1 #84 M fix, the log call MUST carry the full traceback so
+    operations can debug a per-tick failure — passing only ``str(exc)`` strips
+    the call stack and turns silent-failure debugging into guesswork.
+    """
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_error(event: str, **kwargs: object) -> None:
+        captured_kwargs.clear()
+        captured_kwargs["event"] = event
+        captured_kwargs.update(kwargs)
+
+    import friendex.adapters.tasks.base_task as base_task_module
+
+    monkeypatch.setattr(base_task_module._log, "error", fake_error)
+
+    task = _NoOpTask()
+
+    async def boom() -> None:
+        raise RuntimeError("with-traceback")
+
+    await task._safe_run(boom())
+
+    assert captured_kwargs.get("event") == "background_task_iteration_failed"
+    # The actual exception instance is bound on the log record (any of these
+    # variants is acceptable as long as a real traceback is wired up).
+    assert "exc_info" in captured_kwargs, (
+        "structlog call must carry `exc_info` so the traceback is recorded"
+    )
+    exc_info = captured_kwargs["exc_info"]
+    # Accept `True` (structlog reads sys.exc_info()) or the bound exception.
+    assert exc_info is True or isinstance(exc_info, RuntimeError | tuple)

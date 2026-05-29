@@ -116,9 +116,14 @@ class BackgroundTask(ABC):
         try:
             await awaitable
         except Exception as exc:
+            # ``exc_info=True`` (structlog convention: read ``sys.exc_info()``)
+            # captures the full traceback on the log record instead of the
+            # bare ``str(exc)`` — operations need the call stack to debug a
+            # transient per-tick failure (Wave 1 #84 M).
             _log.error(
                 "background_task_iteration_failed",
                 task=type(self).__name__,
                 error=str(exc),
                 error_type=type(exc).__name__,
+                exc_info=True,
             )

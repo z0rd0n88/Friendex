@@ -31,10 +31,10 @@ from __future__ import annotations
 # TYPE_CHECKING) because SQLAlchemy resolves the `Mapped[...]` annotations at
 # class-construction time — deferring them breaks mapping with a
 # MappedAnnotationError. The TC003 lint is therefore a false positive here.
-from datetime import datetime  # noqa: TC003
+from datetime import date, datetime  # noqa: TC003
 from decimal import Decimal  # noqa: TC003
 
-from sqlalchemy import ForeignKeyConstraint, Index
+from sqlalchemy import Date, ForeignKeyConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from friendex.adapters.persistence.db import Base
@@ -470,6 +470,18 @@ class SystemStateORM(Base):
     Per ADR-0001 background tasks iterate per guild with per-guild reset flags,
     so this is one row *per guild* — ``guild_id`` is the whole primary key.
     There is no domain dataclass mirror; this is pure adapter bookkeeping.
+
+    ``last_monthly_rollover`` is a :class:`date` (year+month suffices for the
+    monthly-rollover boundary check). Added by Alembic
+    ``0003_system_state_monthly_rollover`` to give the monthly rollover task a
+    durable bookkeeping field so a mid-sweep failure replays only the failed
+    guilds on the next tick (see Wave 1 #82 C3).
+
+    ``last_portfolio_capture`` is a second :class:`date` marker added by
+    Alembic ``0004_system_state_portfolio_capture`` that advances as soon as
+    the portfolio capture succeeds — so a fund-only failure can replay just
+    the fund step on the next tick instead of re-running the (idempotent but
+    wasteful) portfolio capture (see PR #89 review L-1).
     """
 
     __tablename__ = "system_state"
@@ -477,6 +489,8 @@ class SystemStateORM(Base):
     guild_id: Mapped[str] = mapped_column(primary_key=True)
     last_daily_reset: Mapped[datetime | None] = mapped_column(UtcDateTime)
     last_weekly_reset: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    last_monthly_rollover: Mapped[date | None] = mapped_column(Date)
+    last_portfolio_capture: Mapped[date | None] = mapped_column(Date)
 
     @classmethod
     def create(
@@ -485,11 +499,15 @@ class SystemStateORM(Base):
         *,
         last_daily_reset: datetime | None,
         last_weekly_reset: datetime | None,
+        last_monthly_rollover: date | None,
+        last_portfolio_capture: date | None,
     ) -> SystemStateORM:
         return cls(
             guild_id=guild_id,
             last_daily_reset=last_daily_reset,
             last_weekly_reset=last_weekly_reset,
+            last_monthly_rollover=last_monthly_rollover,
+            last_portfolio_capture=last_portfolio_capture,
         )
 
 

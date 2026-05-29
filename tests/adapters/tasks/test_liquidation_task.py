@@ -118,22 +118,26 @@ async def test_liquidation_task_swallows_service_exception() -> None:
     assert len(seen) == 1
 
 
-async def test_liquidation_task_propagates_notifier_exception() -> None:
-    """L2: a notifier failure propagates from ``_run()``; caught by the runner."""
-    import pytest
+async def test_liquidation_task_isolates_notifier_exception_per_event() -> None:
+    """L2: a notifier failure on one event does NOT block subsequent notifications.
 
+    Per the Wave 1 #82 H5 fix, each notifier invocation is wrapped under
+    ``_safe_run`` so a malformed embed / permission error on one event does
+    not abort the rest of the per-tick stream.
+    """
     e1 = _event(holder="h1", target="t1")
     e2 = _event(holder="h2", target="t2")
+    e3 = _event(holder="h3", target="t3")
 
     svc = MagicMock()
-    svc.check_and_liquidate_shorts = AsyncMock(return_value=[e1, e2])
+    svc.check_and_liquidate_shorts = AsyncMock(return_value=[e1, e2, e3])
 
     seen: list[LiquidationEvent] = []
 
     async def notifier(event: LiquidationEvent) -> None:
-        seen.append(event)
         if event is e1:
             raise RuntimeError("notifier oops")
+        seen.append(event)
 
     async def iter_guilds() -> list[str]:
         return ["g1"]
@@ -143,10 +147,12 @@ async def test_liquidation_task_propagates_notifier_exception() -> None:
         iter_guild_ids=iter_guilds,
         notifier=notifier,
     )
-    with pytest.raises(RuntimeError, match="notifier oops"):
-        await task._run()
 
-    assert seen == [e1]
+    # Must NOT raise.
+    await task._run()
+
+    # e1 raised — silently dropped. e2 and e3 still delivered.
+    assert seen == [e2, e3]
 
 
 def test_liquidation_task_cadence_is_five_minutes() -> None:
@@ -175,3 +181,42 @@ def test_liquidation_task_module_does_not_import_discord() -> None:
     assert "from discord" not in code_after_docstring, (
         "liquidation_task.py must not contain `from discord...`"
     )
+
+
+async def test_liquidation_task_bind_notifier_replaces_callable() -> None:
+    """``bind_notifier`` is the public seam used by the container.
+
+    Wave 1 PR #89 fix-up (M-2): replaces direct ``task._notifier = fn``
+    mutation. Pins the contract that calling the setter swaps the live
+    notifier without recreating the task — so the per-event dispatch loop
+    in ``_run`` uses the new callable on the next tick.
+    """
+    seen_first: list[LiquidationEvent] = []
+
+    async def notifier_first(event: LiquidationEvent) -> None:
+        seen_first.append(event)
+
+    seen_second: list[LiquidationEvent] = []
+
+    async def notifier_second(event: LiquidationEvent) -> None:
+        seen_second.append(event)
+
+    svc = MagicMock()
+    svc.check_and_liquidate_shorts = AsyncMock(return_value=[_event()])
+
+    async def iter_guilds() -> list[str]:
+        return ["g1"]
+
+    task = LiquidationTask(
+        service_factory=_factory({"g1": svc}),
+        iter_guild_ids=iter_guilds,
+        notifier=notifier_first,
+    )
+
+    # Live swap via the public seam.
+    task.bind_notifier(notifier_second)
+    await task._run()
+
+    # Only the post-bind notifier saw the event.
+    assert len(seen_first) == 0
+    assert len(seen_second) == 1

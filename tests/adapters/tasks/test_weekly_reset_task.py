@@ -168,12 +168,11 @@ async def test_weekly_reset_state_not_advanced_on_service_failure(
 ) -> None:
     """W6: a failing service call does NOT advance ``last_weekly_reset``.
 
-    The exception propagates from ``_run()`` (the runner layer catches it).
-    Because ``_advance_state`` is only called after a successful reset, the
-    failure path leaves the state unchanged and the next tick retries.
+    Each per-guild call is wrapped under ``_safe_run`` so the exception is
+    isolated (does NOT propagate). Because ``_advance_state`` is only called
+    after a successful reset, the failure path leaves the state unchanged
+    and the next tick retries.
     """
-    import pytest
-
     svc = MagicMock()
     svc.reset_week_buckets = AsyncMock(side_effect=RuntimeError("oops"))
 
@@ -186,14 +185,99 @@ async def test_weekly_reset_state_not_advanced_on_service_failure(
         system_state_repo=fake_system_state_repo,
     )
 
-    with (
-        freeze_time("2026-05-25 10:00:00", tz_offset=0),
-        pytest.raises(RuntimeError, match="oops"),
-    ):
+    # Must NOT raise.
+    with freeze_time("2026-05-25 10:00:00", tz_offset=0):
         await task._run()
 
+    svc.reset_week_buckets.assert_awaited_once()
     state = await fake_system_state_repo.get(GUILD)
     assert state is None or state.last_weekly_reset is None
+
+
+async def test_weekly_reset_isolates_service_exception_per_guild(
+    fake_system_state_repo: FakeSystemStateRepo,
+) -> None:
+    """A failing guild does not abort processing of the next guild.
+
+    Per the Wave 1 #82 H8 fix, per-guild service calls are wrapped under
+    ``_safe_run``; one guild's exception must not silence the rest.
+    """
+    svc_a = MagicMock()
+    svc_a.reset_week_buckets = AsyncMock(side_effect=RuntimeError("a-boom"))
+    svc_b = MagicMock()
+    svc_b.reset_week_buckets = AsyncMock(return_value=None)
+
+    async def iter_guilds() -> list[str]:
+        return ["g1", "g2"]
+
+    task = WeeklyResetTask(
+        service_factory=_factory({"g1": svc_a, "g2": svc_b}),
+        iter_guild_ids=iter_guilds,
+        system_state_repo=fake_system_state_repo,
+    )
+
+    # Must NOT raise.
+    with freeze_time("2026-05-25 10:00:00", tz_offset=0):
+        await task._run()
+
+    svc_a.reset_week_buckets.assert_awaited_once()
+    svc_b.reset_week_buckets.assert_awaited_once()
+
+    s1 = await fake_system_state_repo.get("g1")
+    s2 = await fake_system_state_repo.get("g2")
+    # g1 failed: weekly state not advanced.
+    assert s1 is None or s1.last_weekly_reset is None
+    # g2 succeeded: weekly state advanced.
+    assert s2 is not None and s2.last_weekly_reset is not None
+
+
+async def test_weekly_reset_does_not_refire_on_backward_clock_drift(
+    fake_system_state_repo: FakeSystemStateRepo,
+) -> None:
+    """W8: a backward clock jump must NOT re-trigger the weekly reset.
+
+    Wave 1 PR #89 fix-up (L-2): the stale-check used ``!=`` to compare ISO
+    ``(year, week)`` pairs, so a *backward* clock jump (clock skew, manual DB
+    edit, NTP correction) into a prior ISO week would re-fire the reset
+    every tick until wall-clock caught up. The fix: use ``>`` so the
+    comparison is monotonic — only forward week rollovers fire.
+
+    Concretely: seed ``last_weekly_reset`` to ISO week 23 of 2026, then
+    drive a tick at a clock pointing to ISO week 22 of 2026. The reset
+    MUST NOT fire.
+    """
+    svc = MagicMock()
+    svc.reset_week_buckets = AsyncMock(return_value=None)
+
+    # Seed: last weekly reset happened in ISO week 23 of 2026 (2026-06-01 is
+    # Mon of week 23).
+    future_marker = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    await fake_system_state_repo.upsert(
+        SystemState(
+            guild_id=GUILD,
+            last_daily_reset=None,
+            last_weekly_reset=future_marker,
+        )
+    )
+
+    async def iter_guilds() -> list[str]:
+        return [GUILD]
+
+    task = WeeklyResetTask(
+        service_factory=_factory({GUILD: svc}),
+        iter_guild_ids=iter_guilds,
+        system_state_repo=fake_system_state_repo,
+    )
+
+    # Tick at an EARLIER ISO week (week 22 of 2026 = 2026-05-25 Mon).
+    with freeze_time("2026-05-25 12:00:00", tz_offset=0):
+        await task._run()
+
+    # Reset must NOT have re-fired — the stored marker is in the future.
+    svc.reset_week_buckets.assert_not_awaited()
+    state = await fake_system_state_repo.get(GUILD)
+    assert state is not None
+    assert state.last_weekly_reset == future_marker
 
 
 async def test_weekly_reset_preserves_daily_reset_field(
