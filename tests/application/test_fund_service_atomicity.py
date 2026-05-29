@@ -49,7 +49,6 @@ USER = "user-1"
 OTHER_USER = "user-2"
 
 _NOW_DAY_1 = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-_NOW_MID_MONTH = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
 
 
 def _account(user_id: str, *, cash: Decimal = Decimal("0.00")) -> UserAccount:

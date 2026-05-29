@@ -357,9 +357,15 @@ class TradingService:
         self._check_not_self(buyer_id, target_id)
         self._check_market_open(allow_sunday=self._settings.sunday_buy_allowed)
 
-        async with self._locks.locked(
-            self._lock_key(buyer_id), self._lock_key(target_id)
+        async with (
+            self._locks.locked(self._lock_key(buyer_id), self._lock_key(target_id)),
+            self._uow.transaction(),
         ):
+            # ``buy`` writes the buyer's cash + long-position dict, the
+            # target stub on first sight, the stock row + history. The
+            # UoW envelope rolls every write back if any one fails
+            # mid-sequence, matching the short/cover discipline (#82 C2
+            # follow-up — review M1).
             target = await self._get_or_create_user(target_id)
             self._check_opt_in(target)
             buyer = await self._get_or_create_user(buyer_id)
@@ -394,8 +400,8 @@ class TradingService:
             updated_buyer = replace(
                 buyer, cash_balance=new_cash, long_positions=new_longs
             )
-            # Persist the target stub first if it did not exist before, so the
-            # opt-in check above is sticky for the next call.
+            # Persist the target stub first if it did not exist before, so
+            # the opt-in check above is sticky for the next call.
             if await self._user_repo.get(self._guild_id, target_id) is None:
                 await self._user_repo.upsert(self._guild_id, target)
             await self._user_repo.upsert(self._guild_id, updated_buyer)
@@ -435,9 +441,14 @@ class TradingService:
         self._check_not_self(seller_id, target_id)
         self._check_market_open(allow_sunday=False)
 
-        async with self._locks.locked(
-            self._lock_key(seller_id), self._lock_key(target_id)
+        async with (
+            self._locks.locked(self._lock_key(seller_id), self._lock_key(target_id)),
+            self._uow.transaction(),
         ):
+            # ``sell`` writes the seller's cash + long-position dict, the
+            # target stub on first sight, the stock row + history. The
+            # UoW envelope rolls every write back if any one fails
+            # mid-sequence (#82 C2 follow-up — review M1).
             target = await self._get_or_create_user(target_id)
             self._check_opt_in(target)
             seller = await self._get_or_create_user(seller_id)
@@ -821,6 +832,18 @@ class TradingService:
         without an explicit ``/fund create`` is supported; the personal fund
         is keyed by ``fund_id == user_id``). No-ops when ``new_cash`` would
         equal the existing balance and the row already exists.
+
+        **Asymmetry with :meth:`_get_fund_cash` (review M5).**
+        :meth:`_get_fund_cash` returns ``Decimal("0")`` when the fund is
+        legitimately absent and propagates persistence failures; this
+        method auto-creates the fund on first short. The asymmetry is
+        intentional: the read path participates in the collateral
+        calculation (treat missing fund as zero collateral), the write
+        path participates in the trade-completion side-effect (create
+        the row so subsequent reads can find the locked balance). If
+        ``_fund_repo.get`` raises here, the exception propagates the
+        same way as in ``_get_fund_cash`` — the UoW envelope on
+        ``short`` / ``_cover_internal`` rolls every prior write back.
         """
         fund = await self._fund_repo.get(self._guild_id, user_id)
         if fund is None:

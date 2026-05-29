@@ -21,10 +21,30 @@ from __future__ import annotations
 
 import copy
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+
+class _SnapshotableRepo(Protocol):
+    """Documentary Protocol for the snapshot shape :class:`FakeUnitOfWork` expects.
+
+    The fake walks each ``repos`` argument via ``getattr(repo, "_store",
+    None)`` plus ``getattr(repo, "_history", None)`` — duck-typed and
+    tolerant of either attr being absent. This Protocol makes the
+    expected shape visible to mypy so a future refactor that renames
+    one of the snapshot attrs surfaces here rather than at runtime via
+    a silent rollback miss.
+
+    Both attrs are typed ``Any`` because the in-memory fakes store a
+    heterogeneous mix of dict shapes (``dict[tuple[str, str],
+    UserAccount]`` for the user repo, ``dict[tuple[str, str], dict[str,
+    list[PricePoint]]]`` for the price repo's history).
+    """
+
+    _store: Any
+    _history: Any
 
 
 class FakeUnitOfWork:
@@ -37,6 +57,11 @@ class FakeUnitOfWork:
     """
 
     def __init__(self, *repos: object) -> None:
+        # ``*repos: object`` is kept (not :class:`_SnapshotableRepo`) so
+        # the trading-service tests can pass repos with neither
+        # ``_store`` nor ``_history`` — the snapshot path tolerates
+        # absent attrs. The Protocol above documents the expected shape
+        # for the repos that DO participate in the savepoint.
         self._repos = repos
         # Tracks how many transactions completed cleanly — handy for
         # tests that want to pin the seam was entered at all.
