@@ -78,10 +78,28 @@ def compute_apy_accrual(
     IEEE-754 noise, the product is quantised to cents, and ``balance`` is never
     mutated.
     """
+    return _quantise(compute_apy_accrual_raw(balance, apy, period))
+
+
+def compute_apy_accrual_raw(
+    balance: Decimal,
+    apy: float,
+    period: Literal["monthly", "annual"],
+) -> Decimal:
+    """Return the unquantised accrual; used when a per-stake sum is taken.
+
+    Application code that accumulates many small per-stake accruals quantises
+    *the sum*, not each individual term — quantising each term first would
+    round every sub-cent accrual down to zero and silently destroy money over
+    many investors (#82 H3). This helper exposes the raw multiplication so
+    callers can defer quantisation to the end.
+
+    For a single-shot accrual, prefer :func:`compute_apy_accrual` — it
+    quantises immediately and is the right tool everywhere there is no sum.
+    """
     rate = Decimal(str(apy))
     annual = balance * rate
-    accrual = annual if period == "annual" else annual / _MONTHS_PER_YEAR
-    return _quantise(accrual)
+    return annual if period == "annual" else annual / _MONTHS_PER_YEAR
 
 
 def compute_effective_apy(
