@@ -211,6 +211,50 @@ async def test_runner_backoff_grows_then_caps(
     assert max(sleeps) <= 300.0
 
 
+async def test_runner_resets_consecutive_failures_on_clean_tick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successful ``_tick`` clears the failure counter back to zero.
+
+    Wave 1 PR #89 fix-up (M-1): without the reset, an isolated crash months
+    after a pile-up still triggers the 5-minute cap. The fix: after every
+    successful ``_tick`` body, set ``_consecutive_failures = 0`` so the next
+    unrelated failure starts at 1× base backoff, not 2^N × base.
+
+    Scenario: one failure (counter → 1), then a clean tick (counter → 0),
+    then another failure — the second failure's sleep MUST be the 1-second
+    base, not the 2-second second-attempt level.
+    """
+    runner = TaskRunner(_MinuteTask())
+
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr("asyncio.sleep", fake_sleep)
+
+    # Stub out the loop's restart so we can drive multiple cycles.
+    def stub_restart() -> None:
+        pass
+
+    runner._loop.restart = stub_restart  # type: ignore[assignment]
+
+    # Failure 1 — sleeps 1s (base * 2^0).
+    await runner._on_loop_error(RuntimeError("first fail"))
+    assert sleeps == [1.0]
+
+    # A clean tick clears the counter.
+    await runner._tick()
+
+    # Failure 2 — must be back to 1s, NOT 2s.
+    await runner._on_loop_error(RuntimeError("second fail"))
+    assert sleeps == [1.0, 1.0], (
+        "after a clean tick the failure counter must reset so the next "
+        "unrelated failure starts at the base backoff, not 2× base"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Startup stagger (Wave 1 #82 M4)
 #
