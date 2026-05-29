@@ -510,14 +510,24 @@ def test_get_settings_reads_discord_token_from_env(
     assert settings.dev_guild_id == 919191919191919191
 
 
-def test_get_settings_constructs_settings_with_no_kwargs() -> None:
-    """Documented invariant: ``get_settings()`` calls ``Settings()`` directly.
+def test_get_settings_body_contains_no_model_validate_call() -> None:
+    """Regression pin (#84 H): ``get_settings`` never calls ``model_validate``.
 
-    Reaching into ``model_validate`` (or any other backdoor) suppresses the
-    pydantic-settings env source pipeline in some configurations and is
-    explicitly discouraged by the library.  Inspect the function body only
-    (skipping the docstring) so a future revision is free to *mention*
-    ``model_validate`` in commentary without re-introducing the call.
+    ``Settings.model_validate({})`` is a non-canonical entry point for
+    pydantic-settings that silently suppresses the env / ``.env`` source
+    pipeline in some configurations — the exact regression class flagged
+    in issue #84.  We walk the parsed function body with an
+    :class:`ast.NodeVisitor` and reject any ``X.model_validate(...)``
+    call attribute reference whose receiver name is ``Settings`` or
+    ``cls``.  This survives benign refactors (adding a guard clause,
+    a logging breadcrumb, an ``os.environ`` short-circuit, …) while
+    still catching the exact regression the original issue reported.
+
+    The receiver-name check intentionally tolerates ``cls.model_validate``
+    (used inside ``@classmethod`` definitions) but rejects it on the
+    grounds that ``get_settings`` is a module-level function — if anyone
+    moves it onto :class:`Settings` as a classmethod, the reviewer of
+    that future PR will rightly want to revisit the env-load contract.
     """
     import ast
     import inspect
@@ -528,25 +538,69 @@ def test_get_settings_constructs_settings_with_no_kwargs() -> None:
     tree = ast.parse(src)
     func = tree.body[0]
     assert isinstance(func, ast.FunctionDef)
-    # Drop the docstring expression node if present.
-    body = func.body
-    if (
-        body
-        and isinstance(body[0], ast.Expr)
-        and isinstance(body[0].value, ast.Constant)
-        and isinstance(body[0].value.value, str)
-    ):
-        body = body[1:]
-    # The only executable statement must be ``return Settings()``.
-    assert len(body) == 1
-    stmt = body[0]
-    assert isinstance(stmt, ast.Return)
-    assert isinstance(stmt.value, ast.Call)
-    call = stmt.value
-    assert isinstance(call.func, ast.Name)
-    assert call.func.id == "Settings"
-    assert call.args == []
-    assert call.keywords == []
+
+    class _ModelValidateRejector(ast.NodeVisitor):
+        """Reject any ``Settings.model_validate`` / ``cls.model_validate`` call."""
+
+        def __init__(self) -> None:
+            self.violations: list[str] = []
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            if (
+                node.attr == "model_validate"
+                and isinstance(node.value, ast.Name)
+                and node.value.id in {"Settings", "cls"}
+            ):
+                self.violations.append(
+                    f"{node.value.id}.model_validate at line {node.lineno}"
+                )
+            self.generic_visit(node)
+
+    rejector = _ModelValidateRejector()
+    rejector.visit(func)
+    assert not rejector.violations, (
+        "`get_settings()` must not call `Settings.model_validate(...)` "
+        f"(issue #84 regression); found: {rejector.violations}"
+    )
+
+
+def test_get_settings_returns_a_settings_call() -> None:
+    """Documented invariant: ``get_settings`` returns a ``Settings(...)`` call.
+
+    The canonical implementation is ``return Settings()`` (no kwargs).
+    Future refactors may add a guard clause or a logging breadcrumb before
+    the return, but the *return value* itself must remain a direct
+    ``Settings(...)`` invocation rather than a backdoor like
+    ``Settings.model_validate``.  This complements
+    :func:`test_get_settings_body_contains_no_model_validate_call` —
+    together they pin the env-load contract without over-constraining
+    the function body.
+    """
+    import ast
+    import inspect
+
+    from friendex.adapters import config as config_module
+
+    src = inspect.getsource(config_module.get_settings)
+    tree = ast.parse(src)
+    func = tree.body[0]
+    assert isinstance(func, ast.FunctionDef)
+
+    returns: list[ast.Return] = [
+        node for node in ast.walk(func) if isinstance(node, ast.Return)
+    ]
+    assert returns, "get_settings must have at least one return statement"
+
+    for ret in returns:
+        assert isinstance(ret.value, ast.Call), (
+            f"return at line {ret.lineno} is not a direct call; "
+            "got a non-Call expression"
+        )
+        call = ret.value
+        assert isinstance(call.func, ast.Name) and call.func.id == "Settings", (
+            f"return at line {ret.lineno} does not call ``Settings(...)``; "
+            f"got {ast.dump(call.func)!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +722,41 @@ def test_parse_int_list_skips_malformed_list_entry(
     assert settings.vc_ping_role_ids == [10, 30]
     output = capsys.readouterr().out + capsys.readouterr().err
     assert "not_an_int" in output
+
+
+def test_parse_int_list_warning_binds_field_name_vc_ping(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """L3 fix: the structured warning identifies *which* list field was bad.
+
+    An operator reading the log line for a malformed token must know
+    whether the bad value came from ``vc_ping_role_ids`` or
+    ``photo_bonus_channel_ids`` without having to grep the env file.
+    """
+    Settings(
+        discord_token="tmp",
+        vc_ping_role_ids=["10", "broken_vc", 30],  # type: ignore[arg-type]
+    )
+
+    output = capsys.readouterr().out + capsys.readouterr().err
+    assert "vc_ping_role_ids" in output, (
+        f"Expected field name in warning binding; got: {output!r}"
+    )
+
+
+def test_parse_int_list_warning_binds_field_name_photo_bonus(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """L3 fix: ``photo_bonus_channel_ids`` malformed tokens carry the field name."""
+    Settings(
+        discord_token="tmp",
+        photo_bonus_channel_ids=["1", "broken_photo", 2],  # type: ignore[arg-type]
+    )
+
+    output = capsys.readouterr().out + capsys.readouterr().err
+    assert "photo_bonus_channel_ids" in output, (
+        f"Expected field name in warning binding; got: {output!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
