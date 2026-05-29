@@ -526,3 +526,66 @@ def test_account_cog_commands_are_guild_only() -> None:
         assert getattr(cmd, "guild_only", None) is True, (
             f"{cmd.name}: must be decorated @app_commands.guild_only()"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 L — every send carries AllowedMentions.none()
+# ---------------------------------------------------------------------------
+
+
+async def test_balance_passes_allowed_mentions_none(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    portfolio_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """Issue #84 L — ``/balance`` must not be able to broadcast mass mentions.
+
+    The balance embed today only contains numeric snapshot data, but the
+    I2 carry-forward pins ``allowed_mentions=AllowedMentions.none()`` on
+    every cog send so a future embed change that includes a role-mention
+    cannot silently ping anyone.
+    """
+    portfolio_service.portfolio_snapshot.return_value = _snapshot()
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction()
+    await AccountCog.balance.callback(cog, interaction)
+    kwargs = _send_call_kwargs(interaction)
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
+
+
+async def test_balance_no_account_path_passes_allowed_mentions_none(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    portfolio_service: AsyncMock,
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """Issue #84 L — the no-account branch of ``/balance`` also carries the guard."""
+    portfolio_service.portfolio_snapshot.return_value = None
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction()
+    await AccountCog.balance.callback(cog, interaction)
+    kwargs = _send_call_kwargs(interaction)
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
+
+
+async def test_optout_passes_allowed_mentions_none(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    portfolio_service_factory,  # type: ignore[no-untyped-def]
+    activity_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """Issue #84 L — ``/optout`` must not be able to broadcast mass mentions."""
+    cog = AccountCog(
+        portfolio_service_factory=portfolio_service_factory,
+        activity_service_factory=activity_service_factory,
+    )
+    interaction = fake_interaction()
+    await AccountCog.optout.callback(cog, interaction)
+    kwargs = _send_call_kwargs(interaction)
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
