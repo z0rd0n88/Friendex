@@ -24,6 +24,7 @@ guild-agnostic. Read methods scope every repository call to
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from friendex.application.snapshot_models import (
@@ -34,10 +35,20 @@ from friendex.application.snapshot_models import (
 from friendex.domain.activity import calculate_trending_score, get_engagement_tier
 
 if TYPE_CHECKING:
-    from decimal import Decimal
-
     from friendex.adapters.config import Settings
     from friendex.application.interfaces import IPriceRepo, IUserRepo
+
+
+# Pre-quantised zero-price fallback used when a leaderboard user has a
+# :class:`UserAccount` but no :class:`Stock` row.  Constructed once at
+# module load to avoid a fresh ``Decimal("0.00")`` allocation per call.
+#
+# The fallback is hit only when a leaderboard user has a
+# :class:`UserAccount` but no :class:`Stock` row — a transient state that
+# should be vanishingly rare in production (every account upserted by
+# ``TradingService`` also upserts a stock).  Read this constant directly
+# at the call site rather than wrapping it in a helper.
+_ZERO_PRICE = Decimal("0.00")
 
 # Default top-N for the ``/trending`` leaderboard; overridable via kwarg.
 _DEFAULT_TRENDING_LIMIT = 15
@@ -100,7 +111,7 @@ class StatsService:
                     rank=rank,
                     user_id=account.user_id,
                     score=score,
-                    current_price=price if price is not None else _zero_price(),
+                    current_price=price if price is not None else _ZERO_PRICE,
                 )
             )
         return entries
@@ -166,17 +177,3 @@ class StatsService:
             low_24h=low,
             all_time_high=stock.all_time_high,
         )
-
-
-def _zero_price() -> Decimal:
-    """Return a zero-quantised :class:`Decimal` for the missing-stock fallback.
-
-    ``Decimal`` is imported lazily here so the ``TYPE_CHECKING`` import block
-    stays the sole top-level import of the symbol. The fallback is hit only
-    when a leaderboard user has a :class:`UserAccount` but no :class:`Stock`
-    row — a transient state that should be vanishingly rare in production
-    (every account upserted by ``TradingService`` also upserts a stock).
-    """
-    from decimal import Decimal
-
-    return Decimal("0.00")

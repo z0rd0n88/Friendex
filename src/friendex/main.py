@@ -49,7 +49,7 @@ async def amain() -> None:
         sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
         container = Container(settings, sessionmaker)
         bot = build_bot(settings, container)
-        await bot.start(settings.discord_token)
+        await bot.start(settings.discord_token.get_secret_value())
     finally:
         await engine.dispose()
 

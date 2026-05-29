@@ -102,6 +102,16 @@ _CENT = Decimal("0.01")
 # Personal fund cash floor when seeded by ``create_or_rename`` (matches the
 # original spec at ``original-skeleton.md:302-308``).
 _ZERO_CASH = Decimal("0.00")
+# Shared ``Decimal`` zero used as the ``sum(..., start=_ZERO)`` starter for
+# investor-stake totals.  Replaces the three per-call-site re-constructions
+# of ``Decimal("0.00")`` at the sum boundary.
+#
+# Intentionally ``Decimal("0")`` not ``Decimal("0.00")``:  ``sum()`` returns
+# the precision of the *terms*, not the starter, so a less-precise starter
+# can't widen the result; using ``Decimal("0")`` keeps the starter neutral
+# so callers stay in control of quantisation (each ``sum(...)`` site
+# wraps the result in ``_quantise(...)`` before storing it).
+_ZERO = Decimal("0")
 # Pseudo-fund identity for the per-guild events wallet (matches
 # ``FakeFundRepo`` and ``SqlFundRepository.ensure_events_wallet``).
 _EVENTS_WALLET_ID = "events_wallet"
@@ -253,7 +263,7 @@ class FundService:
             # Phase 17b B2: cap the withdraw at the manager's own share —
             # investor principal (``sum(investors.values())``) is untouchable.
             manager_balance = _quantise(
-                fund.cash_balance - sum(fund.investors.values(), Decimal("0.00"))
+                fund.cash_balance - sum(fund.investors.values(), _ZERO)
             )
             account = await self._user_repo.get(self._guild_id, user_id)
             if account is None:
@@ -381,7 +391,7 @@ class FundService:
                     self._settings.hedge_fund_base_apy, penalty, now
                 )
                 manager_balance = fresh.cash_balance - sum(
-                    fresh.investors.values(), Decimal("0.00")
+                    fresh.investors.values(), _ZERO
                 )
                 manager_accrual = compute_apy_accrual(
                     manager_balance,
@@ -403,7 +413,7 @@ class FundService:
                 new_cash = _quantise(
                     manager_balance
                     + manager_accrual
-                    + sum(new_investors.values(), Decimal("0.00"))
+                    + sum(new_investors.values(), _ZERO)
                 )
                 updated = replace(
                     fresh,

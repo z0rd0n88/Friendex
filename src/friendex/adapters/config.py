@@ -19,17 +19,31 @@ from __future__ import annotations
 
 import logging
 from datetime import time
+from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import structlog
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
 _PLACEHOLDER_TOKEN = "your_bot_token_here"
+
+# Module-level structlog logger for validator diagnostics.  ``parse_int_list``
+# logs malformed env entries through this so a bad VC_PING_ROLE_IDS token does
+# not silently kill the list during boot.
+_log = structlog.get_logger(__name__)
 
 
 class Settings(BaseSettings):
@@ -60,7 +74,12 @@ class Settings(BaseSettings):
     # propagation can take up to ~1 hour).  Production leaves it unset.  The
     # legacy ``GUILD_ID`` environment name is still accepted as an alias.  See
     # ADR-0001 (per-guild markets) for why a home guild is no longer required.
-    discord_token: str
+    #
+    # ``SecretStr`` keeps the raw value out of ``repr(settings)``,
+    # ``str(settings)``, and any default exception/log rendering.  Call
+    # ``settings.discord_token.get_secret_value()`` once at the consumer
+    # boundary (only ``main.py`` does this today) and never again.
+    discord_token: SecretStr
     dev_guild_id: int | None = Field(
         default=None,
         validation_alias=AliasChoices("dev_guild_id", "guild_id"),
@@ -173,35 +192,204 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "json"
 
+    # ------------------------------------------------------------------
+    # Decimal-typed views of float-sourced money / rate fields (#82 H20)
+    # ------------------------------------------------------------------
+    #
+    # The source fields above stay ``float`` so the existing pydantic-settings
+    # env-var binding contract (``INITIAL_CASH=10000`` parses as ``float``)
+    # is preserved verbatim.  Services that need a :class:`~decimal.Decimal`
+    # for money math should read the ``*_d`` computed counterpart below
+    # rather than re-constructing ``Decimal(str(settings.foo))`` at every
+    # call site (~20 of those existed at the time the field was added;
+    # consolidating them is deferred to the ``simplify/dead-code-sweep``
+    # branch).
+    #
+    # ``Decimal(str(value))`` is the only safe ``float → Decimal`` conversion
+    # — the documented pattern that preserves the literal env-string value
+    # without introducing binary float artefacts.
+    #
+    # **Cosmetic note (review #87 L2):**  these properties return values
+    # such as ``Decimal("10000.0")`` (one decimal place) rather than the
+    # project-canonical ``Decimal("10000.00")`` (two decimals, cents-quantised).
+    # The two forms are **semantically equivalent** (``==`` and ``hash``
+    # match) and every downstream call site round-trips money through
+    # ``_quantise(...)`` before storing or comparing — so functionally
+    # this is a no-op.  We intentionally do NOT pre-quantise inside the
+    # property because doing so would couple this module to the cents
+    # contract, and any future field added here (e.g. a non-money rate)
+    # would have to override the quantisation.  The trade-off: a future log
+    # line that renders one of these values raw will show ``10000.0``,
+    # not ``10000.00`` — accept this in exchange for the looser coupling.
+    #
+    # **Repetition note (review #87 L1):**  the 15 properties below all
+    # follow the same ``Decimal(str(self.foo))`` shape.  The duplication is
+    # intentional — each is a separate ``@computed_field`` for pydantic's
+    # schema and serialisation, and ``@computed_field`` does not compose
+    # cleanly with a meta-factory or decorator stack.  Keep the pattern
+    # uniform so a new ``*_d`` view costs three lines and stays grep-able.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def initial_cash_d(self) -> Decimal:
+        return Decimal(str(self.initial_cash))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def initial_price_d(self) -> Decimal:
+        return Decimal(str(self.initial_price))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def daily_reward_d(self) -> Decimal:
+        return Decimal(str(self.daily_reward))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def streak_bonus_d(self) -> Decimal:
+        return Decimal(str(self.streak_bonus))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def min_price_d(self) -> Decimal:
+        return Decimal(str(self.min_price))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def price_impact_k_d(self) -> Decimal:
+        return Decimal(str(self.price_impact_k))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def inactivity_decay_d(self) -> Decimal:
+        return Decimal(str(self.inactivity_decay))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def liquidation_threshold_d(self) -> Decimal:
+        return Decimal(str(self.liquidation_threshold))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def discipline_penalty_d(self) -> Decimal:
+        return Decimal(str(self.discipline_penalty))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def activity_tick_k_d(self) -> Decimal:
+        return Decimal(str(self.activity_tick_k))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def vc_extra_boost_multiplier_d(self) -> Decimal:
+        return Decimal(str(self.vc_extra_boost_multiplier))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def voice_ping_join_boost_d(self) -> Decimal:
+        return Decimal(str(self.voice_ping_join_boost))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def voice_stay_boost_d(self) -> Decimal:
+        return Decimal(str(self.voice_stay_boost))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def hedge_fund_base_apy_d(self) -> Decimal:
+        return Decimal(str(self.hedge_fund_base_apy))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def early_withdraw_penalty_d(self) -> Decimal:
+        return Decimal(str(self.early_withdraw_penalty))
+
     @field_validator(
         "vc_ping_role_ids",
         "photo_bonus_channel_ids",
         mode="before",
     )
     @classmethod
-    def parse_int_list(cls, v: object) -> list[int]:
+    def parse_int_list(cls, v: object, info: ValidationInfo) -> list[int]:
         """Split comma-separated env strings into ``list[int]``.
 
         ``pydantic-settings`` v2 does not auto-split comma-separated env
         strings into list fields, so we normalise here.  Empty strings and
         already-parsed lists are tolerated.
+
+        Per-token recovery: a malformed entry (one that cannot be parsed as
+        ``int``) is logged as a structured warning and dropped.  Previously
+        a single bad token raised ``ValueError`` and the whole field rolled
+        back to its default with no operator-visible diagnostic.
+
+        The warning binds the owning field name from
+        :class:`~pydantic.ValidationInfo` so an operator reading the log
+        line knows *which* list (``vc_ping_role_ids`` vs
+        ``photo_bonus_channel_ids``) carried the bad token without
+        having to grep the env file.
         """
         if v is None:
             return []
         if isinstance(v, str):
-            return [int(x.strip()) for x in v.split(",") if x.strip()]
-        if isinstance(v, list):
-            return [int(x) for x in v]
-        raise ValueError(
-            f"Expected str or list for int-list field, got {type(v).__name__}"
-        )
+            tokens: list[str] = [x.strip() for x in v.split(",") if x.strip()]
+        elif isinstance(v, list):
+            tokens = [str(x).strip() for x in v]
+        else:
+            raise ValueError(
+                f"Expected str or list for int-list field, got {type(v).__name__}"
+            )
+
+        parsed: list[int] = []
+        for token in tokens:
+            try:
+                parsed.append(int(token))
+            except ValueError:
+                # Bind the bad value under ``value`` rather than ``token`` so the
+                # structlog redaction processor (which scrubs ``token`` /
+                # ``discord_token`` keys) does not eat our diagnostic.  Bind the
+                # owning field name under ``field`` so the operator can tell
+                # which list (``vc_ping_role_ids`` vs ``photo_bonus_channel_ids``)
+                # produced the bad token.
+                _log.warning(
+                    "config.parse_int_list.malformed_token",
+                    field=info.field_name,
+                    value=token,
+                )
+        return parsed
 
     @model_validator(mode="after")
     def validate_secrets(self) -> Settings:
         """Reject empty / placeholder tokens at boot time."""
-        if self.discord_token in ("", _PLACEHOLDER_TOKEN):
+        raw_token = self.discord_token.get_secret_value()
+        if raw_token in ("", _PLACEHOLDER_TOKEN):
             raise ValueError("DISCORD_TOKEN is not configured")
         return self
+
+
+# Structlog event-dict keys whose value is scrubbed before serialisation.
+#
+# DANGER — narrow contract:
+# This tuple is an **allow-list of key names**, NOT a content filter.  A raw
+# token bound under any key that is NOT listed here WILL leak verbatim to
+# the log sink.  The two watched keys are:
+#
+# * ``"discord_token"`` — the canonical :class:`Settings` field name.
+# * ``"token"`` — the generic alias used by callers outside this module.
+#
+# Sibling keys like ``bot_token``, ``auth_token``, ``api_key``, ``secret``,
+# ``password``, etc. are **NOT** scrubbed.  The intentional reliance on
+# :class:`~pydantic.SecretStr.__str__` (which masks the value as
+# ``"**********"`` regardless of binding key) is the only thing that
+# prevents a leak when a ``SecretStr`` instance is logged under a
+# non-watched key — the moment a caller pulls the raw ``str`` via
+# ``.get_secret_value()`` (only ``main.py:52`` does this today, by
+# necessity for ``discord.Client.start``) any subsequent binding of that
+# raw value under a non-watched key is unprotected.
+#
+# If we ever grow a second consumer of ``.get_secret_value()`` the
+# correct fix is to **either** bind the value under one of the watched
+# keys above, **or** extend this tuple — *not* to assume the redactor
+# will catch the leak.
+_REDACTED_KEYS: tuple[str, ...] = ("discord_token", "token")
 
 
 def redact_token(
@@ -209,15 +397,34 @@ def redact_token(
     method: str,
     event_dict: MutableMapping[str, Any],
 ) -> MutableMapping[str, Any]:
-    """Structlog processor that scrubs a ``token`` key from every record.
+    """Structlog processor that scrubs token-bearing keys from every record.
 
     Installed as the *first* processor in the chain so it runs before any
-    serialisation.  Any non-empty ``token`` value is replaced with the
-    literal string ``"REDACTED"``.
+    serialisation.  The watched keys are listed in :data:`_REDACTED_KEYS`:
+
+    * ``"discord_token"`` — the canonical field name on :class:`Settings`,
+      so a slip like ``log.info("boot", discord_token=settings.discord_token)``
+      never leaks.
+    * ``"token"`` — kept for callers that bind the value under a generic
+      key from outside the config module.
+
+    Any non-empty value under a watched key is replaced with the literal
+    string ``"REDACTED"``.  :class:`~pydantic.SecretStr` already redacts
+    itself when formatted, but the processor stays in place as a
+    belt-and-braces guarantee in case a caller passes
+    ``.get_secret_value()`` directly.
+
+    .. warning::
+
+       The watched-key contract is narrow — see the docstring on
+       :data:`_REDACTED_KEYS` for the full DANGER note.  Raw tokens
+       (the result of ``SecretStr.get_secret_value()``) bound under any
+       key other than ``"discord_token"`` or ``"token"`` will leak.
     """
-    token = event_dict.get("token") or ""
-    if token:
-        event_dict["token"] = "REDACTED"
+    for key in _REDACTED_KEYS:
+        value = event_dict.get(key)
+        if value:
+            event_dict[key] = "REDACTED"
     return event_dict
 
 
@@ -283,5 +490,21 @@ def get_settings() -> Settings:
 
     The lru_cache ensures the ``.env`` file is only read once per process;
     tests that need a fresh instance can call ``get_settings.cache_clear()``.
+
+    Constructs via the canonical no-argument ``Settings()`` rather than
+    ``Settings.model_validate({})``.  ``model_validate`` is documented in
+    pydantic-settings as a non-canonical entry point — using it can suppress
+    the env / ``.env`` source pipeline in subtle ways and was the cause of a
+    "DISCORD_TOKEN is silently ignored at runtime" regression flagged in
+    issue #84.
     """
-    return Settings.model_validate({})
+    # ``Settings()`` resolves ``discord_token`` from the env / ``.env`` source
+    # pipeline at runtime, which mypy can't see — pydantic's static stubs
+    # treat the field as required-at-construction.  The ``call-arg`` ignore is
+    # scoped to this one line so the rest of the type-safety surface stays
+    # honest.  Two structural alternatives (a ``Settings.from_env()`` factory
+    # whose return type encodes the env-load contract, or a project-wide
+    # mypy override for the pydantic-settings constructor pattern) are
+    # tracked as a follow-up — see review #87 M2.  Same ignore lives at
+    # ``main.py:44`` for the same reason.
+    return Settings()  # type: ignore[call-arg]
