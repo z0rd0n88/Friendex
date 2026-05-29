@@ -18,6 +18,11 @@ the cog renders a small inline ``COLOR_NEUTRAL`` embed pointing at ``/daily``
 — mirroring :meth:`AccountCog.balance`'s "brand-new account" path
 (documented exception per Phase 11a digest §convention 4).
 
+**Wave 1 (#82 H13)**: ``defer(ephemeral=True)`` runs first so Discord sees
+the ack within 3 s, then the snapshot embed is delivered via
+``interaction.followup.send``. **Wave 1 (#82 H14)**:
+``@app_commands.guild_only()`` refuses DM dispatch at the gateway.
+
 Domain errors **propagate uncaught**; Phase 13 owns the central
 ``app_commands`` error handler. The cog must not ``try/except
 DomainError`` and must not call :func:`build_error_embed`.
@@ -65,6 +70,7 @@ class PortfolioCog(commands.Cog):
         name="portfolio",
         description="View your (or another member's) long + short positions.",
     )
+    @app_commands.guild_only()
     @app_commands.describe(
         user="The member whose portfolio to look up. Defaults to you.",
     )
@@ -74,6 +80,7 @@ class PortfolioCog(commands.Cog):
         user: discord.Member | None = None,
     ) -> None:
         """Reply ephemerally with ``user``'s (or the invoker's) portfolio."""
+        await interaction.response.defer(ephemeral=True)
         target_user = user if user is not None else interaction.user
         portfolio_service = self._portfolio_factory(guild_id_of(interaction))
         snapshot = await portfolio_service.portfolio_snapshot(
@@ -90,4 +97,4 @@ class PortfolioCog(commands.Cog):
             )
         else:
             embed = build_portfolio_embed(snapshot)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)

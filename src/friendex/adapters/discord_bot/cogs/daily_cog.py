@@ -6,6 +6,11 @@ The cog passes ``str(interaction.user.id)`` plus a fresh
 replies publicly so the channel sees the claim — matching the spec's
 ``/daily`` visibility (Bot Commands table in the project ``CLAUDE.md``).
 
+**Wave 1 (#82 H13)**: ``defer(ephemeral=False)`` runs first so Discord sees
+the ack within 3 s, then the result embed is delivered via
+``interaction.followup.send``. **Wave 1 (#82 H14)**: ``@app_commands.guild_only()``
+refuses DM dispatch at the gateway.
+
 :class:`~friendex.domain.errors.AlreadyClaimedToday` propagates uncaught.
 Phase 13 wires a tree-wide ``app_commands`` error handler that renders the
 error embed; the cog must not catch :class:`DomainError` here.
@@ -43,10 +48,12 @@ class DailyCog(commands.Cog):
         name="daily",
         description="Claim your daily reward — streak bonus every 7 days.",
     )
+    @app_commands.guild_only()
     async def daily(self, interaction: discord.Interaction) -> None:
         """Credit the daily reward and announce the outcome publicly."""
+        await interaction.response.defer(ephemeral=False)
         daily_service = self._daily_factory(guild_id_of(interaction))
         now = datetime.now(tz=UTC)
         result = await daily_service.claim_daily(str(interaction.user.id), now)
         embed = build_daily_embed(result)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)

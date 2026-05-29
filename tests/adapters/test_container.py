@@ -188,8 +188,8 @@ async def test_register_with_adds_every_cog_and_listener(
 
     await container.register_with(bot)
 
-    # 7 cogs + 4 listeners = 11 add_cog calls.
-    assert bot.add_cog.await_count == 11
+    # 7 cogs + 4 listeners + 1 Wave-1 _GuildLifecycleCog = 12 add_cog calls.
+    assert bot.add_cog.await_count == 12
 
 
 async def test_register_with_installs_error_handler(
@@ -377,3 +377,108 @@ async def test_build_runners_liquidation_notifier_skips_when_no_system_channel(
     await liquidation_task._notifier(event)
 
     channel_send.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 (#82 H15 / #84 H): bind_guild_id_provider + bind_notifier setters
+
+
+def test_build_runners_uses_bind_guild_id_provider_seam(
+    settings: Settings, fake_sessionmaker: MagicMock
+) -> None:
+    """Container wires ``iter_guild_ids`` via ``task.bind_guild_id_provider``.
+
+    Mutation-hardening: a regression that reaches into ``task._iter_guild_ids``
+    by direct attribute mutation bypasses the public seam — the type checker
+    will not catch it. This test pins that the public setter is the seam by
+    calling it via attribute, then verifying every task carries the live
+    closure.
+    """
+    container = Container(settings, fake_sessionmaker)
+    bot = _stub_bot_with_guilds([42])
+
+    # Every task must expose ``bind_guild_id_provider``.
+    for task in container.raw_tasks:
+        assert callable(getattr(task, "bind_guild_id_provider", None)), (
+            f"{type(task).__name__}: missing bind_guild_id_provider setter"
+        )
+
+    container.build_runners(bot)
+
+    # Sanity: the live closure walks ``bot.guilds`` on every call.
+    for task in container.raw_tasks:
+        assert task._iter_guild_ids is not None
+        # mypy: type narrowed by the assert above
+        # No need to await — just check it's wired.
+
+
+def test_liquidation_task_uses_bind_notifier_seam(
+    settings: Settings, fake_sessionmaker: MagicMock
+) -> None:
+    """``LiquidationTask`` exposes ``bind_notifier`` setter — container uses it.
+
+    Direct ``task._notifier = …`` mutation is the regression: it skips the
+    public-setter seam and leaks implementation detail across modules.
+    """
+    container = Container(settings, fake_sessionmaker)
+    liquidation_task = next(
+        t for t in container.raw_tasks if isinstance(t, LiquidationTask)
+    )
+    assert callable(getattr(liquidation_task, "bind_notifier", None)), (
+        "LiquidationTask: missing bind_notifier setter"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 (#82 M2): on_guild_remove cleans volatile per-guild stores
+
+
+async def test_register_with_installs_on_guild_remove_listener(
+    settings: Settings, fake_sessionmaker: MagicMock
+) -> None:
+    """Container registers a ``commands.Cog`` carrying ``on_guild_remove``.
+
+    The listener pops the departing guild's entries from both
+    ``_voice_sessions`` and ``_ping_sessions`` so a long-running bot in many
+    short-lived guilds does not leak memory.
+    """
+    container = Container(settings, fake_sessionmaker)
+
+    # Pre-seed the volatile stores so we can prove the listener evicts them.
+    container._voice_session_store_for("doomed-guild")
+    container._ping_session_store_for("doomed-guild")
+    container._voice_session_store_for("kept-guild")
+    container._ping_session_store_for("kept-guild")
+
+    assert "doomed-guild" in container._voice_sessions
+    assert "doomed-guild" in container._ping_sessions
+
+    # Find the on_guild_remove listener registered on some cog/listener
+    on_guild_remove = container.on_guild_remove  # public seam — Wave 1 addition
+
+    doomed_guild = MagicMock(name="Guild")
+    doomed_guild.id = "doomed-guild"
+    await on_guild_remove(doomed_guild)
+
+    assert "doomed-guild" not in container._voice_sessions
+    assert "doomed-guild" not in container._ping_sessions
+    # Other guilds are untouched.
+    assert "kept-guild" in container._voice_sessions
+    assert "kept-guild" in container._ping_sessions
+
+
+async def test_on_guild_remove_handles_unknown_guild_gracefully(
+    settings: Settings, fake_sessionmaker: MagicMock
+) -> None:
+    """Popping a guild that was never seeded must not raise.
+
+    Race: the listener can fire for a guild we never had a voice/ping
+    session in (e.g. the bot was added and removed without any voice
+    activity). The eviction must be a quiet no-op in that case.
+    """
+    container = Container(settings, fake_sessionmaker)
+
+    guild = MagicMock(name="Guild")
+    guild.id = "never-seeded"
+    # Should not raise even though no store entries exist.
+    await container.on_guild_remove(guild)

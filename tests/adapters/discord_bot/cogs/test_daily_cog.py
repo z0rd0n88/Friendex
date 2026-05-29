@@ -36,8 +36,13 @@ def _daily_result(
 
 
 def _send_call_kwargs(interaction) -> dict:  # type: ignore[no-untyped-def]
-    assert interaction.response.send_message.await_count >= 1
-    return interaction.response.send_message.await_args.kwargs
+    """Return the kwargs of the last user-visible reply.
+
+    Wave 1 (#82 H13) routed cog replies through ``followup.send`` after a
+    ``response.defer(...)``.
+    """
+    assert interaction.followup.send.await_count >= 1
+    return interaction.followup.send.await_args.kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +126,7 @@ async def test_daily_propagates_already_claimed_today(
     with pytest.raises(AlreadyClaimedToday):
         await DailyCog.daily.callback(cog, interaction)
     # No reply was sent — Phase 13 handler will render the error embed.
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -132,3 +137,27 @@ def test_daily_cog_registers_daily_app_command() -> None:
     import discord.app_commands as app_commands
 
     assert isinstance(DailyCog.daily, app_commands.Command)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 contracts
+
+
+async def test_daily_defers_publicly(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    daily_service: AsyncMock,
+    daily_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/daily`` is a public action command — defer with ``ephemeral=False``."""
+    daily_service.claim_daily.return_value = _daily_result()
+    cog = DailyCog(daily_service_factory=daily_service_factory)
+    interaction = fake_interaction()
+
+    await DailyCog.daily.callback(cog, interaction)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=False)
+
+
+def test_daily_command_is_guild_only() -> None:
+    """Wave 1 (#82 H14): ``/daily`` refuses DM dispatch."""
+    assert getattr(DailyCog.daily, "guild_only", None) is True

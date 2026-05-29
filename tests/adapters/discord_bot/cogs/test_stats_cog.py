@@ -77,9 +77,14 @@ def _trending_entry(
 
 
 def _send_call_kwargs(interaction) -> dict:  # type: ignore[no-untyped-def]
-    """Return the kwargs dict of the last ``send_message`` call."""
-    assert interaction.response.send_message.await_count >= 1
-    return interaction.response.send_message.await_args.kwargs
+    """Return the kwargs dict of the last user-visible reply.
+
+    Wave 1 (#82 H13) routed every cog reply through
+    ``interaction.followup.send`` after ``interaction.response.defer(...)``.
+    The helper inspects ``followup.send`` (the new reply seam).
+    """
+    assert interaction.followup.send.await_count >= 1
+    return interaction.followup.send.await_args.kwargs
 
 
 def _make_member(user_id: int):  # type: ignore[no-untyped-def]
@@ -351,3 +356,50 @@ def test_stats_cog_registers_all_four_app_commands() -> None:
     assert isinstance(StatsCog.mystats, app_commands.Command)
     assert isinstance(StatsCog.price, app_commands.Command)
     assert isinstance(StatsCog.mystock, app_commands.Command)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 contracts — defer ephemerality and guild_only
+
+
+async def test_trending_defers_publicly(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    stats_service: AsyncMock,
+    stats_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/trending`` is the public command of the cog — defer ``ephemeral=False``."""
+    stats_service.trending_snapshot.return_value = []
+    cog = StatsCog(stats_service_factory=stats_service_factory)
+    interaction = fake_interaction()
+
+    await StatsCog.trending.callback(cog, interaction)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=False)
+
+
+async def test_mystats_defers_ephemerally(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    stats_service: AsyncMock,
+    stats_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/mystats`` is ephemeral."""
+    stats_service.user_stats.return_value = None
+    cog = StatsCog(stats_service_factory=stats_service_factory)
+    interaction = fake_interaction()
+
+    await StatsCog.mystats.callback(cog, interaction)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+
+
+def test_stats_commands_are_guild_only() -> None:
+    """Wave 1 (#82 H14): every stats command refuses DM dispatch."""
+    for cmd in (
+        StatsCog.trending,
+        StatsCog.mystats,
+        StatsCog.price,
+        StatsCog.mystock,
+    ):
+        assert getattr(cmd, "guild_only", None) is True, (
+            f"{cmd.name}: must be decorated @app_commands.guild_only()"
+        )

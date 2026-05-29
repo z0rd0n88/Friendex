@@ -17,6 +17,11 @@ no aliases, and the canonical-name + autocomplete approach in the project
 ``CLAUDE.md`` is to expose two distinct names that happen to share a
 back-end.
 
+**Wave 1 (#82 H13)**: each callback ``await interaction.response.defer(...)``
+first (``/trending`` defers public; the others defer ephemeral), then replies
+via ``interaction.followup.send(...)``. **Wave 1 (#82 H14)**:
+``@app_commands.guild_only()`` refuses DM dispatch.
+
 Per Phase 11a digest §convention 4, ``None``-returning read paths render a
 small inline ``COLOR_NEUTRAL`` embed (no builder; this is a brand-new /
 empty edge case). Domain errors **propagate uncaught** — Phase 13 owns the
@@ -68,12 +73,14 @@ class StatsCog(commands.Cog):
         name="trending",
         description="Top movers leaderboard for this server.",
     )
+    @app_commands.guild_only()
     async def trending(self, interaction: discord.Interaction) -> None:
         """Reply publicly with the trending-stocks leaderboard."""
+        await interaction.response.defer(ephemeral=False)
         stats_service = self._stats_factory(guild_id_of(interaction))
         entries = await stats_service.trending_snapshot()
         embed = build_trending_embed(entries)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     # -- /mystats -----------------------------------------------------------
 
@@ -81,8 +88,10 @@ class StatsCog(commands.Cog):
         name="mystats",
         description="Your personal activity stats — engagement tier and score.",
     )
+    @app_commands.guild_only()
     async def mystats(self, interaction: discord.Interaction) -> None:
         """Reply ephemerally with the invoker's engagement snapshot."""
+        await interaction.response.defer(ephemeral=True)
         stats_service = self._stats_factory(guild_id_of(interaction))
         stats = await stats_service.user_stats(user_id=str(interaction.user.id))
         if stats is None:
@@ -96,7 +105,7 @@ class StatsCog(commands.Cog):
             )
         else:
             embed = build_mystats_embed(stats)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # -- /price <user> ------------------------------------------------------
 
@@ -104,6 +113,7 @@ class StatsCog(commands.Cog):
         name="price",
         description="Look up the current price and 24h stats for a member's stock.",
     )
+    @app_commands.guild_only()
     @app_commands.describe(user="The member whose stock price to look up.")
     async def price(
         self,
@@ -111,6 +121,7 @@ class StatsCog(commands.Cog):
         user: discord.Member,
     ) -> None:
         """Reply ephemerally with ``user``'s price stats."""
+        await interaction.response.defer(ephemeral=True)
         stats_service = self._stats_factory(guild_id_of(interaction))
         stats = await stats_service.get_price_stats(user_id=str(user.id))
         if stats is None:
@@ -124,7 +135,7 @@ class StatsCog(commands.Cog):
             )
         else:
             embed = build_price_embed(stats)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # -- /mystock -----------------------------------------------------------
 
@@ -132,6 +143,7 @@ class StatsCog(commands.Cog):
         name="mystock",
         description="View your own stock's current price and 24h stats.",
     )
+    @app_commands.guild_only()
     async def mystock(self, interaction: discord.Interaction) -> None:
         """Reply ephemerally with the invoker's own price stats.
 
@@ -139,6 +151,7 @@ class StatsCog(commands.Cog):
         argument on the slash surface — but reuses
         :func:`build_price_embed` for the rendering.
         """
+        await interaction.response.defer(ephemeral=True)
         stats_service = self._stats_factory(guild_id_of(interaction))
         stats = await stats_service.get_price_stats(user_id=str(interaction.user.id))
         if stats is None:
@@ -152,4 +165,4 @@ class StatsCog(commands.Cog):
             )
         else:
             embed = build_price_embed(stats)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)

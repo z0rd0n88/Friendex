@@ -11,6 +11,19 @@ br-2026-05-25-phase-9/digest-phase-9.md``). On each invocation the cog
 calls the factory with ``guild_id_of(interaction)`` to obtain the
 guild-scoped service, then delegates the use case.
 
+**Wave 1: defer + followup** (issue #82 H13). Discord rejects any
+slash-command callback that does not acknowledge the interaction inside the
+3 s deadline. Every callback ``await interaction.response.defer(...)`` as
+its FIRST line and then replies via ``interaction.followup.send(...)``. The
+ephemeral/public mapping mirrors the project's CLAUDE.md table (here all
+three are ephemeral / personal).
+
+**Wave 1: ``@app_commands.guild_only()``** (issue #82 H14). Every command
+refuses DM dispatch at the Discord level — the gateway never delivers the
+command in a DM context, so the cog body cannot run there. ``guild_id_of``
+also raises ``NoPrivateMessage`` as a belt-and-braces guard if a
+misconfigured deployment ever lets one through.
+
 Domain errors **propagate uncaught**; Phase 13 will install a tree-wide
 ``app_commands`` error handler. Cogs neither catch
 :class:`~friendex.domain.errors.DomainError` nor render
@@ -67,8 +80,10 @@ class AccountCog(commands.Cog):
         name="balance",
         description="View your cash, net worth, and hedge fund summary.",
     )
+    @app_commands.guild_only()
     async def balance(self, interaction: discord.Interaction) -> None:
         """Reply ephemerally with the invoker's portfolio snapshot."""
+        await interaction.response.defer(ephemeral=True)
         portfolio_service = self._portfolio_factory(guild_id_of(interaction))
         snapshot = await portfolio_service.portfolio_snapshot(
             user_id=str(interaction.user.id)
@@ -84,7 +99,7 @@ class AccountCog(commands.Cog):
             )
         else:
             embed = build_balance_embed(snapshot)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # -- /optin -------------------------------------------------------------
 
@@ -92,6 +107,7 @@ class AccountCog(commands.Cog):
         name="optin",
         description="Opt in to being a tradeable stock on this server.",
     )
+    @app_commands.guild_only()
     async def optin(self, interaction: discord.Interaction) -> None:
         """Mark the invoker's account as tradeable; DM the intro on first opt-in.
 
@@ -108,6 +124,7 @@ class AccountCog(commands.Cog):
         ``discord.Forbidden`` is the only ``try/except`` permitted in the
         cog (Phase 13: DomainError propagates uncaught).
         """
+        await interaction.response.defer(ephemeral=True)
         activity_service = self._activity_factory(guild_id_of(interaction))
         should_show_intro = await activity_service.opt_in_and_consume_intro(
             str(interaction.user.id)
@@ -119,7 +136,7 @@ class AccountCog(commands.Cog):
         )
 
         if not should_show_intro:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=confirmation_embed,
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none(),
@@ -144,7 +161,7 @@ class AccountCog(commands.Cog):
                     "guild_id": guild_id_of(interaction),
                 },
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embeds=[intro_embed, confirmation_embed],
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none(),
@@ -152,7 +169,7 @@ class AccountCog(commands.Cog):
             return
 
         # DM succeeded — ephemeral ack carries the confirmation only.
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=confirmation_embed,
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -164,8 +181,10 @@ class AccountCog(commands.Cog):
         name="optout",
         description="Opt out of being a tradeable stock on this server.",
     )
+    @app_commands.guild_only()
     async def optout(self, interaction: discord.Interaction) -> None:
         """Remove the invoker's account from the market and confirm ephemerally."""
+        await interaction.response.defer(ephemeral=True)
         activity_service = self._activity_factory(guild_id_of(interaction))
         await activity_service.set_opt_in(str(interaction.user.id), False)
         embed = discord.Embed(
@@ -173,4 +192,4 @@ class AccountCog(commands.Cog):
             color=COLOR_SUCCESS,
             description="Your stock has been removed from the market.",
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)

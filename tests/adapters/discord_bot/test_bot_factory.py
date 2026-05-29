@@ -78,10 +78,33 @@ def test_build_bot_returns_commands_bot(
     assert isinstance(bot, commands.Bot)
 
 
-def test_build_bot_intents_are_all(settings: Settings, container: Container) -> None:
-    """The bot opts into every privileged intent — Phase 14 spec."""
+def test_build_bot_intents_are_explicit_and_omit_presences(
+    settings: Settings, container: Container
+) -> None:
+    """The bot opts into the five intents the listeners need and nothing more.
+
+    Wave 1 (issue #82 H12): ``Intents.all()`` enabled ``presences``, which has
+    no consumer in Friendex AND blocks bot verification past 100 guilds.
+    The explicit set is ``message_content``, ``members``, ``voice_states``,
+    ``reactions``, ``guilds``.
+
+    Mutation-hardening: any regression that flips ``presences=True`` or
+    re-introduces ``Intents.all()`` will trip the absence assertion.
+    """
     bot = build_bot(settings, container)
-    assert bot.intents.value == discord.Intents.all().value
+    intents = bot.intents
+
+    # Required intents — every flag must be ON.
+    assert intents.message_content is True
+    assert intents.members is True
+    assert intents.voice_states is True
+    assert intents.reactions is True
+    assert intents.guilds is True
+
+    # ``presences`` MUST stay off — privileged intent with no consumer.
+    assert intents.presences is False
+    # Sanity: we are not silently enabling every other flag via ``Intents.all``.
+    assert intents.value != discord.Intents.all().value
 
 
 def test_build_bot_setup_hook_is_set_and_overridden(
@@ -184,8 +207,8 @@ async def test_setup_hook_registers_cogs_and_listeners(
 
     Phase 14 may invoke ``register_with`` either before or from inside
     ``setup_hook``; the contract only requires that by the time setup_hook
-    returns, every cog (7) + listener (4) is on the bot — total 11 ``add_cog``
-    calls.
+    returns, every cog (7) + listener (4) + the Wave 1 ``_GuildLifecycleCog``
+    is on the bot — total 12 ``add_cog`` calls.
     """
     bot = build_bot(settings, container)
     bot.tree.sync = AsyncMock(name="tree.sync")  # type: ignore[method-assign]
@@ -197,4 +220,4 @@ async def test_setup_hook_registers_cogs_and_listeners(
 
     await bot.setup_hook()
 
-    assert bot.add_cog.await_count == 11
+    assert bot.add_cog.await_count == 12

@@ -431,6 +431,93 @@ async def test_on_voice_state_update_propagates_domain_error(
 
 
 # ---------------------------------------------------------------------------
+# Wave 1 (#84 H): SWITCH leave failure must NOT skip the subsequent join
+
+
+async def test_switch_leave_failure_does_not_skip_subsequent_join(
+    fake_member: Callable[..., MagicMock],
+    fake_voice_state: Callable[..., MagicMock],
+    activity_service: AsyncMock,
+    activity_service_factory: Callable[[str], object],
+    voice_ping_service: AsyncMock,
+    voice_ping_service_factory: Callable[[str], object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SWITCH: if ``_do_leave`` raises, ``_do_join`` MUST still run.
+
+    The original code awaited ``_do_leave`` then ``_do_join`` unguarded — a
+    transient error on the leave (e.g. a stale stock row, a transient SQLite
+    write error) would skip the join entirely, leaving the member in the
+    listener's volatile state as if they had not transitioned channels.
+
+    Mutation-hardening: a regression that drops the try/except (or
+    re-raises) will cause this test to fail because ``_do_join`` is never
+    called.
+    """
+    import logging
+
+    start = datetime(2026, 5, 25, 11, 30, 0, tzinfo=UTC)
+    when = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+    store = VoiceSessionStore()
+    await store.set(
+        VoiceSession(
+            user_id="42",
+            channel_id=5555,
+            start=start,
+            from_ping_message_ids=set(),
+        )
+    )
+    # leave-side fails with a transient runtime error.
+    boom = RuntimeError("transient persistence error on leave")
+    activity_service.handle_voice_leave.side_effect = boom
+    voice_ping_service.collect_extra_boosts.return_value = []
+    task = _vc_boost_task()
+    listener = _build_listener(
+        activity_service_factory=activity_service_factory,
+        voice_ping_service_factory=voice_ping_service_factory,
+        voice_session_store=store,
+        vc_boost_task=task,
+        clock=_fixed_clock(when),
+    )
+
+    member = fake_member(user_id=42, guild_id=999)
+    before = fake_voice_state(channel_id=5555)
+    after = fake_voice_state(channel_id=6666)
+
+    with caplog.at_level(
+        logging.ERROR,
+        logger="friendex.adapters.discord_bot.listeners.voice_listener",
+    ):
+        await listener.on_voice_state_update(member, before, after)
+
+    # leave fired and raised — confirmed by side_effect surfacing in caplog
+    activity_service.handle_voice_leave.assert_awaited_once()
+    # CRITICAL: join MUST still have run on the NEW channel.
+    activity_service.handle_voice_join.assert_awaited_once_with(
+        user_id="42",
+        channel_id=6666,
+        joined_from_ping=False,
+    )
+    voice_ping_service.reward_voice_ping_response.assert_awaited_once_with(
+        responder_id="42",
+        channel_id=6666,
+        now=when,
+    )
+    # The leave failure was logged at ERROR with exc_info.
+    leave_failure_records = [
+        r
+        for r in caplog.records
+        if r.name == "friendex.adapters.discord_bot.listeners.voice_listener"
+        and r.levelno == logging.ERROR
+    ]
+    assert leave_failure_records, (
+        "expected an ERROR log entry for the swallowed leave failure"
+    )
+    assert leave_failure_records[0].exc_info is not None
+    assert leave_failure_records[0].exc_info[0] is RuntimeError
+
+
+# ---------------------------------------------------------------------------
 # Per-guild factory routing
 
 

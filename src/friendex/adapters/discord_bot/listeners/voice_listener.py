@@ -24,6 +24,14 @@ Distinguishes three transitions from a single ``on_voice_state_update`` event:
   credits the old channel's voice minutes before starting a new
   session) and is verified by a mutation-hardened ordering test.
 
+  **Wave 1 (#84 H) — SWITCH error isolation.** ``_do_leave`` runs under
+  a ``try/except`` so a transient leave failure (stale stock row, write
+  contention, etc.) cannot skip the subsequent ``_do_join`` — the member
+  HAS already moved channels at the Discord level, so dropping the join
+  would desync the listener's volatile state from reality. The leave
+  failure is logged at ERROR with ``exc_info=True`` so operators can
+  diagnose it after the fact.
+
 The listener holds:
 
 * a per-guild :class:`ActivityService` factory and
@@ -42,6 +50,7 @@ owns the central handler).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -56,6 +65,9 @@ if TYPE_CHECKING:
     from friendex.application.activity_service import ActivityService
     from friendex.application.voice_ping_service import VoicePingService
     from friendex.application.voice_session_store import VoiceSessionStore
+
+
+logger = logging.getLogger(__name__)
 
 
 class VoiceListener(commands.Cog):
@@ -132,13 +144,30 @@ class VoiceListener(commands.Cog):
 
         if before_id is not None and after_id is not None:
             # SWITCH — finalise OLD FIRST, then create NEW, then reward + seed.
-            await self._do_leave(
-                activity_service=activity_service,
-                session_store=session_store,
-                user_id=user_id,
-                channel_id=before_id,
-                now=now,
-            )
+            # Wave 1 (#84 H): isolate the leave from the join. A transient
+            # error on leave MUST NOT skip the join — the user has already
+            # moved channels at the Discord level, so dropping the join
+            # would desync our volatile state from reality. ``Exception``
+            # (not ``BaseException``) keeps cancellation + shutdown working.
+            try:
+                await self._do_leave(
+                    activity_service=activity_service,
+                    session_store=session_store,
+                    user_id=user_id,
+                    channel_id=before_id,
+                    now=now,
+                )
+            except Exception:
+                logger.error(
+                    "voice_listener.switch_leave_failed",
+                    extra={
+                        "guild_id": guild_id,
+                        "user_id": user_id,
+                        "before_channel_id": before_id,
+                        "after_channel_id": after_id,
+                    },
+                    exc_info=True,
+                )
             await self._do_join(
                 activity_service=activity_service,
                 voice_ping_service=voice_ping_service,

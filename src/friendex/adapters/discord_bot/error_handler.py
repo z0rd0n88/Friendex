@@ -8,6 +8,13 @@ exception lands here.
 
 Behaviour, in classification order:
 
+* :class:`discord.app_commands.errors.CheckFailure` — discord.py dispatches
+  permission-check failures (``has_permissions``, ``has_role``, custom
+  ``app_commands.check`` decorators) without wrapping them in a
+  ``CommandInvokeError``, so the branch sits BEFORE the unwrap loop. Reply
+  ephemerally with a fixed user-facing permission-denied message; do NOT
+  log at CRITICAL — a denied permission is a routine outcome, not an
+  operator-visible incident.
 * If the raised exception is wrapped in one or more
   :class:`discord.app_commands.errors.CommandInvokeError` layers, unwrap
   recursively to ``.original`` before classification. Discord wraps every
@@ -66,6 +73,7 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_PERSISTENCE_REPLY = "Internal error, please try again"
 _GENERIC_UNEXPECTED_REPLY = "Unexpected error"
+_GENERIC_CHECK_FAILURE_REPLY = "You don't have permission to use that command."
 
 
 def _unwrap(error: BaseException) -> BaseException:
@@ -140,6 +148,16 @@ def register_error_handler(
         error: app_commands.AppCommandError,
     ) -> None:
         """Single error-routing entry point for every slash command."""
+        # ``CheckFailure`` covers permission checks (``has_permissions``,
+        # ``has_role``, custom checks). discord.py dispatches these without
+        # wrapping in ``CommandInvokeError``, so the branch sits BEFORE the
+        # unwrap loop. Reply ephemerally with a user-facing message; do NOT
+        # log at CRITICAL — a denied permission is a routine outcome, not an
+        # operator-visible incident.
+        if isinstance(error, app_commands.CheckFailure):
+            await _reply_content(interaction, _GENERIC_CHECK_FAILURE_REPLY)
+            return
+
         unwrapped = _unwrap(error)
 
         if isinstance(unwrapped, DomainError):

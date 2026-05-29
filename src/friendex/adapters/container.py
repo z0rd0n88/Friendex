@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING
 
 import discord
 import structlog
+from discord.ext import commands
 
 from friendex.adapters.discord_bot.cogs.account_cog import AccountCog
 from friendex.adapters.discord_bot.cogs.admin_cog import AdminCog
@@ -101,7 +102,6 @@ from friendex.application.voice_session_store import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
-    from discord.ext import commands
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from friendex.adapters.config import Settings
@@ -317,6 +317,24 @@ class Container:
             self._ping_sessions[guild_id] = store
         return store
 
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        """Evict the departing guild's volatile per-guild stores.
+
+        Wave 1 (#82 M2): the container lazily seeds ``_voice_sessions`` and
+        ``_ping_sessions`` on first access — but never garbage-collects
+        them. A bot left running across thousands of guild adds/removes
+        (e.g. brief Lyra-style test deployments) would accumulate dead
+        entries forever. Popping on ``on_guild_remove`` keeps the maps
+        bounded by the live guild set.
+
+        Using ``dict.pop(key, default)`` makes the eviction idempotent — a
+        guild that was never seeded (e.g. removed before any voice
+        activity ran) is a quiet no-op rather than a ``KeyError``.
+        """
+        guild_id = str(guild.id)
+        self._voice_sessions.pop(guild_id, None)
+        self._ping_sessions.pop(guild_id, None)
+
     # ------------------------------------------------------------------
     # Factory builders — each closes over ``self`` and returns a callable
     # ------------------------------------------------------------------
@@ -486,9 +504,13 @@ class Container:
         async def iter_guild_ids() -> Iterable[str]:
             return [str(g.id) for g in bot.guilds]
 
+        # Wave 1 (#82 H15 / #84 H): the public ``bind_guild_id_provider`` and
+        # ``bind_notifier`` setters replace direct attribute mutation on the
+        # task instances. The task classes declare these as typed seams so
+        # mypy can follow the injection without ``# type: ignore``.
         for task in self.raw_tasks:
-            task._iter_guild_ids = iter_guild_ids
-        self._liquidation_task._notifier = _make_liquidation_notifier(bot)
+            task.bind_guild_id_provider(iter_guild_ids)
+        self._liquidation_task.bind_notifier(_make_liquidation_notifier(bot))
 
         return tuple(TaskRunner(task) for task in self.raw_tasks)
 
@@ -500,9 +522,36 @@ class Container:
         cog) and ``commands.Cog.listener()`` decorators. Listeners are added
         via the same call — they are :class:`commands.Cog` subclasses by
         Phase-12 convention.
+
+        Wave 1 (#82 M2): a thin :class:`_GuildLifecycleCog` is also added so
+        the bot's ``on_guild_remove`` event evicts the departing guild's
+        volatile per-guild stores from the container's maps. The cog is
+        built lazily here (not in ``__init__``) because it captures ``self``
+        — keeping it inside the registration scope avoids a self-reference
+        on the container's instance fields list.
         """
         for cog in self.cogs:
             await bot.add_cog(cog)
         for listener in self.listeners:
             await bot.add_cog(listener)
+        await bot.add_cog(_GuildLifecycleCog(self))
         register_error_handler(bot, self._settings)
+
+
+class _GuildLifecycleCog(commands.Cog):
+    """Bot-lifecycle listener that forwards ``on_guild_remove`` to the container.
+
+    Wave 1 (#82 M2): the cog exists solely to bridge discord.py's event
+    dispatch into :meth:`Container.on_guild_remove` so the container can
+    evict the departing guild from its volatile per-guild stores
+    (``_voice_sessions``, ``_ping_sessions``). Keeping the bridge in its
+    own Cog (rather than smuggling it onto an existing listener) preserves
+    the Phase 12 listener taxonomy — each cog owns one event domain.
+    """
+
+    def __init__(self, container: Container) -> None:
+        self._container = container
+
+    @commands.Cog.listener()
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        await self._container.on_guild_remove(guild)

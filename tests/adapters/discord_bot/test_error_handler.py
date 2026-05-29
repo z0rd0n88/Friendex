@@ -262,3 +262,80 @@ def test_register_error_handler_installs_handler_on_bot_tree() -> None:
     assert bot.tree.on_error is not None
     # The registered handler is callable (a coroutine function).
     assert callable(bot.tree.on_error)
+
+
+# ---------------------------------------------------------------------------
+# CheckFailure branch (Wave 1, issue #84 C) — must reply ephemerally and NOT
+# log at CRITICAL or fall through to the "Unexpected error" path.
+
+
+async def test_check_failure_replies_ephemerally_and_does_not_log_critical(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``app_commands.CheckFailure`` (e.g. ``has_permissions`` deny) gets a
+    friendly ephemeral "you don't have permission" reply, and the handler
+    must NOT escalate it to the unexpected-error CRITICAL log.
+
+    Mutation-hardening: a regression that drops the CheckFailure branch
+    would route this through the fallthrough Exception branch — the test
+    asserts both the ephemeral content shape AND the absence of any
+    CRITICAL record on the error_handler logger.
+    """
+    _bot, handler = _install_handler()
+    interaction = _make_interaction()
+    # ``CheckFailure`` is the base of permission-denials and custom checks.
+    error = app_commands.errors.CheckFailure("missing manage_guild")
+
+    logger_name = "friendex.adapters.discord_bot.error_handler"
+    with caplog.at_level("DEBUG", logger=logger_name):
+        await handler(interaction, error)
+
+    # The reply went out ephemerally (no embed — content-only is fine, the
+    # CheckFailure surface is plain text).
+    interaction.response.send_message.assert_awaited_once()
+    kwargs = interaction.response.send_message.await_args.kwargs
+    assert kwargs.get("ephemeral") is True
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
+    content = kwargs.get("content", "")
+    # The content carries a user-facing permission denial — not internal state.
+    assert "permission" in content.lower()
+
+    # Absence of CRITICAL on the handler logger is the mutation guard:
+    # the regression sends this to the CRITICAL-with-exc_info fallthrough.
+    critical = [
+        r for r in caplog.records if r.name == logger_name and r.levelname == "CRITICAL"
+    ]
+    assert critical == [], (
+        f"CheckFailure must not log at CRITICAL; got {[r.message for r in critical]!r}"
+    )
+
+
+async def test_check_failure_branch_runs_before_unwrap_loop() -> None:
+    """A direct ``CheckFailure`` (not wrapped in ``CommandInvokeError``) is
+    classified before the unwrap loop touches it.
+
+    discord.py dispatches check failures without a ``CommandInvokeError``
+    wrap — the handler must accept the bare type directly.
+    """
+    _bot, handler = _install_handler()
+    interaction = _make_interaction()
+    error = app_commands.errors.CheckFailure("not allowed")
+
+    await handler(interaction, error)
+
+    interaction.response.send_message.assert_awaited_once()
+
+
+async def test_check_failure_uses_followup_when_response_done() -> None:
+    """Followup path mirrors the other branches: ephemeral, allowed_mentions.none()."""
+    _bot, handler = _install_handler()
+    interaction = _make_interaction(already_responded=True)
+    error = app_commands.errors.CheckFailure("permission denied")
+
+    await handler(interaction, error)
+
+    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_awaited_once()
+    kwargs = interaction.followup.send.await_args.kwargs
+    assert kwargs.get("ephemeral") is True
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)

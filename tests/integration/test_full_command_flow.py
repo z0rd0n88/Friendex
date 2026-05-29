@@ -123,9 +123,13 @@ def _stub_interaction(*, user_id: int, guild_id: int) -> MagicMock:
 
 
 def _embed_from_send(interaction: MagicMock) -> discord.Embed:
-    """Pull the ``embed=`` kwarg off the most recent ``send_message`` call."""
-    assert interaction.response.send_message.await_count >= 1
-    kwargs = interaction.response.send_message.await_args.kwargs
+    """Pull the ``embed=`` kwarg off the most recent ``followup.send`` call.
+
+    Wave 1 (#82 H13) routed every cog reply through ``followup.send`` after
+    a ``response.defer(...)``; the integration helper follows.
+    """
+    assert interaction.followup.send.await_count >= 1
+    kwargs = interaction.followup.send.await_args.kwargs
     embed = kwargs["embed"]
     assert isinstance(embed, discord.Embed)
     return embed
@@ -173,7 +177,8 @@ async def test_build_bot_wires_real_container(
 
     await bot.setup_hook()
 
-    assert bot.add_cog.await_count == 11  # 7 cogs + 4 listeners
+    # 7 cogs + 4 listeners + 1 Wave-1 _GuildLifecycleCog = 12 add_cog calls.
+    assert bot.add_cog.await_count == 12
     assert len(captured) == 8
     for runner in captured:
         assert runner.start.call_count == 1
@@ -287,5 +292,7 @@ async def test_full_command_flow_daily_buy_portfolio(
         longs_field = next(f for f in fields if f.get("name") == "Longs")
         assert str(target_id) in longs_field["value"]
         # Ephemeral on read-commands per CLAUDE.md visibility table.
-        send_kwargs = portfolio_interaction.response.send_message.await_args.kwargs
+        # Wave 1 (#82 H13): replies route through ``followup.send`` after a
+        # ``response.defer(ephemeral=True)``.
+        send_kwargs = portfolio_interaction.followup.send.await_args.kwargs
         assert send_kwargs.get("ephemeral") is True

@@ -55,9 +55,14 @@ def _hedge_fund(
 
 
 def _send_call_kwargs(interaction) -> dict:  # type: ignore[no-untyped-def]
-    """Return the kwargs dict of the last ``send_message`` call."""
-    assert interaction.response.send_message.await_count >= 1
-    return interaction.response.send_message.await_args.kwargs
+    """Return the kwargs dict of the last user-visible reply.
+
+    Wave 1 (#82 H13) routed every cog reply through
+    ``interaction.followup.send`` after ``interaction.response.defer(...)``.
+    The helper inspects ``followup.send`` (the new reply seam).
+    """
+    assert interaction.followup.send.await_count >= 1
+    return interaction.followup.send.await_args.kwargs
 
 
 def _make_member(user_id: int):  # type: ignore[no-untyped-def]
@@ -178,7 +183,7 @@ async def test_fund_create_propagates_already_opted_in(
     interaction = fake_interaction()
     with pytest.raises(AlreadyOptedIn):
         await FundGroup.create.callback(group, interaction, name=None)
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +337,7 @@ async def test_fund_withdraw_propagates_fund_insufficient_balance(
     interaction = fake_interaction()
     with pytest.raises(FundInsufficientBalance):
         await FundGroup.withdraw.callback(group, interaction, amount=100.0)
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +380,7 @@ async def test_fund_send_events_propagates_invalid_amount(
     interaction = fake_interaction()
     with pytest.raises(InvalidAmount):
         await FundGroup.send_events.callback(group, interaction, amount=0.0)
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -431,7 +436,7 @@ async def test_fund_invest_propagates_invalid_amount(
     target = _make_member(555)
     with pytest.raises(InvalidAmount):
         await FundGroup.invest.callback(group, interaction, user=target, amount=100.0)
-    interaction.response.send_message.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -465,3 +470,50 @@ def test_fund_cog_exposes_group_for_phase_13_wiring(
     """``FundCog`` exposes the ``FundGroup`` instance so Phase 13 can register it."""
     cog = FundCog(fund_service_factory=fund_service_factory)
     assert isinstance(cog.group, FundGroup)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 contracts — defer ephemerality and guild_only
+
+
+async def test_fund_info_defers_ephemerally(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    fund_service: AsyncMock,
+    fund_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/fund info`` is ephemeral — defer with ``ephemeral=True``."""
+    fund_service.fund_info.return_value = None
+    group = FundGroup(fund_service_factory=fund_service_factory)
+    interaction = fake_interaction()
+
+    await FundGroup.info.callback(group, interaction, user=None)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+
+
+async def test_fund_create_defers_publicly(
+    fake_interaction,  # type: ignore[no-untyped-def]
+    fund_service: AsyncMock,
+    fund_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """``/fund create`` is a public mutation — defer with ``ephemeral=False``."""
+    fund_service.fund_info.return_value = None
+    group = FundGroup(fund_service_factory=fund_service_factory)
+    interaction = fake_interaction()
+
+    await FundGroup.create.callback(group, interaction, name=None)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=False)
+
+
+def test_fund_group_is_guild_only(
+    fund_service_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """Wave 1 (#82 H14): the parent group refuses DM dispatch.
+
+    The group-level ``@app_commands.guild_only()`` propagates to every
+    subcommand under it — Discord refuses DM dispatch for the whole
+    ``/fund`` namespace.
+    """
+    instance = FundGroup(fund_service_factory=fund_service_factory)
+    assert getattr(instance, "guild_only", None) is True
