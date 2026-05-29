@@ -21,6 +21,12 @@ Behaviour, in classification order:
   exception raised from a slash callback in a single
   ``CommandInvokeError``; nested wraps are rare but possible (e.g. when a
   cog's own decorator re-raises). One ``while``-loop unwrap covers both.
+* After unwrapping, a second :class:`CheckFailure` test catches the
+  defence-in-depth case where a custom decorator (or a future discord.py
+  release) raises ``CommandInvokeError(CheckFailure(...))``. The unwrapped
+  inner exception is still a routine permission denial; without this
+  follow-up branch it would fall through to the CRITICAL "Unexpected
+  error" path. Reviewer's MEDIUM-1 hardener.
 * :class:`DomainError` → ephemeral red embed whose ``description`` is the
   ``user_facing_message`` verbatim (palette pinned via
   :data:`friendex.adapters.discord_bot.embeds.COLOR_ERROR`). The user sees
@@ -159,6 +165,16 @@ def register_error_handler(
             return
 
         unwrapped = _unwrap(error)
+
+        # Defence in depth (Wave 1 review MEDIUM-1): a custom decorator (or
+        # a future discord.py release) may raise
+        # ``CommandInvokeError(CheckFailure(...))``. After the unwrap loop,
+        # re-check for ``CheckFailure`` so a wrapped routine permission
+        # denial still routes to the friendly ephemeral reply instead of
+        # the CRITICAL "Unexpected error" fallthrough.
+        if isinstance(unwrapped, app_commands.CheckFailure):
+            await _reply_content(interaction, _GENERIC_CHECK_FAILURE_REPLY)
+            return
 
         if isinstance(unwrapped, DomainError):
             await _reply_embed(interaction, build_error_embed(unwrapped))

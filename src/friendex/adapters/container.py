@@ -52,7 +52,6 @@ from typing import TYPE_CHECKING
 
 import discord
 import structlog
-from discord.ext import commands
 
 from friendex.adapters.discord_bot.cogs.account_cog import AccountCog
 from friendex.adapters.discord_bot.cogs.admin_cog import AdminCog
@@ -65,6 +64,9 @@ from friendex.adapters.discord_bot.embeds import (
     build_liquidation_notification_embed,
 )
 from friendex.adapters.discord_bot.error_handler import register_error_handler
+from friendex.adapters.discord_bot.listeners.lifecycle_listener import (
+    LifecycleListener,
+)
 from friendex.adapters.discord_bot.listeners.member_listener import MemberListener
 from friendex.adapters.discord_bot.listeners.message_listener import MessageListener
 from friendex.adapters.discord_bot.listeners.reaction_listener import ReactionListener
@@ -102,6 +104,7 @@ from friendex.application.voice_session_store import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
+    from discord.ext import commands
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from friendex.adapters.config import Settings
@@ -523,35 +526,20 @@ class Container:
         via the same call — they are :class:`commands.Cog` subclasses by
         Phase-12 convention.
 
-        Wave 1 (#82 M2): a thin :class:`_GuildLifecycleCog` is also added so
-        the bot's ``on_guild_remove`` event evicts the departing guild's
-        volatile per-guild stores from the container's maps. The cog is
-        built lazily here (not in ``__init__``) because it captures ``self``
-        — keeping it inside the registration scope avoids a self-reference
-        on the container's instance fields list.
+        Wave 1 (#82 M2 + review LOW-3): a thin :class:`LifecycleListener`
+        is also added so the bot's ``on_guild_remove`` event evicts the
+        departing guild's volatile per-guild stores from the container's
+        maps. The listener lives under
+        ``adapters/discord_bot/listeners/lifecycle_listener.py`` — keeping
+        the bridge in its own Cog (rather than smuggling it onto an
+        existing listener) preserves the Phase 12 listener taxonomy. The
+        listener takes the container's cleanup method as a bare callback
+        so the listener module never imports :class:`Container` (the
+        composition root imports listeners, not the reverse).
         """
         for cog in self.cogs:
             await bot.add_cog(cog)
         for listener in self.listeners:
             await bot.add_cog(listener)
-        await bot.add_cog(_GuildLifecycleCog(self))
+        await bot.add_cog(LifecycleListener(on_guild_remove=self.on_guild_remove))
         register_error_handler(bot, self._settings)
-
-
-class _GuildLifecycleCog(commands.Cog):
-    """Bot-lifecycle listener that forwards ``on_guild_remove`` to the container.
-
-    Wave 1 (#82 M2): the cog exists solely to bridge discord.py's event
-    dispatch into :meth:`Container.on_guild_remove` so the container can
-    evict the departing guild from its volatile per-guild stores
-    (``_voice_sessions``, ``_ping_sessions``). Keeping the bridge in its
-    own Cog (rather than smuggling it onto an existing listener) preserves
-    the Phase 12 listener taxonomy — each cog owns one event domain.
-    """
-
-    def __init__(self, container: Container) -> None:
-        self._container = container
-
-    @commands.Cog.listener()
-    async def on_guild_remove(self, guild: discord.Guild) -> None:
-        await self._container.on_guild_remove(guild)

@@ -339,3 +339,83 @@ async def test_check_failure_uses_followup_when_response_done() -> None:
     kwargs = interaction.followup.send.await_args.kwargs
     assert kwargs.get("ephemeral") is True
     assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
+
+
+async def test_wrapped_check_failure_replies_ephemerally_and_does_not_log_critical(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A ``CommandInvokeError`` wrapping a ``CheckFailure`` still routes friendly.
+
+    Wave 1 review MEDIUM-1: today discord.py dispatches bare ``CheckFailure``
+    (so the pre-unwrap branch catches it), but a custom decorator (or a
+    future discord.py version) can raise ``CommandInvokeError(CheckFailure)``.
+    The handler must classify the *unwrapped* exception too — otherwise the
+    fallthrough sends the routine permission-denial through the
+    "Unexpected error" CRITICAL path.
+
+    Mutation-hardener: without the post-unwrap ``isinstance(unwrapped,
+    CheckFailure)`` check, ``unwrapped`` is a ``CheckFailure``, but it does
+    not match ``DomainError`` or ``PersistenceError``, so it falls through
+    and logs at CRITICAL.
+    """
+    _bot, handler = _install_handler()
+    interaction = _make_interaction()
+    inner = app_commands.errors.CheckFailure("missing manage_guild")
+    cmd = MagicMock(name="Command")
+    wrapped = app_commands.errors.CommandInvokeError(cmd, inner)
+
+    logger_name = "friendex.adapters.discord_bot.error_handler"
+    with caplog.at_level("DEBUG", logger=logger_name):
+        await handler(interaction, wrapped)
+
+    # The friendly ephemeral reply must have been sent.
+    interaction.response.send_message.assert_awaited_once()
+    kwargs = interaction.response.send_message.await_args.kwargs
+    assert kwargs.get("ephemeral") is True
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
+    content = kwargs.get("content", "")
+    assert "permission" in content.lower()
+
+    # And the handler must NOT have escalated to the CRITICAL fallthrough.
+    critical = [
+        r for r in caplog.records if r.name == logger_name and r.levelname == "CRITICAL"
+    ]
+    messages = [r.message for r in critical]
+    assert critical == [], (
+        f"Wrapped CheckFailure must not log at CRITICAL; got {messages!r}"
+    )
+
+
+async def test_nested_wrapped_check_failure_unwraps_recursively_to_friendly_reply(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two-level ``CommandInvokeError`` wraps a ``CheckFailure``.
+
+    Mutation-hardener pair to the unwrap loop test above: confirms the
+    post-unwrap ``CheckFailure`` check sees the result of the *recursive*
+    unwrap, not just one peel.
+    """
+    _bot, handler = _install_handler()
+    interaction = _make_interaction()
+    inner = app_commands.errors.CheckFailure("permission denied")
+    cmd = MagicMock(name="Command")
+    middle = app_commands.errors.CommandInvokeError(cmd, inner)
+    outer = app_commands.errors.CommandInvokeError(cmd, middle)
+
+    logger_name = "friendex.adapters.discord_bot.error_handler"
+    with caplog.at_level("DEBUG", logger=logger_name):
+        await handler(interaction, outer)
+
+    interaction.response.send_message.assert_awaited_once()
+    kwargs = interaction.response.send_message.await_args.kwargs
+    assert kwargs.get("ephemeral") is True
+    content = kwargs.get("content", "")
+    assert "permission" in content.lower()
+
+    critical = [
+        r for r in caplog.records if r.name == logger_name and r.levelname == "CRITICAL"
+    ]
+    messages = [r.message for r in critical]
+    assert critical == [], (
+        f"Nested wrapped CheckFailure must not log at CRITICAL; got {messages!r}"
+    )
