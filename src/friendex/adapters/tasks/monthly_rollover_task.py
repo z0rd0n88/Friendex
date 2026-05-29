@@ -36,6 +36,15 @@ prior-month baseline would inflate the credited interest. The fail-stop is
 load-bearing — that's why each guild's processing short-circuits on a
 portfolio failure rather than logging-and-continuing within the same guild.
 
+**Split bookkeeping for fund-only replay (PR #89 review L-1).** Tracking only
+``last_monthly_rollover`` makes a fund-accrual failure replay BOTH steps on
+the next tick — wasteful because portfolio capture is idempotent. A second
+marker, ``last_portfolio_capture``, advances the moment the portfolio call
+succeeds; the next tick consults it and skips portfolio when the marker
+already shows the current month, replaying ONLY fund accrual.
+``last_monthly_rollover`` still gates the outer stale-check and only
+advances after BOTH calls land.
+
 **Cadence is declared.** ``interval_hours = 1``; the Phase 14 composition
 layer wraps :meth:`_run` in a ``discord.ext.tasks.loop(hours=1)``.
 """
@@ -107,43 +116,95 @@ class MonthlyRolloverTask(BackgroundTask):
     async def _process_guild(
         self, guild_id: str, now: datetime, month_marker: date
     ) -> None:
-        """Process one guild: stale-check, portfolio, fund, advance state.
+        """Process one guild: stale-check, portfolio (skip if done), fund, advance.
 
         Order is load-bearing: portfolio capture MUST run before fund accrual
         (the baseline must be fresh before APY is credited) AND both must
         succeed before the durable rollover marker advances (otherwise the
         next tick would skip a guild that owed a retry).
+
+        On a fund-only replay (portfolio already captured for this month),
+        the portfolio step is skipped via ``last_portfolio_capture`` — the
+        re-run would be idempotent but wasteful (PR #89 review L-1).
         """
-        if not await self._is_stale(guild_id, month_marker):
+        state = await self._state_repo.get(guild_id)
+        if not self._is_stale(state, month_marker):
             return
-        portfolio = self._portfolio_factory(guild_id)
-        await portfolio.capture_month_start_net_worth()
+        if not self._portfolio_already_captured(state, month_marker):
+            portfolio = self._portfolio_factory(guild_id)
+            await portfolio.capture_month_start_net_worth()
+            # Persist the portfolio-only marker BEFORE fund accrual so a
+            # fund failure here still lets the next tick skip portfolio.
+            await self._advance_portfolio_marker(state, guild_id, month_marker)
+            # Re-read so the subsequent advance-state call sees the marker
+            # we just wrote (the in-memory ``state`` is now stale).
+            state = await self._state_repo.get(guild_id)
         fund = self._fund_factory(guild_id)
         await fund.accrue_apy(now=now)
-        await self._advance_state(guild_id, month_marker)
+        await self._advance_rollover_marker(state, guild_id, month_marker)
 
-    async def _is_stale(self, guild_id: str, month_marker: date) -> bool:
+    @staticmethod
+    def _is_stale(state: SystemState | None, month_marker: date) -> bool:
         """Return ``True`` iff the guild's stored marker is older than ``month_marker``.
 
         A fresh guild (no state row, or ``last_monthly_rollover is None``)
         counts as stale so the first tick seeds the field.
         """
-        state = await self._state_repo.get(guild_id)
         if state is None or state.last_monthly_rollover is None:
             return True
         return state.last_monthly_rollover < month_marker
 
-    async def _advance_state(self, guild_id: str, month_marker: date) -> None:
+    @staticmethod
+    def _portfolio_already_captured(
+        state: SystemState | None, month_marker: date
+    ) -> bool:
+        """Return ``True`` iff portfolio capture already succeeded this month.
+
+        Drives the L-1 fund-only-replay path: when this guild's previous
+        tick captured portfolio successfully (``last_portfolio_capture ==
+        month_marker``) but failed on fund accrual, the next tick skips
+        the portfolio step entirely.
+        """
+        if state is None or state.last_portfolio_capture is None:
+            return False
+        return state.last_portfolio_capture >= month_marker
+
+    async def _advance_portfolio_marker(
+        self, existing: SystemState | None, guild_id: str, month_marker: date
+    ) -> None:
+        """Upsert :class:`SystemState` with ``last_portfolio_capture = month_marker``.
+
+        Preserves every other field. Called after portfolio capture succeeds
+        but BEFORE fund accrual, so a fund failure leaves the portfolio
+        marker advanced (load-bearing for the L-1 replay).
+        """
+        new_state = SystemState(
+            guild_id=guild_id,
+            last_daily_reset=(existing.last_daily_reset if existing else None),
+            last_weekly_reset=(existing.last_weekly_reset if existing else None),
+            last_monthly_rollover=(
+                existing.last_monthly_rollover if existing else None
+            ),
+            last_portfolio_capture=month_marker,
+        )
+        await self._state_repo.upsert(new_state)
+
+    async def _advance_rollover_marker(
+        self, existing: SystemState | None, guild_id: str, month_marker: date
+    ) -> None:
         """Upsert :class:`SystemState` with ``last_monthly_rollover = month_marker``.
 
-        Preserves ``last_daily_reset`` and ``last_weekly_reset`` so the three
-        reset clocks stay independent.
+        Preserves ``last_daily_reset``, ``last_weekly_reset`` and
+        ``last_portfolio_capture`` so the four bookkeeping clocks stay
+        independent.
         """
-        existing = await self._state_repo.get(guild_id)
         new_state = SystemState(
             guild_id=guild_id,
             last_daily_reset=(existing.last_daily_reset if existing else None),
             last_weekly_reset=(existing.last_weekly_reset if existing else None),
             last_monthly_rollover=month_marker,
+            last_portfolio_capture=(
+                existing.last_portfolio_capture if existing else month_marker
+            ),
         )
         await self._state_repo.upsert(new_state)

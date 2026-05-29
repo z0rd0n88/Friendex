@@ -88,8 +88,9 @@ class DailyResetTask(BackgroundTask):
     async def _advance_state(self, guild_id: str, now: datetime) -> None:
         """Upsert :class:`SystemState` with ``last_daily_reset = now``.
 
-        Preserves ``last_weekly_reset`` and ``last_monthly_rollover`` if they
-        were already set (read-modify-write on the existing row).
+        Preserves ``last_weekly_reset``, ``last_monthly_rollover`` and
+        ``last_portfolio_capture`` if they were already set
+        (read-modify-write on the existing row).
         """
         existing = await self._state_repo.get(guild_id)
         new_state = SystemState(
@@ -98,6 +99,9 @@ class DailyResetTask(BackgroundTask):
             last_weekly_reset=(existing.last_weekly_reset if existing else None),
             last_monthly_rollover=(
                 existing.last_monthly_rollover if existing else None
+            ),
+            last_portfolio_capture=(
+                existing.last_portfolio_capture if existing else None
             ),
         )
         await self._state_repo.upsert(new_state)

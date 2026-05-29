@@ -253,12 +253,14 @@ async def test_monthly_rollover_state_not_advanced_on_portfolio_failure(
 async def test_monthly_rollover_state_not_advanced_on_fund_failure(
     fake_system_state_repo: FakeSystemStateRepo,
 ) -> None:
-    """M7: fund fails → state stays unadvanced; portfolio retried next tick.
+    """M7: fund fails → ``last_monthly_rollover`` stays unadvanced.
 
-    Even though portfolio already ran, the spec mandates the bookkeeping field
-    is only advanced after BOTH services succeed. Portfolio's
-    ``capture_month_start_net_worth`` is retry-safe (idempotent at start-of-
-    month) per the Phase 8e digest, so a replay on next tick is safe.
+    Even though portfolio already ran, the spec mandates the rollover field
+    is only advanced after BOTH services succeed.
+
+    PR #89 review L-1 refinement: ``last_portfolio_capture`` advances
+    immediately after the portfolio call succeeds, so the next-tick replay
+    skips portfolio and re-runs only fund accrual.
     """
     port = MagicMock()
     port.capture_month_start_net_worth = AsyncMock(return_value=None)
@@ -282,7 +284,11 @@ async def test_monthly_rollover_state_not_advanced_on_fund_failure(
     port.capture_month_start_net_worth.assert_awaited_once()
     fund.accrue_apy.assert_awaited_once()
     state = await fake_system_state_repo.get(GUILD)
-    assert state is None or state.last_monthly_rollover is None
+    # Rollover marker NOT advanced (fund failed) — but the portfolio marker
+    # IS advanced so the next tick skips the now-redundant portfolio call.
+    assert state is not None
+    assert state.last_monthly_rollover is None
+    assert state.last_portfolio_capture == date(2026, 6, 1)
 
 
 async def test_monthly_rollover_isolates_portfolio_exception_per_guild(
@@ -360,10 +366,14 @@ async def test_monthly_rollover_isolates_fund_exception_per_guild(
     fund_a.accrue_apy.assert_awaited_once()
     fund_b.accrue_apy.assert_awaited_once()
 
-    # g1 state not advanced (fund failed); g2 state advanced.
+    # g1 rollover marker NOT advanced (fund failed); the portfolio marker IS
+    # advanced so the next tick skips the portfolio re-run (L-1 fix-up).
+    # g2 fully advanced.
     s1 = await fake_system_state_repo.get("g1")
     s2 = await fake_system_state_repo.get("g2")
-    assert s1 is None or s1.last_monthly_rollover is None
+    assert s1 is not None
+    assert s1.last_monthly_rollover is None
+    assert s1.last_portfolio_capture == date(2026, 6, 1)
     assert s2 is not None
     assert s2.last_monthly_rollover == date(2026, 6, 1)
 
@@ -376,6 +386,11 @@ async def test_monthly_rollover_replays_only_failed_guild_on_next_tick(
     Critical integration test for #82 C3: the durable
     ``last_monthly_rollover`` field is advanced per guild after both services
     succeed; a guild that did not advance is the only one replayed.
+
+    PR #89 review L-1 refinement: B's portfolio is called only ONCE because
+    ``last_portfolio_capture`` already advanced on tick 1 (portfolio
+    succeeded; only fund failed). The next tick replays only the fund step
+    for B.
     """
     port_a = MagicMock()
     port_a.capture_month_start_net_worth = AsyncMock(return_value=None)
@@ -400,22 +415,75 @@ async def test_monthly_rollover_replays_only_failed_guild_on_next_tick(
     # First tick — A succeeds, B fails on fund.
     with freeze_time("2026-06-01 00:30:00", tz_offset=0):
         await task._run()
-    # Second tick — A is skipped (already advanced); only B is retried.
+    # Second tick — A is skipped (already advanced); only B's fund is retried.
     with freeze_time("2026-06-01 01:30:00", tz_offset=0):
         await task._run()
 
     # A: portfolio + fund called ONCE (advanced after the first tick).
     assert port_a.capture_month_start_net_worth.await_count == 1
     assert fund_a.accrue_apy.await_count == 1
-    # B: portfolio + fund called TWICE (first tick failed; second replayed).
-    assert port_b.capture_month_start_net_worth.await_count == 2
+    # B: portfolio called ONCE (already captured on tick 1; the L-1 split
+    # bookkeeping skips it on tick 2); fund called TWICE (first failed,
+    # second succeeded).
+    assert port_b.capture_month_start_net_worth.await_count == 1
     assert fund_b.accrue_apy.await_count == 2
 
-    # Both states advanced by the end.
+    # Both states fully advanced by the end.
     s1 = await fake_system_state_repo.get("g1")
     s2 = await fake_system_state_repo.get("g2")
     assert s1 is not None and s1.last_monthly_rollover == date(2026, 6, 1)
     assert s2 is not None and s2.last_monthly_rollover == date(2026, 6, 1)
+
+
+async def test_monthly_rollover_replays_only_fund_when_portfolio_already_done(
+    fake_system_state_repo: FakeSystemStateRepo,
+) -> None:
+    """M11: a fund-only failure replays ONLY fund on the next tick.
+
+    PR #89 review L-1 fix-up: the task tracks ``last_portfolio_capture`` as a
+    separate per-guild marker so a fund failure (with portfolio already
+    succeeded for this month) does not re-run the now-idempotent portfolio
+    capture on retry. ``last_monthly_rollover`` (the "both succeeded" flag)
+    still advances only after both calls land.
+
+    Scenario: first tick — portfolio succeeds, fund raises. Second tick —
+    portfolio must NOT run again (already captured this month); fund must
+    run and (now succeeding) advance ``last_monthly_rollover``.
+    """
+    port = MagicMock()
+    port.capture_month_start_net_worth = AsyncMock(return_value=None)
+    fund = MagicMock()
+    # Fund fails on first tick, succeeds on second.
+    fund.accrue_apy = AsyncMock(side_effect=[RuntimeError("fund-boom"), None])
+
+    async def iter_guilds() -> list[str]:
+        return [GUILD]
+
+    task = MonthlyRolloverTask(
+        portfolio_service_factory=_portfolio_factory({GUILD: port}),
+        fund_service_factory=_fund_factory({GUILD: fund}),
+        iter_guild_ids=iter_guilds,
+        system_state_repo=fake_system_state_repo,
+    )
+
+    # Tick 1 — portfolio ran, fund raised, state not advanced.
+    with freeze_time("2026-06-01 00:30:00", tz_offset=0):
+        await task._run()
+    # Tick 2 — fund retried; portfolio must NOT run again.
+    with freeze_time("2026-06-01 01:30:00", tz_offset=0):
+        await task._run()
+
+    # Portfolio: ONCE (captured on tick 1, skipped on tick 2 because the
+    # split-bookkeeping field already shows June).
+    assert port.capture_month_start_net_worth.await_count == 1
+    # Fund: TWICE (raised on tick 1, succeeded on tick 2).
+    assert fund.accrue_apy.await_count == 2
+
+    # State fully advanced by end.
+    state = await fake_system_state_repo.get(GUILD)
+    assert state is not None
+    assert state.last_monthly_rollover == date(2026, 6, 1)
+    assert state.last_portfolio_capture == date(2026, 6, 1)
 
 
 async def test_monthly_rollover_preserves_daily_and_weekly_state(

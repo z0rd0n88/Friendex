@@ -43,6 +43,7 @@ def _to_dto(row: SystemStateORM) -> SystemState:
         last_daily_reset=row.last_daily_reset,
         last_weekly_reset=row.last_weekly_reset,
         last_monthly_rollover=row.last_monthly_rollover,
+        last_portfolio_capture=row.last_portfolio_capture,
     )
 
 
@@ -80,6 +81,7 @@ class SqlSystemStateRepository:
                     last_daily_reset=state.last_daily_reset,
                     last_weekly_reset=state.last_weekly_reset,
                     last_monthly_rollover=state.last_monthly_rollover,
+                    last_portfolio_capture=state.last_portfolio_capture,
                 )
             )
             await session.commit()

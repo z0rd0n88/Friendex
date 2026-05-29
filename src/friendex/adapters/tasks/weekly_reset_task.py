@@ -109,8 +109,9 @@ class WeeklyResetTask(BackgroundTask):
     async def _advance_state(self, guild_id: str, now: datetime) -> None:
         """Upsert :class:`SystemState` with ``last_weekly_reset = now``.
 
-        Preserves ``last_daily_reset`` and ``last_monthly_rollover`` so the
-        three reset clocks stay independent.
+        Preserves ``last_daily_reset``, ``last_monthly_rollover`` and
+        ``last_portfolio_capture`` so the four bookkeeping clocks stay
+        independent.
         """
         existing = await self._state_repo.get(guild_id)
         new_state = SystemState(
@@ -119,6 +120,9 @@ class WeeklyResetTask(BackgroundTask):
             last_weekly_reset=now,
             last_monthly_rollover=(
                 existing.last_monthly_rollover if existing else None
+            ),
+            last_portfolio_capture=(
+                existing.last_portfolio_capture if existing else None
             ),
         )
         await self._state_repo.upsert(new_state)
