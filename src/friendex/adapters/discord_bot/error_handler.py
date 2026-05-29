@@ -60,10 +60,10 @@ slash-only, so those paths are unreachable.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import discord
+import structlog
 from discord import app_commands
 
 from friendex.adapters.discord_bot.embeds import build_error_embed
@@ -74,7 +74,13 @@ if TYPE_CHECKING:
 
     from friendex.adapters.config import Settings
 
-logger = logging.getLogger(__name__)
+# ``structlog.get_logger`` is the project-standard adapter API (Phase 13
+# digest §logging). The pre-fix module used ``logging.getLogger(__name__)``
+# and passed structured fields via the stdlib ``extra={}`` kwarg — those
+# fields are silently dropped by the JSON renderer in production. structlog
+# accepts keyword arguments natively, so ``log.error("event", k=v)`` round-
+# trips through the processor chain configured in ``adapters/config.py``.
+logger = structlog.get_logger(__name__)
 
 
 _GENERIC_PERSISTENCE_REPLY = "Internal error, please try again"
@@ -142,10 +148,13 @@ def register_error_handler(
 ) -> None:
     """Install the central error handler on ``bot.tree.on_error``.
 
-    ``settings`` is currently unused but is part of the signature for
-    parity with the rest of the adapters layer — Phase 14+ may route
-    operator-facing notifications to a configured channel, and the
-    settings handle is the natural place to source that.
+    ``settings`` is accepted but unused today — it is reserved for Phase 14+
+    log-channel routing (operator-facing alert sink, e.g. a configured
+    Discord channel ID). The argument is kept rather than dropped because the
+    call site in ``adapters/container.py`` is out-of-scope for the
+    silent-failures branch (issue #82 L3): removing it would cross the
+    wave-2 ownership boundary. The ``del`` makes the intentional discard
+    explicit so static analysis treats the parameter as consumed.
     """
     del settings  # reserved for future tunables (e.g. log-channel routing)
 
@@ -181,12 +190,15 @@ def register_error_handler(
             return
 
         if isinstance(unwrapped, PersistenceError):
+            # structlog accepts the structured fields as keyword arguments —
+            # the JSON renderer in the production processor chain emits them
+            # as top-level keys alongside ``event``. The pre-fix call passed
+            # them via stdlib ``extra={}`` to ``logging.getLogger``; that
+            # adapter shape silently drops the kwargs at the JSON sink.
             logger.error(
-                "persistence error during slash command",
-                extra={
-                    "operation": unwrapped.operation,
-                    "detail": unwrapped.detail,
-                },
+                "persistence_error",
+                operation=unwrapped.operation,
+                detail=unwrapped.detail,
             )
             await _reply_content(interaction, _GENERIC_PERSISTENCE_REPLY)
             return
@@ -196,9 +208,10 @@ def register_error_handler(
         # ``exc_info=True`` sentinel) so the traceback survives even when
         # the handler is invoked outside an ``except:`` block — e.g. when
         # discord.py dispatches the error coroutine after the original
-        # frame has unwound and ``sys.exc_info()`` is empty.
+        # frame has unwound and ``sys.exc_info()`` is empty. structlog's
+        # ``ExceptionRenderer`` formats the tuple downstream.
         logger.critical(
-            "unexpected error during slash command",
+            "unexpected_error",
             exc_info=(type(unwrapped), unwrapped, unwrapped.__traceback__),
         )
         await _reply_content(interaction, _GENERIC_UNEXPECTED_REPLY)
