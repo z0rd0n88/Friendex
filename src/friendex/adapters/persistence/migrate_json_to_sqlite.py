@@ -385,7 +385,9 @@ async def _migrate_prices(
     """Migrate ``prices.json``; return ``(stocks, price_history_points)``.
 
     The scalar stock row is upserted first (FK parent), then its history is
-    cleared and re-appended so a re-run does not accumulate duplicate points.
+    cleared and re-appended atomically via :func:`_rewrite_price_history` so
+    a re-run does not accumulate duplicate points *and* a mid-rewrite kill
+    cannot leave the user with empty history (#82 H11).
     """
     records = _load_json_object(source / _PRICES_FILE)
     stocks = history_points = 0
@@ -395,21 +397,33 @@ async def _migrate_prices(
             points = _build_price_points(raw)
         await repo.upsert(guild_id, stock)
         stocks += 1
-        await _clear_price_history(maker, guild_id, user_id)
-        for point in points:
-            await repo.append_history(guild_id, user_id, point)
-            history_points += 1
+        await _rewrite_price_history(maker, guild_id, user_id, points)
+        history_points += len(points)
     return stocks, history_points
 
 
-async def _clear_price_history(
-    maker: async_sessionmaker[AsyncSession], guild_id: str, user_id: str
+async def _rewrite_price_history(
+    maker: async_sessionmaker[AsyncSession],
+    guild_id: str,
+    user_id: str,
+    points: list[PricePoint],
 ) -> None:
-    """Delete a stock's existing price-history rows ahead of a re-append.
+    """Replace a stock's price-history rows in one atomic transaction.
 
-    Price history is the one append-only table, so idempotency cannot rely on a
-    PK ``merge`` (each point has a surrogate id). Clearing first makes a re-run
-    replace the history rather than duplicate it.
+    #82 H11 — pre-fix the migrator cleared the history in one committed
+    session and re-appended each point in its own committed session. A kill
+    (or any raised exception) between the clear's commit and the last
+    append left the rows visibly gone.
+
+    The DELETE and the bulk INSERT now live in a single session and a
+    single transaction: if anything raises before ``commit()``, the
+    enclosing context manager rolls the transaction back, so the
+    pre-migration history is preserved for the operator to retry.
+
+    Price history is the one append-only table, so idempotency cannot rely
+    on a PK ``merge`` (each point has a surrogate id). Clearing first inside
+    the same transaction makes a re-run replace the history rather than
+    duplicate it.
     """
     async with maker() as session:
         await session.execute(
@@ -417,6 +431,9 @@ async def _clear_price_history(
                 PriceHistoryORM.guild_id == guild_id,
                 PriceHistoryORM.user_id == user_id,
             )
+        )
+        session.add_all(
+            PriceHistoryORM.from_domain(guild_id, user_id, point) for point in points
         )
         await session.commit()
 
@@ -637,7 +654,12 @@ def main(argv: list[str] | None = None) -> int:
 
     from pathlib import Path as _Path
 
-    source = _Path(args.source)
+    # #84 L — resolve the source path through ``Path.resolve()`` so an
+    # unresolved symlink in ``--source`` cannot silently redirect the
+    # migration to a different directory later in the run. The realpath is
+    # captured here, at parse time, and threaded through every downstream
+    # call.
+    source = _Path(args.source).resolve()
     if not source.is_dir():
         logger.error("source directory does not exist: %s", source)
         return 1
