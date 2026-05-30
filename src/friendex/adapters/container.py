@@ -33,17 +33,16 @@ on the trading service whose lock the liquidation already holds). The
 factory therefore builds the trading service first and threads it into the
 liquidation service.
 
-**Notifier.** The Phase-9 :class:`LiquidationTask` requires a notifier
-``Callable[[LiquidationEvent], Awaitable[None]]``. Phase 13 wires a no-op
-async callable — the task is never started in Phase 13, and Phase 14 will
-replace the notifier with one that renders + dispatches the actual Discord
-embed (per the Phase 9 digest's notifier contract).
-
-**``iter_guild_ids``.** Tasks need ``Callable[[], Awaitable[Iterable[str]]]``
-to walk the live guild set. Phase 13 wires a no-op coroutine that returns
-an empty iterable — tasks are constructed but never started here, so this
-is purely a wiring placeholder for Phase 14 to swap with
-``lambda: (str(g.id) for g in bot.guilds)`` (or similar) at start time.
+**Notifier and ``iter_guild_ids``.** The Phase-9 :class:`LiquidationTask`
+needs a notifier ``Callable[[LiquidationEvent], Awaitable[None]]`` and
+every task needs ``Callable[[], Awaitable[Iterable[str]]]`` to walk the
+live guild set. Both are wired by :meth:`build_runners` at startup:
+:func:`_make_liquidation_notifier` produces the real Discord-embed
+dispatcher (closed over the bot) and the real ``iter_guild_ids`` walks
+``bot.guilds`` on every tick. Construction-time defaults are unused
+no-ops — :meth:`build_runners` MUST be called before any task starts,
+and it rebinds both seams via :meth:`BackgroundTask.bind_guild_id_provider`
+and :meth:`LiquidationTask.bind_notifier`.
 """
 
 from __future__ import annotations
@@ -115,23 +114,6 @@ if TYPE_CHECKING:
 
 
 logger = structlog.get_logger(__name__)
-
-
-async def _empty_guild_ids() -> Iterable[str]:
-    """Phase-13 placeholder for ``iter_guild_ids``.
-
-    Returns the empty iterable so any accidental call yields no work. Phase 14
-    swaps this with ``lambda: (str(g.id) for g in bot.guilds)`` at startup.
-    """
-    return ()
-
-
-async def _noop_notifier(_event: LiquidationEvent) -> None:
-    """Phase-13 placeholder for the :class:`LiquidationTask` notifier.
-
-    Tasks are not started in Phase 13, so this is unreachable; Phase 14
-    replaces it via :func:`_make_liquidation_notifier`.
-    """
 
 
 def _make_liquidation_notifier(
@@ -234,48 +216,58 @@ class Container:
         self.voice_session_store_factory = self._voice_session_store_for
 
         # --- Tasks (single-instance; wrapped in TaskRunner by build_runners) --
-        # Constructed with placeholder guild-id iterators; build_runners(bot)
-        # swaps in the live closure before wrapping each task in a TaskRunner.
+        # Constructed with unused construction-time defaults; build_runners(bot)
+        # rebinds the real ``iter_guild_ids`` closure via
+        # ``BackgroundTask.bind_guild_id_provider`` (and the real
+        # :class:`LiquidationTask` notifier via ``bind_notifier``) before any
+        # task starts. The inline defaults below are unreachable in production
+        # (build_runners is mandatory) and only satisfy the typed kwargs.
+        async def _unset_guild_ids() -> Iterable[str]:
+            return ()
+
+        async def _unset_notifier(_event: LiquidationEvent) -> None:
+            return None
+
         self._vc_boost_task = VcBoostTask(
             service_factory=self.price_tick_service_factory,
-            iter_guild_ids=_empty_guild_ids,
+            iter_guild_ids=_unset_guild_ids,
         )
         # Stored reference so build_runners can inject the live notifier
         # without scanning raw_tasks by isinstance.
         self._liquidation_task = LiquidationTask(
             service_factory=self.liquidation_service_factory,
-            iter_guild_ids=_empty_guild_ids,
-            notifier=_noop_notifier,
+            iter_guild_ids=_unset_guild_ids,
+            notifier=_unset_notifier,
         )
         self.raw_tasks: tuple[BackgroundTask, ...] = (
             ActivityTickTask(
                 service_factory=self.price_tick_service_factory,
-                iter_guild_ids=_empty_guild_ids,
+                iter_guild_ids=_unset_guild_ids,
             ),
             DailyResetTask(
                 service_factory=self.activity_service_factory,
-                iter_guild_ids=_empty_guild_ids,
+                iter_guild_ids=_unset_guild_ids,
                 system_state_repo=self._system_state_repo,
             ),
             FreezeCheckTask(
                 service_factory=self.trading_service_factory,
-                iter_guild_ids=_empty_guild_ids,
+                iter_guild_ids=_unset_guild_ids,
             ),
             InactivityDecayTask(
                 service_factory=self.price_tick_service_factory,
-                iter_guild_ids=_empty_guild_ids,
+                iter_guild_ids=_unset_guild_ids,
             ),
             self._liquidation_task,
             MonthlyRolloverTask(
                 portfolio_service_factory=self.portfolio_service_factory,
                 fund_service_factory=self.fund_service_factory,
-                iter_guild_ids=_empty_guild_ids,
+                iter_guild_ids=_unset_guild_ids,
                 system_state_repo=self._system_state_repo,
             ),
             self._vc_boost_task,
             WeeklyResetTask(
                 service_factory=self.activity_service_factory,
-                iter_guild_ids=_empty_guild_ids,
+                iter_guild_ids=_unset_guild_ids,
                 system_state_repo=self._system_state_repo,
             ),
         )
@@ -518,7 +510,11 @@ class Container:
         from friendex.adapters.tasks.task_runner import TaskRunner
 
         async def iter_guild_ids() -> Iterable[str]:
-            return [str(g.id) for g in bot.guilds]
+            # Generator expression rather than a materialised list — each task
+            # tick only iterates the result once, so allocating a fresh list on
+            # every cadence is wasted work (8 tasks times ticks-per-minute on
+            # big bots adds up). Issue #84 L (dead-code sweep).
+            return (str(g.id) for g in bot.guilds)
 
         # Wave 1 (#82 H15 / #84 H): the public ``bind_guild_id_provider`` and
         # ``bind_notifier`` setters replace direct attribute mutation on the

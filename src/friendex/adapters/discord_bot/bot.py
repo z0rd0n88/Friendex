@@ -29,9 +29,11 @@ consumer and blocks bot verification past 100 guilds — it stays OFF
 login but before the gateway connects, on the bot's own event loop. Phase 14
 uses it as the **single** place where:
 
-1. :meth:`Container.build_runners` swaps the Phase-13 placeholders
-   (``_empty_guild_ids`` + ``_noop_notifier``) for live ``bot``-backed
-   callables, then wraps each task in a
+1. :meth:`Container.build_runners` rebinds each task's
+   construction-time placeholders (the inline no-op ``iter_guild_ids``
+   and the inline no-op :class:`LiquidationTask` notifier) with live
+   ``bot``-backed callables via :meth:`BackgroundTask.bind_guild_id_provider`
+   and :meth:`LiquidationTask.bind_notifier`, then wraps each task in a
    :class:`~friendex.adapters.tasks.task_runner.TaskRunner`.
 2. Every cog and listener is added to the bot
    (via :meth:`Container.register_with`).

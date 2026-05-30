@@ -173,11 +173,15 @@ async def test_setup_hook_build_runners_swaps_iter_guild_ids_and_notifier(
     """After ``setup_hook`` runs, ``build_runners`` has swapped iter_guild_ids.
 
     The swap is observable: each raw task's ``_iter_guild_ids`` attribute is no
-    longer the module-level ``_empty_guild_ids`` placeholder, and
-    ``LiquidationTask._notifier`` is no longer the no-op.
-    """
-    from friendex.adapters.container import _empty_guild_ids, _noop_notifier
+    longer the construction-time placeholder, and ``LiquidationTask._notifier``
+    is no longer the no-op.
 
+    Wave 3 dead-code sweep (#83): the construction-time placeholders used to
+    be the module-level ``_empty_guild_ids`` / ``_noop_notifier`` so identity
+    could be pinned by name. Inlining them into ``Container.__init__`` removed
+    the named symbols, so the assertion now snapshots the pre-call identity
+    directly and compares after ``setup_hook``.
+    """
     bot = build_bot(settings, container)
     bot.tree.sync = AsyncMock(name="tree.sync")  # type: ignore[method-assign]
     bot._connection._guilds = {}
@@ -185,17 +189,22 @@ async def test_setup_hook_build_runners_swaps_iter_guild_ids_and_notifier(
     _, stub = _capture_runners_stub(container)
     monkeypatch.setattr(container, "build_runners", stub)
 
-    for task in container.raw_tasks:
-        assert task._iter_guild_ids is _empty_guild_ids
+    # Snapshot the construction-time identities so we can verify the swap.
+    pre_iter_ids = [task._iter_guild_ids for task in container.raw_tasks]
+    from friendex.adapters.tasks.liquidation_task import LiquidationTask
+
+    pre_liquidation = next(
+        t for t in container.raw_tasks if isinstance(t, LiquidationTask)
+    )
+    pre_notifier = pre_liquidation._notifier
 
     await bot.setup_hook()
 
-    for task in container.raw_tasks:
-        assert task._iter_guild_ids is not _empty_guild_ids
-    from friendex.adapters.tasks.liquidation_task import LiquidationTask
+    for task, pre in zip(container.raw_tasks, pre_iter_ids, strict=True):
+        assert task._iter_guild_ids is not pre
 
     liquidation = next(t for t in container.raw_tasks if isinstance(t, LiquidationTask))
-    assert liquidation._notifier is not _noop_notifier
+    assert liquidation._notifier is not pre_notifier
 
 
 async def test_setup_hook_registers_cogs_and_listeners(
