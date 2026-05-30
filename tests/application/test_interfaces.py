@@ -153,11 +153,71 @@ async def test_fake_user_repo_satisfies_protocol() -> None:
     fetched = await repo.get("g1", "alice")
 
     assert fetched is account
-    assert await repo.list_all("g1") == [account]
-    assert await repo.list_active_in_last("g1", 60.0) == [account]
+    assert list(await repo.list_all("g1")) == [account]
+    assert list(await repo.list_active_in_last("g1", 60.0)) == [account]
 
     await repo.delete("g1", "alice")
     assert await repo.get("g1", "alice") is None
+
+
+# ---------------------------------------------------------------------------
+# #84 M — Sequence covariance on list_all / list_active_in_last
+# ---------------------------------------------------------------------------
+
+
+class _TupleReturningUserRepo:
+    """Returns ``tuple`` rather than ``list`` from list_all-style methods.
+
+    Pins that the #84 M widening of the Protocol's return type to
+    :class:`~collections.abc.Sequence` lets implementations honour the
+    contract with any ordered immutable container — pre-fix the Protocol
+    locked every implementation to a concrete ``list``.
+    """
+
+    def __init__(self) -> None:
+        self._rows: dict[tuple[str, str], UserAccount] = {}
+
+    async def get(self, guild_id: str, user_id: str) -> UserAccount | None:
+        return self._rows.get((guild_id, user_id))
+
+    async def upsert(self, guild_id: str, account: UserAccount) -> None:
+        self._rows[(guild_id, account.user_id)] = account
+
+    async def delete(self, guild_id: str, user_id: str) -> None:
+        self._rows.pop((guild_id, user_id), None)
+
+    async def list_all(self, guild_id: str) -> tuple[UserAccount, ...]:
+        return tuple(account for (g, _), account in self._rows.items() if g == guild_id)
+
+    async def list_active_in_last(
+        self, guild_id: str, seconds: float
+    ) -> tuple[UserAccount, ...]:
+        cutoff = datetime.now(tz=UTC).timestamp() - seconds
+        return tuple(
+            account
+            for (g, _), account in self._rows.items()
+            if g == guild_id and account.last_activity.timestamp() >= cutoff
+        )
+
+
+async def test_protocol_accepts_tuple_returning_implementation() -> None:
+    """Pin the Sequence covariance: a tuple-returning fake satisfies
+    :class:`IUserRepo`. Pre-#84 M the Protocol returned ``list[T]``, which
+    locked implementations to concrete lists; widening to ``Sequence[T]``
+    permits any ordered immutable container.
+    """
+    repo: IUserRepo = _TupleReturningUserRepo()
+    account = _make_account("alice")
+    await repo.upsert("g1", account)
+
+    rows = await repo.list_all("g1")
+    # Returns an actual tuple — not just structurally a ``Sequence``.
+    assert isinstance(rows, tuple)
+    assert rows == (account,)
+
+    active = await repo.list_active_in_last("g1", 3600.0)
+    assert isinstance(active, tuple)
+    assert active == (account,)
 
 
 # --- AC2 anchors for the remaining Protocols (signature smoke checks) -------

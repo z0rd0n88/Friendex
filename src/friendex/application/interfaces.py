@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import date, datetime
 
     from friendex.domain.models import (
@@ -133,17 +134,26 @@ class IUserRepo(Protocol):
         """Delete the account; children cascade at the DB level."""
         ...
 
-    async def list_all(self, guild_id: str) -> list[UserAccount]:
-        """Return every account in ``guild_id``."""
+    async def list_all(self, guild_id: str) -> Sequence[UserAccount]:
+        """Return every account in ``guild_id``.
+
+        Return type widened to :class:`Sequence` (#84 M) — callers only
+        iterate over the result, so concrete-list implementations are
+        permitted to return a tuple, a generator-realised view, or any
+        other ordered immutable sequence. ``Sequence`` is covariant in
+        its element type, which removes the implicit
+        "implementations must return exactly a ``list``" coupling.
+        """
         ...
 
     async def list_active_in_last(
         self, guild_id: str, seconds: float
-    ) -> list[UserAccount]:
+    ) -> Sequence[UserAccount]:
         """Return accounts whose ``last_activity`` is within ``seconds`` of now.
 
         Used by the activity-tick / inactivity-decay paths to scope work to
-        recently-active users rather than scanning the whole guild.
+        recently-active users rather than scanning the whole guild. See
+        :meth:`list_all` for the :class:`Sequence` covariance rationale.
         """
         ...
 
@@ -168,8 +178,8 @@ class IPriceRepo(Protocol):
         """Delete the stock; price history cascades at the DB level."""
         ...
 
-    async def list_all(self, guild_id: str) -> list[Stock]:
-        """Return every stock in ``guild_id``."""
+    async def list_all(self, guild_id: str) -> Sequence[Stock]:
+        """Return every stock in ``guild_id`` (:class:`Sequence` — see #84 M)."""
         ...
 
     async def append_history(
@@ -180,7 +190,7 @@ class IPriceRepo(Protocol):
 
     async def get_history(
         self, guild_id: str, user_id: str, *, since: datetime | None = None
-    ) -> list[PricePoint]:
+    ) -> Sequence[PricePoint]:
         """Return a stock's price history, oldest first.
 
         ``since`` (tz-aware UTC) restricts the result to points at or after that
@@ -231,8 +241,8 @@ class IFundRepo(Protocol):
         """Delete the fund; investor rows cascade at the DB level."""
         ...
 
-    async def list_all(self, guild_id: str) -> list[HedgeFund]:
-        """Return every fund in ``guild_id``."""
+    async def list_all(self, guild_id: str) -> Sequence[HedgeFund]:
+        """Return every fund in ``guild_id`` (:class:`Sequence` — see #84 M)."""
         ...
 
     async def ensure_events_wallet(self, guild_id: str) -> HedgeFund:
@@ -265,8 +275,8 @@ class IPenaltyRepo(Protocol):
         """Delete the penalty for ``(guild_id, user_id)``."""
         ...
 
-    async def list_all(self, guild_id: str) -> list[FundPenalty]:
-        """Return every penalty in ``guild_id``."""
+    async def list_all(self, guild_id: str) -> Sequence[FundPenalty]:
+        """Return every penalty in ``guild_id`` (:class:`Sequence` — see #84 M)."""
         ...
 
 
@@ -303,8 +313,12 @@ class ITradeCooldownRepo(Protocol):
         """Delete the cooldown for ``(guild_id, user_id)``."""
         ...
 
-    async def list_all(self, guild_id: str) -> list[TradeCooldown]:
-        """Return every cooldown row in ``guild_id`` (including expired ones)."""
+    async def list_all(self, guild_id: str) -> Sequence[TradeCooldown]:
+        """Return every cooldown row in ``guild_id`` (including expired ones).
+
+        :class:`Sequence` return type per #84 M — see :meth:`IUserRepo.list_all`
+        for the covariance rationale.
+        """
         ...
 
     async def purge_expired(self, now: datetime) -> int:
@@ -333,6 +347,6 @@ class ISystemStateRepo(Protocol):
         """Delete the state row for ``guild_id``."""
         ...
 
-    async def list_all(self) -> list[SystemState]:
-        """Return the state row for every guild."""
+    async def list_all(self) -> Sequence[SystemState]:
+        """Return the state row for every guild (:class:`Sequence` — see #84 M)."""
         ...

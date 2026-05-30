@@ -176,6 +176,11 @@ def test_fake_return_types_match_protocol_return_types() -> None:
     # annotations`` with ``TYPE_CHECKING``-guarded model imports, so their return
     # hints are forward-ref strings. Resolving them needs the domain model names
     # and the DTOs in scope — supply them as the shared resolution namespace.
+    # ``Sequence`` enters the namespace for the #84 M ``Sequence[T]``
+    # return-type widening — the protocols and fakes both rely on it as a
+    # forward reference under ``from __future__ import annotations``.
+    from collections.abc import Sequence
+
     import friendex.domain.models as models
     from friendex.application import interfaces
 
@@ -184,6 +189,7 @@ def test_fake_return_types_match_protocol_return_types() -> None:
         "SystemState": interfaces.SystemState,
         "TradeCooldown": interfaces.TradeCooldown,
         "datetime": datetime,
+        "Sequence": Sequence,
     }
 
     for fake_cls, protocol in _FAKE_PROTOCOL_PAIRS:
