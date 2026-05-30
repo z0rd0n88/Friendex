@@ -1048,6 +1048,73 @@ async def test_cover_raises_position_frozen_for_frozen_short(
         await service.cover(COVERER, TARGET, 1)
 
 
+# ---------------------------------------------------------------------------
+# #82 M1 — cover_forced public wrapper (the liquidation entry point)
+# ---------------------------------------------------------------------------
+
+
+async def test_cover_forced_covers_frozen_short_with_lock_held_by_caller(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """#82 M1: ``cover_forced`` is the public wrapper around the inside-lock
+    body shared with :meth:`cover`. Liquidation now invokes this method
+    rather than the private :meth:`_cover_internal`; the lock + UoW
+    discipline is the caller's responsibility (LiquidationService takes
+    the holder+target lock around the call).
+
+    Pin that ``cover_forced`` succeeds against a FROZEN short — the public
+    :meth:`cover` would raise :class:`PositionFrozen`.
+    """
+    frozen_short = ShortPosition(
+        target_user_id=TARGET,
+        shares=10,
+        entry_price=Decimal("100.00"),
+        locked_cash=Decimal("400.00"),
+        locked_fund=Decimal("600.00"),
+        created_at=WEEKDAY_OPEN - timedelta(hours=1),
+        frozen=True,
+    )
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(
+            COVERER,
+            cash=Decimal("5000.00"),
+            short_positions={TARGET: frozen_short},
+        ),
+    )
+    await fake_user_repo.upsert(GUILD, _account(TARGET))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    # The contract is that the caller holds the locks; replicate the
+    # LiquidationService call site here.
+    async with lock_manager.locked(f"{GUILD}:{COVERER}", f"{GUILD}:{TARGET}"):
+        with freeze_time(WEEKDAY_OPEN):
+            result = await service.cover_forced(COVERER, TARGET, 10)
+
+    assert result.shares == 10
+    assert result.coverer_id == COVERER
+    assert result.target_id == TARGET
+    # The frozen short was force-covered — the holder's short_positions dict
+    # no longer carries the target key.
+    holder = await fake_user_repo.get(GUILD, COVERER)
+    assert holder is not None
+    assert TARGET not in holder.short_positions
+
+
 async def test_short_top_up_rejects_frozen_position(
     fake_user_repo: FakeUserRepo,
     fake_price_repo: FakePriceRepo,

@@ -6,9 +6,10 @@ a 5-min sweep over every account in the guild looking for short positions
 whose target price has rallied to at least
 ``entry_price * settings.liquidation_threshold`` (default 1.5x). Each
 matching short is force-covered via
-:meth:`TradingService._cover_internal(force=True)`, which bypasses the
-:class:`~friendex.domain.errors.PositionFrozen` guard so a freshly-opened
-short still inside its freeze window can still be liquidated.
+:meth:`TradingService.cover_forced` (#82 M1 — replaces the previous direct
+reach into the private :meth:`_cover_internal`). ``cover_forced`` bypasses
+the :class:`~friendex.domain.errors.PositionFrozen` guard so a freshly-
+opened short still inside its freeze window can still be liquidated.
 
 **Why bypass the freeze guard.** The freeze window stops a user from
 *manually* covering a brand-new short (preventing trivial round-tripping for
@@ -21,10 +22,11 @@ frozen short would just deepen the loss until the freeze expires.
 For each candidate short the sweep acquires **one** ``locked(holder,
 target)`` block, re-reads the account inside the lock (the price may have
 ticked again between the pre-lock scan and the lock acquisition), and only
-then invokes :meth:`TradingService._cover_internal` — which by contract
-does NOT re-take the lock (see its docstring). The sweep takes the lock
-per-(holder, target) pair, never wrapping the whole iteration, so unrelated
-accounts never serialise on a single liquidation run.
+then invokes :meth:`TradingService.cover_forced` — which by contract does
+NOT re-take the lock (the wrapper just delegates to the inside-lock body).
+The sweep takes the lock per-(holder, target) pair, never wrapping the
+whole iteration, so unrelated accounts never serialise on a single
+liquidation run.
 
 **Per-guild scope (ADR-0001).** The service is per-guild — ``guild_id`` is
 a constructor argument; the iteration walks one guild's accounts and
@@ -41,6 +43,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from friendex.application.liquidation_events import LiquidationEvent
+from friendex.application.lock_manager import guild_lock_key
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -81,8 +84,11 @@ class LiquidationService:
         self._trading = trading_service
 
     def _lock_key(self, user_id: str) -> str:
-        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001)."""
-        return f"{self._guild_id}:{user_id}"
+        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001).
+
+        Thin shim around :func:`guild_lock_key` (#82 H16).
+        """
+        return guild_lock_key(self._guild_id, user_id)
 
     async def check_and_liquidate_shorts(self, now: datetime) -> list[LiquidationEvent]:
         """Sweep every account; liquidate shorts at-or-above the threshold.
@@ -131,18 +137,19 @@ class LiquidationService:
         dropped back below the threshold). Skips silently when the
         condition no longer holds.
 
-        Delegates the actual cover to
-        :meth:`TradingService._cover_internal` with ``force=True`` so the
-        :class:`PositionFrozen` guard is bypassed (the freeze window
-        applies only to user-initiated covers).
+        Delegates the actual cover to :meth:`TradingService.cover_forced`
+        (#82 M1 — previously reached the private :meth:`_cover_internal`
+        directly). The public ``cover_forced`` wrapper bypasses the
+        :class:`PositionFrozen` guard so a freshly-opened short still
+        inside its freeze window can still be liquidated.
 
         **Atomicity gap (PR #94 review L2 — pre-existing, tracked in
         issue #95).** Unlike the user-facing ``cover()`` entry point on
         :class:`TradingService`, this call site does NOT wrap
-        ``_cover_internal`` in a ``_uow.transaction()`` envelope. The
+        ``cover_forced`` in a ``_uow.transaction()`` envelope. The
         sweep relies on the underlying persistence adapter's autocommit
         behaviour. A mid-helper failure can persist a fresh target stub
-        (via ``_cover_internal``'s ``target_created`` write) without the
+        (via the cover body's ``target_created`` write) without the
         accompanying money writes; the inconsistency window is narrow
         and money-safe (the stub is zero-state and any subsequent trade
         would resurrect it), but the gap is real. Wrapping this call in
@@ -169,9 +176,7 @@ class LiquidationService:
             entry_price = short.entry_price
             shares = short.shares
 
-            result = await self._trading._cover_internal(
-                holder_id, target_id, shares, force=True
-            )
+            result = await self._trading.cover_forced(holder_id, target_id, shares)
 
         return LiquidationEvent(
             guild_id=self._guild_id,
