@@ -41,10 +41,11 @@ the persistence ports, plus the monthly APY accrual the Phase 9
   debited, the fund's ``cash_balance`` is credited, and the investor's
   stake (``fund.investors[investor_id]``) is set or incremented. A
   manager cannot invest in their own fund (Phase 17b §Q2:
+  :class:`NotFundManager` — #82 H17 — previously repurposed
   :class:`InvalidAmount`), a non-positive amount is rejected as
   :class:`InvalidAmount`, an absent fund is rejected as
-  :class:`InvalidAmount`, and an investor without enough cash gets an
-  :class:`InsufficientFunds` error.
+  :class:`FundNotFound` (#82 H17), and an investor without enough cash
+  gets an :class:`InsufficientFunds` error.
 
 **Guild scoping (ADR-0001 / Phase 8a digest).** ``guild_id`` is a constructor
 argument captured once as ``self._guild_id``; domain models stay
@@ -71,14 +72,17 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import timedelta
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from friendex.application.lock_manager import guild_lock_key
 from friendex.application.unit_of_work import NullUnitOfWork
 from friendex.domain.errors import (
     FundInsufficientBalance,
+    FundNotFound,
     InsufficientFunds,
     InvalidAmount,
+    NotFundManager,
 )
 from friendex.domain.fund_math import (
     compute_apy_accrual,
@@ -86,6 +90,7 @@ from friendex.domain.fund_math import (
     compute_effective_apy,
 )
 from friendex.domain.models import FundPenalty, HedgeFund
+from friendex.domain.price_engine import CENT, quantise
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -100,8 +105,6 @@ if TYPE_CHECKING:
     from friendex.application.snapshot_models import FundInfoResult
     from friendex.application.unit_of_work import IUnitOfWork
 
-# Currency quantisation unit — two decimal places, banker's rounding.
-_CENT = Decimal("0.01")
 # Personal fund cash floor when seeded by ``create_or_rename`` (matches the
 # original spec at ``original-skeleton.md:302-308``).
 _ZERO_CASH = Decimal("0.00")
@@ -113,7 +116,7 @@ _ZERO_CASH = Decimal("0.00")
 # the precision of the *terms*, not the starter, so a less-precise starter
 # can't widen the result; using ``Decimal("0")`` keeps the starter neutral
 # so callers stay in control of quantisation (each ``sum(...)`` site
-# wraps the result in ``_quantise(...)`` before storing it).
+# wraps the result in ``quantise(...)`` before storing it).
 _ZERO = Decimal("0")
 # Pseudo-fund identity for the per-guild events wallet (matches
 # ``FakeFundRepo`` and ``SqlFundRepository.ensure_events_wallet``).
@@ -121,11 +124,6 @@ _EVENTS_WALLET_ID = "events_wallet"
 # Calendar day-of-month treated as the no-penalty monthly-rollover day
 # (spec line 1434).
 _NO_PENALTY_DAY_OF_MONTH = 1
-
-
-def _quantise(value: Decimal) -> Decimal:
-    """Round ``value`` to two decimal places with banker's rounding."""
-    return value.quantize(_CENT, rounding=ROUND_HALF_EVEN)
 
 
 class FundService:
@@ -159,8 +157,11 @@ class FundService:
     # -- internal helpers ---------------------------------------------------
 
     def _lock_key(self, user_id: str) -> str:
-        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001)."""
-        return f"{self._guild_id}:{user_id}"
+        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001).
+
+        Thin shim around :func:`guild_lock_key` (#82 H16).
+        """
+        return guild_lock_key(self._guild_id, user_id)
 
     @staticmethod
     def _default_fund_name(user_id: str) -> str:
@@ -205,8 +206,12 @@ class FundService:
         base_apy = self._settings.hedge_fund_base_apy
         effective_apy = compute_effective_apy(base_apy, penalty, now)
         has_penalty = penalty is not None and penalty.penalty_until > now
-        return FundInfoResult(
-            fund=fund,
+        # Use the read-only-projection factory (#84 L) so the frozen DTO
+        # exposes ``investors_view`` as a ``MappingProxyType`` snapshot
+        # rather than letting the embed builder reach into the live
+        # ``fund.investors`` dict.
+        return FundInfoResult.from_fund(
+            fund,
             base_apy=base_apy,
             effective_apy=effective_apy,
             has_penalty=has_penalty,
@@ -267,7 +272,7 @@ class FundService:
         """
         if amount <= _ZERO_CASH:
             raise InvalidAmount("amount must be positive")
-        quantised_amount = _quantise(amount)
+        quantised_amount = quantise(amount)
 
         async with (
             self._locks.locked(self._lock_key(user_id)),
@@ -276,7 +281,7 @@ class FundService:
             fund = await self._get_or_create_fund(user_id)
             # Phase 17b B2: cap the withdraw at the manager's own share —
             # investor principal (``sum(investors.values())``) is untouchable.
-            manager_balance = _quantise(
+            manager_balance = quantise(
                 fund.cash_balance - sum(fund.investors.values(), _ZERO)
             )
             account = await self._user_repo.get(self._guild_id, user_id)
@@ -295,11 +300,11 @@ class FundService:
 
             new_fund = replace(
                 fund,
-                cash_balance=_quantise(fund.cash_balance - quantised_amount),
+                cash_balance=quantise(fund.cash_balance - quantised_amount),
             )
             new_account = replace(
                 account,
-                cash_balance=_quantise(account.cash_balance + quantised_amount),
+                cash_balance=quantise(account.cash_balance + quantised_amount),
             )
             await self._fund_repo.upsert(self._guild_id, new_fund)
             await self._user_repo.upsert(self._guild_id, new_account)
@@ -357,7 +362,7 @@ class FundService:
         """
         if amount <= _ZERO_CASH:
             raise InvalidAmount("amount must be positive")
-        quantised_amount = _quantise(amount)
+        quantised_amount = quantise(amount)
 
         async with (
             self._locks.locked(
@@ -371,7 +376,7 @@ class FundService:
 
             # Mirror the withdraw guard: a manager cannot drain investor
             # principal via ``send_to_events`` either (#82 H1).
-            manager_balance = _quantise(
+            manager_balance = quantise(
                 fund.cash_balance - sum(fund.investors.values(), Decimal("0.00"))
             )
             if manager_balance < quantised_amount:
@@ -381,11 +386,11 @@ class FundService:
 
             new_fund = replace(
                 fund,
-                cash_balance=_quantise(fund.cash_balance - quantised_amount),
+                cash_balance=quantise(fund.cash_balance - quantised_amount),
             )
             new_wallet = replace(
                 wallet,
-                cash_balance=_quantise(wallet.cash_balance + quantised_amount),
+                cash_balance=quantise(wallet.cash_balance + quantised_amount),
             )
             await self._fund_repo.upsert(self._guild_id, new_fund)
             await self._fund_repo.upsert(self._guild_id, new_wallet)
@@ -480,9 +485,9 @@ class FundService:
                     # ``quantised_total - sum(per_stake_deltas)`` residual
                     # below so no money is silently destroyed (or routed
                     # by the recipient setting; see ``residual_recipient``).
-                    new_investors[investor_id] = _quantise(stake + raw_accrual)
-                quantised_investor_total = _quantise(total_raw_investor_accrual)
-                if manager_accrual + quantised_investor_total < _CENT:
+                    new_investors[investor_id] = quantise(stake + raw_accrual)
+                quantised_investor_total = quantise(total_raw_investor_accrual)
+                if manager_accrual + quantised_investor_total < CENT:
                     continue
                 per_stake_delta_sum = sum(
                     (new_investors[i] - fresh.investors[i] for i in fresh.investors),
@@ -501,7 +506,7 @@ class FundService:
                     treasury_residual += investor_residual
                 else:  # "drop"
                     fund_residual_share = Decimal("0.00")
-                new_cash = _quantise(
+                new_cash = quantise(
                     manager_balance
                     + manager_accrual
                     + fund_residual_share
@@ -522,7 +527,7 @@ class FundService:
                     self._guild_id,
                     replace(
                         wallet,
-                        cash_balance=_quantise(wallet.cash_balance + treasury_residual),
+                        cash_balance=quantise(wallet.cash_balance + treasury_residual),
                     ),
                 )
 
@@ -539,10 +544,13 @@ class FundService:
         Semantics:
 
         * ``amount <= 0`` raises :class:`InvalidAmount`.
-        * A missing target fund raises :class:`InvalidAmount` (re-uses the
-          existing taxonomy — no new error class).
+        * A missing target fund raises :class:`FundNotFound` (#82 H17 —
+          previously repurposed :class:`InvalidAmount`, which made it
+          impossible for callers to discriminate the missing-fund case
+          from a real bad-amount case).
         * A manager may not invest in their own fund (Phase 17b §Q2):
-          raises :class:`InvalidAmount`.
+          raises :class:`NotFundManager` (#82 H17 — previously also
+          repurposed :class:`InvalidAmount`).
         * A missing investor account, or an account that cannot cover the
           (quantised) amount, raises :class:`InsufficientFunds`.
 
@@ -556,7 +564,7 @@ class FundService:
         """
         if amount <= _ZERO_CASH:
             raise InvalidAmount("amount must be positive")
-        quantised_amount = _quantise(amount)
+        quantised_amount = quantise(amount)
 
         async with (
             self._locks.locked(
@@ -567,7 +575,7 @@ class FundService:
         ):
             fund = await self._fund_repo.get(self._guild_id, fund_id)
             if fund is None:
-                raise InvalidAmount("fund does not exist")
+                raise FundNotFound(fund_id=fund_id)
 
             # Phase 17b §Q2 — a manager cannot invest in their own fund.
             # The check compares the actor's id to the fund's *manager*
@@ -577,7 +585,7 @@ class FundService:
             # accidentally block an investor whose user id happens to
             # equal the fund id (#84 H).
             if investor_id == fund.manager_id:
-                raise InvalidAmount("cannot invest in own fund")
+                raise NotFundManager("Cannot invest in your own fund.")
 
             account = await self._user_repo.get(self._guild_id, investor_id)
             if account is None or account.cash_balance < quantised_amount:
@@ -587,17 +595,17 @@ class FundService:
             # Clone the investors dict — never mutate the snapshot the
             # repo handed us.
             new_investors = dict(fund.investors)
-            new_investors[investor_id] = _quantise(
+            new_investors[investor_id] = quantise(
                 new_investors.get(investor_id, Decimal("0.00")) + quantised_amount
             )
             new_fund = replace(
                 fund,
-                cash_balance=_quantise(fund.cash_balance + quantised_amount),
+                cash_balance=quantise(fund.cash_balance + quantised_amount),
                 investors=new_investors,
             )
             new_account = replace(
                 account,
-                cash_balance=_quantise(account.cash_balance - quantised_amount),
+                cash_balance=quantise(account.cash_balance - quantised_amount),
             )
             await self._user_repo.upsert(self._guild_id, new_account)
             await self._fund_repo.upsert(self._guild_id, new_fund)
