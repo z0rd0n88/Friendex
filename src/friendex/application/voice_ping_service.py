@@ -58,7 +58,7 @@ from friendex.domain.models import (
 from friendex.domain.price_engine import apply_floor_stall
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Collection
 
     from friendex.adapters.config import Settings
     from friendex.application.interfaces import IPriceRepo, IUserRepo
@@ -106,7 +106,7 @@ class VoicePingService:
         host_id: str,
         channel_id: int,
         timestamp: datetime,
-        host_role_member_ids: Iterable[str] | None = None,
+        host_role_member_ids: Collection[str] | None = None,
     ) -> None:
         """Open a ping session for ``message_id`` and credit the host.
 
@@ -116,11 +116,38 @@ class VoicePingService:
         ``host_role_member_ids`` (issue #84 M) is the snapshot of member ids
         who share the host's VC role at ping time. Responders whose ids are
         in that set are rejected by :meth:`reward_voice_ping_response` to
-        close the alt-account farming exploit. Omitting the argument leaves
-        the historic call signature intact; the guard is a no-op for that
-        ping. The host's own id MAY be in the snapshot — the existing
-        ``responder_id == host_id`` self-check covers it.
+        close the alt-account farming exploit.
+
+        Semantics:
+
+        * ``None`` — no snapshot supplied; the alt-account guard is a no-op
+          for this ping. Preserved for the historic call signature so
+          legacy callers (tests + adapters not yet wired through #93 H1)
+          keep working.
+        * An empty :class:`Collection` (``frozenset()``, ``[]``, ``set()``)
+          — explicit empty snapshot, meaning "no role members other than
+          the host". Treated as a real snapshot: the guard runs but
+          rejects nobody, which is the correct behaviour.
+        * A non-empty :class:`Collection` — full guard active.
+
+        The host's own id MAY be in the snapshot — the existing
+        ``responder_id == host_id`` self-check covers it. The type is
+        :class:`~collections.abc.Collection` (rather than
+        :class:`~collections.abc.Iterable`) so callers cannot accidentally
+        pass a single-shot generator that would silently be consumed once
+        before the :class:`frozenset` conversion runs.
+
+        Write ordering: the parallel host-role-member snapshot is written
+        BEFORE the ping session itself is durably stored, so the only
+        possible drift between the two dicts is ``snapshot present,
+        session missing`` — the responder reward path handles that case
+        gracefully (no session → no responders to reject). The inverse
+        (``session present, snapshot missing``) would degrade the alt-
+        account guard to a no-op for that ping, so write-then-set keeps
+        the security primitive consistent.
         """
+        if host_role_member_ids is not None:
+            self._host_role_member_ids[message_id] = frozenset(host_role_member_ids)
         session = VoicePingSession(
             message_id=message_id,
             host_id=host_id,
@@ -130,8 +157,6 @@ class VoicePingService:
             extra_joiners=[],
         )
         await self._ping_sessions.set(session)
-        if host_role_member_ids is not None:
-            self._host_role_member_ids[message_id] = frozenset(host_role_member_ids)
         await self._credit(host_id, role_ping_joins=1.0)
 
     async def collect_extra_boosts(self, now: datetime) -> list[VcExtraBoost]:
