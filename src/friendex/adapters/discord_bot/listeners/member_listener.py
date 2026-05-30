@@ -70,6 +70,15 @@ _DEFAULT_COOLDOWN_SECONDS = 24 * 60 * 60
 # permission misconfiguration cannot silently disable the cooldown gate.
 _UNKNOWN_ACTOR_ID = "unknown"
 
+# How many recent audit-log entries to scan when resolving the actor id for
+# a discipline event (PR #93 M2). Scanning a small window lets the listener
+# filter by ``entry.target.id`` instead of taking the most-recent guild-wide
+# entry — the latter mis-binds the cooldown key on busy guilds where another
+# moderator's unrelated action is more recent than the timeout/ban that
+# triggered the listener. 25 is enough headroom for normal moderation
+# bursts and small enough to stay well inside Discord's audit-log API quota.
+_AUDIT_LOG_LOOKUP_LIMIT = 25
+
 
 class MemberListener(commands.Cog):
     """Routes :py:obj:`on_member_update` + :py:obj:`on_member_ban` to discipline."""
@@ -155,11 +164,18 @@ class MemberListener(commands.Cog):
         5. Delegate to :meth:`DisciplineService.apply_discipline_penalty`.
         """
         guild_id = str(guild.id)
-        actor_id = await self._resolve_actor_id(guild, audit_action)
+        actor_id = await self._resolve_actor_id(guild, audit_action, target_id)
         key = (guild_id, target_id, actor_id)
         now = self._clock()
 
         async with self._cooldown_lock:
+            # PR #93 M1 — opportunistic GC so the dict stays bounded across
+            # long-running bot lifetimes. A penalty fire is a rare event
+            # relative to other listener traffic, so an O(N) rebuild on
+            # every fire is cheap; after the sweep, N is by construction
+            # the size of the active-cooldown set. Avoids needing a
+            # separate background task.
+            self._cooldown = {k: exp for k, exp in self._cooldown.items() if exp > now}
             expires_at = self._cooldown.get(key)
             if expires_at is not None and expires_at > now:
                 logger.info(
@@ -191,28 +207,63 @@ class MemberListener(commands.Cog):
         self,
         guild: discord.Guild,
         audit_action: discord.AuditLogAction,
+        target_id: str,
     ) -> str:
         """Return the moderator id from the latest audit entry, or ``"unknown"``.
 
-        Reads one audit-log entry of the matching action. Any failure
-        (``Forbidden``, no entry, malformed payload) falls back to the
-        ``_UNKNOWN_ACTOR_ID`` sentinel so the penalty still applies and
-        the cooldown still gates spam from unknown-actor bursts.
+        Reads up to ``_AUDIT_LOG_LOOKUP_LIMIT`` recent audit-log entries of
+        the matching action and returns the user id of the FIRST one whose
+        ``entry.target.id`` equals ``target_id`` (PR #93 M2 — target-bound
+        match). The unfiltered ``limit=1`` shape used previously could
+        surface the most-recent guild-wide entry, which on a busy guild
+        may belong to a different moderator on a different member; that
+        mis-bound actor id then leaked into the cooldown key and let a
+        rapid-firing moderator slip through the gate. Scanning a small
+        window keeps the audit-log API quota negligible while pinning the
+        actor to the actual target.
+
+        Any failure (``Forbidden``, no matching entry within the window,
+        malformed payload) falls back to the ``_UNKNOWN_ACTOR_ID``
+        sentinel so the penalty still applies and the cooldown still
+        gates spam from unknown-actor bursts.
+
+        The event handler and the audit log are eventually consistent:
+        on a busy guild the matching entry may not yet have flushed when
+        this fetch runs. The fallback then surfaces ``"unknown"`` rather
+        than silently picking a stale prior entry — explicit-rather-than-
+        wrong is the safer default for a security-sensitive cooldown key.
         """
         try:
-            async for entry in guild.audit_logs(action=audit_action, limit=1):
+            target_int = int(target_id)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            # Non-numeric target id should never happen (Discord ids are
+            # always int-shaped) but tolerate gracefully rather than
+            # blocking the penalty.
+            return _UNKNOWN_ACTOR_ID
+        try:
+            async for entry in guild.audit_logs(
+                action=audit_action, limit=_AUDIT_LOG_LOOKUP_LIMIT
+            ):
+                entry_target = getattr(entry, "target", None)
+                entry_target_id = getattr(entry_target, "id", None)
+                if entry_target_id != target_int:
+                    continue
                 user = getattr(entry, "user", None)
                 user_id = getattr(user, "id", None)
                 if user_id is not None:
                     return str(user_id)
-                # First entry has no user — stop scanning.
+                # Target-bound entry has no user — stop scanning; further
+                # entries are older still and won't help.
                 break
         except discord.Forbidden:
             # Bot lacks view_audit_log; fall back to the sentinel.
             return _UNKNOWN_ACTOR_ID
-        except Exception:  # pragma: no cover - defensive
+        except Exception:
             # Any other audit-log retrieval failure (HTTP error, malformed
             # entry, ...) MUST NOT prevent the penalty from being applied.
             # The fallback ensures the cooldown gate still buckets spam.
+            # Covered by ``test_audit_log_returns_unknown_on_unexpected_exception``
+            # (PR #93 N2 — pin the contract; lifts the prior ``no cover``
+            # pragma so a refactor that swallows the catch fails CI).
             return _UNKNOWN_ACTOR_ID
         return _UNKNOWN_ACTOR_ID
