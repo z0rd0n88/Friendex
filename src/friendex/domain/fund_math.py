@@ -56,8 +56,10 @@ close.
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
+
+from friendex.domain.price_engine import CENT, quantise
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -69,16 +71,22 @@ if TYPE_CHECKING:
         UserAccount,
     )
 
-# Currency quantisation unit — two decimal places.
-CENT = Decimal("0.01")
+# Re-export the canonical money-quantisation seam (#82 H16) for callers that
+# previously imported ``CENT`` from this module.
+__all__ = [
+    "CENT",
+    "compute_apy_accrual",
+    "compute_apy_accrual_raw",
+    "compute_effective_apy",
+    "compute_net_worth",
+]
 
 # Months per year — monthly accrual is the annual rate spread evenly.
 _MONTHS_PER_YEAR = Decimal("12")
 
-
-def _quantise(value: Decimal) -> Decimal:
-    """Round ``value`` to two decimal places with banker's rounding."""
-    return value.quantize(CENT, rounding=ROUND_HALF_EVEN)
+# Domestic alias so the module body's existing call sites read naturally;
+# the public-facing helper lives in :mod:`friendex.domain.price_engine`.
+_quantise = quantise
 
 
 def compute_apy_accrual(
@@ -113,10 +121,20 @@ def compute_apy_accrual_raw(
 
     For a single-shot accrual, prefer :func:`compute_apy_accrual` — it
     quantises immediately and is the right tool everywhere there is no sum.
+
+    **Period dispatch (#84 L).** Uses ``match`` rather than ``if/else`` so a
+    static type-checker can verify exhaustiveness against the ``Literal``
+    type — adding a new period (e.g. ``"weekly"``) without extending the
+    match block would surface as a static error rather than silently falling
+    through to the monthly branch.
     """
     rate = Decimal(str(apy))
     annual = balance * rate
-    return annual if period == "annual" else annual / _MONTHS_PER_YEAR
+    match period:
+        case "annual":
+            return annual
+        case "monthly":
+            return annual / _MONTHS_PER_YEAR
 
 
 def compute_effective_apy(

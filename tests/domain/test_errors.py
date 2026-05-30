@@ -24,11 +24,13 @@ from friendex.domain.errors import (
     DomainError,
     FriendexError,
     FundInsufficientBalance,
+    FundNotFound,
     InsufficientFunds,
     InsufficientShares,
     InvalidAmount,
     MarketClosed,
     NoPosition,
+    NotFundManager,
     OnCooldown,
     OptedOut,
     PersistenceError,
@@ -76,6 +78,8 @@ def test_domain_error_is_not_a_friendex_error() -> None:
         SelfTrade,
         InvalidAmount,
         FundInsufficientBalance,
+        FundNotFound,
+        NotFundManager,
         AlreadyOptedIn,
         AlreadyOptedOut,
     ],
@@ -233,3 +237,64 @@ def test_persistence_error_not_caught_by_domain_handler() -> None:
     except FriendexError:
         caught.append("infra")
     assert caught == ["infra"]
+
+
+# ---------------------------------------------------------------------------
+# #82 H17 — FundNotFound + NotFundManager
+# ---------------------------------------------------------------------------
+
+
+def test_fund_not_found_carries_fund_id() -> None:
+    """The dedicated missing-fund exception carries the fund id for the cog."""
+    err = FundNotFound(fund_id="99")
+    assert err.fund_id == "99"
+    assert "<@99>" in err.user_facing_message
+
+
+def test_fund_not_found_is_a_domain_error() -> None:
+    """Caught by the same Discord handler dispatch as the other domain errors."""
+    with pytest.raises(DomainError):
+        raise FundNotFound(fund_id="1")
+
+
+def test_fund_not_found_distinct_from_invalid_amount() -> None:
+    """Pre-#82 H17 a missing fund came back as ``InvalidAmount`` — that
+    repurposing meant a caller catching ``InvalidAmount`` could not tell
+    the two cases apart. The new class breaks that ambiguity at the
+    exception-hierarchy level, not just the message."""
+    err = FundNotFound(fund_id="1")
+    assert not isinstance(err, InvalidAmount)
+
+
+def test_not_fund_manager_carries_message() -> None:
+    """Manager-only guard surfaces a custom message per call site."""
+    err = NotFundManager("Cannot invest in your own fund.")
+    assert err.user_facing_message == "Cannot invest in your own fund."
+
+
+def test_not_fund_manager_is_a_domain_error() -> None:
+    with pytest.raises(DomainError):
+        raise NotFundManager("nope")
+
+
+def test_not_fund_manager_distinct_from_invalid_amount() -> None:
+    """Like :class:`FundNotFound`, a dedicated class prevents InvalidAmount
+    over-catching (#82 H17)."""
+    err = NotFundManager("x")
+    assert not isinstance(err, InvalidAmount)
+
+
+# ---------------------------------------------------------------------------
+# #84 L — NoPosition.position_type narrowed to Literal["long", "short"]
+# ---------------------------------------------------------------------------
+
+
+def test_no_position_accepts_long_literal() -> None:
+    """Type-checked at the API; runtime accepts the string and stores it."""
+    err = NoPosition(target_id="1", position_type="long")
+    assert err.position_type == "long"
+
+
+def test_no_position_accepts_short_literal() -> None:
+    err = NoPosition(target_id="1", position_type="short")
+    assert err.position_type == "short"

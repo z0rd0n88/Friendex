@@ -18,7 +18,7 @@ Derived from ``docs/02-target-architecture.md`` §Error Handling.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from datetime import time
@@ -92,10 +92,21 @@ class OptedOut(DomainError):
 
 
 class NoPosition(DomainError):
-    def __init__(self, target_id: str, position_type: str) -> None:
+    """Raised when a user tries to act on a long/short position they do not hold.
+
+    ``position_type`` is narrowed to ``Literal["long", "short"]`` (#84 L) so
+    a callsite typo (``"shor"``) surfaces as a static type error rather than
+    only as a wonky user-visible message.
+    """
+
+    def __init__(
+        self,
+        target_id: str,
+        position_type: Literal["long", "short"],
+    ) -> None:
         super().__init__(f"You have no {position_type} position on <@{target_id}>.")
         self.target_id = target_id
-        self.position_type = position_type
+        self.position_type: Literal["long", "short"] = position_type
 
 
 class InsufficientShares(DomainError):
@@ -149,3 +160,39 @@ class AlreadyClaimedToday(DomainError):
             f"You already claimed your daily reward! Next claim in {hours}h {minutes}m."
         )
         self.seconds_remaining = seconds_remaining
+
+
+class FundNotFound(DomainError):
+    """Raised when an operation targets a hedge fund that does not exist.
+
+    Pre-#82 H17 ``FundService.invest`` and ``send_to_events`` repurposed
+    :class:`InvalidAmount` to signal a missing-fund condition — semantically
+    wrong (the amount was fine; the *fund* was the problem) and impossible
+    for callers to discriminate from a real "amount must be positive" error.
+    A dedicated class restores a 1-to-1 mapping between fault and exception
+    type and lets the Discord error handler render the user-facing copy
+    cleanly.
+    """
+
+    def __init__(self, fund_id: str) -> None:
+        super().__init__(f"Fund <@{fund_id}> does not exist.")
+        self.fund_id = fund_id
+
+
+class NotFundManager(DomainError):
+    """Raised when a user without manager rights tries a manager-only action.
+
+    Currently covers two paths:
+
+    * ``FundService.invest`` rejects the fund's manager investing in their
+      own fund (a tautological move). Pre-#82 H17 this branched into a
+      repurposed :class:`InvalidAmount` ``"cannot invest in own fund"``.
+    * Future manager-gated actions (rename, delete, settings) share the
+      same exception type for a single discriminator.
+
+    The user-facing message is action-specific so the same exception can
+    surface different copy depending on the rejected path.
+    """
+
+    def __init__(self, user_facing_message: str) -> None:
+        super().__init__(user_facing_message)
