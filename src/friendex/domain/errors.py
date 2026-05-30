@@ -16,8 +16,13 @@ failures is enforced by the type system.
 Derived from ``docs/02-target-architecture.md`` §Error Handling.
 """
 
-from datetime import time
-from decimal import Decimal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datetime import time
+    from decimal import Decimal
 
 
 class DomainError(Exception):

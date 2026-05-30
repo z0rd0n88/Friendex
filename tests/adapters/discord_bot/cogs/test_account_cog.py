@@ -186,6 +186,7 @@ async def test_optin_first_time_dms_intro_and_acks_ephemerally(
     activity_service.opt_in_and_consume_intro.assert_awaited_once_with("4242")
     # Intro DM fired exactly once with the canonical intro embed.
     assert user_send.await_count == 1
+    assert user_send.await_args is not None  # narrow for mypy
     dm_kwargs = user_send.await_args.kwargs
     assert dm_kwargs["embed"].to_dict() == build_intro_embed().to_dict()
     # AllowedMentions.none() is load-bearing (Phase 10 invariant).

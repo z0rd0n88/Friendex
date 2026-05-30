@@ -23,20 +23,20 @@ exercise — because 11b and 11c re-use this same conftest.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from friendex.application.activity_service import ActivityService
+from friendex.application.daily_service import DailyService
+from friendex.application.fund_service import FundService
+from friendex.application.portfolio_service import PortfolioService
+from friendex.application.stats_service import StatsService
+from friendex.application.trading_service import TradingService
+
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from friendex.application.activity_service import ActivityService
-    from friendex.application.daily_service import DailyService
-    from friendex.application.fund_service import FundService
-    from friendex.application.portfolio_service import PortfolioService
-    from friendex.application.stats_service import StatsService
-    from friendex.application.trading_service import TradingService
 
 # Stub Discord snowflake IDs — large positive ints so they always serialise
 # through ``str(interaction.guild.id)`` cleanly (real Discord IDs are 64-bit
@@ -101,48 +101,36 @@ def _async_mock_for(cls: type) -> AsyncMock:
 @pytest.fixture
 def portfolio_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`PortfolioService`."""
-    from friendex.application.portfolio_service import PortfolioService
-
     return _async_mock_for(PortfolioService)
 
 
 @pytest.fixture
 def activity_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`ActivityService`."""
-    from friendex.application.activity_service import ActivityService
-
     return _async_mock_for(ActivityService)
 
 
 @pytest.fixture
 def daily_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`DailyService`."""
-    from friendex.application.daily_service import DailyService
-
     return _async_mock_for(DailyService)
 
 
 @pytest.fixture
 def stats_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`StatsService`."""
-    from friendex.application.stats_service import StatsService
-
     return _async_mock_for(StatsService)
 
 
 @pytest.fixture
 def trading_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`TradingService`."""
-    from friendex.application.trading_service import TradingService
-
     return _async_mock_for(TradingService)
 
 
 @pytest.fixture
 def fund_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`FundService`."""
-    from friendex.application.fund_service import FundService
-
     return _async_mock_for(FundService)
 
 
@@ -162,7 +150,7 @@ def portfolio_service_factory(
     """Return a factory yielding ``portfolio_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> PortfolioService:
-        return portfolio_service  # type: ignore[return-value]
+        return cast("PortfolioService", portfolio_service)
 
     return _factory
 
@@ -174,7 +162,7 @@ def activity_service_factory(
     """Return a factory yielding ``activity_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> ActivityService:
-        return activity_service  # type: ignore[return-value]
+        return cast("ActivityService", activity_service)
 
     return _factory
 
@@ -186,7 +174,7 @@ def daily_service_factory(
     """Return a factory yielding ``daily_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> DailyService:
-        return daily_service  # type: ignore[return-value]
+        return cast("DailyService", daily_service)
 
     return _factory
 
@@ -198,7 +186,7 @@ def stats_service_factory(
     """Return a factory yielding ``stats_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> StatsService:
-        return stats_service  # type: ignore[return-value]
+        return cast("StatsService", stats_service)
 
     return _factory
 
@@ -210,7 +198,7 @@ def trading_service_factory(
     """Return a factory yielding ``trading_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> TradingService:
-        return trading_service  # type: ignore[return-value]
+        return cast("TradingService", trading_service)
 
     return _factory
 
@@ -222,6 +210,6 @@ def fund_service_factory(
     """Return a factory yielding ``fund_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> FundService:
-        return fund_service  # type: ignore[return-value]
+        return cast("FundService", fund_service)
 
     return _factory

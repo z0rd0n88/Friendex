@@ -14,11 +14,14 @@ import logging
 from datetime import time
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import structlog
 from pydantic import SecretStr, ValidationError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from friendex.adapters.config import (
     Settings,
@@ -41,7 +44,7 @@ def _load_from_env_file(path: Path) -> Settings:
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> None:
+def _clear_settings_cache() -> Iterator[None]:
     """Reset the lru_cache before and after every test."""
     get_settings.cache_clear()
     yield
@@ -206,7 +209,7 @@ def test_parse_int_list_passthrough_list_input() -> None:
     """Validator must accept already-parsed list[int]/list[str] inputs."""
     settings = Settings(
         discord_token="tmp",
-        vc_ping_role_ids=["10", "20", 30],  # type: ignore[arg-type]
+        vc_ping_role_ids=["10", "20", 30],  # type: ignore[list-item]
     )
     assert settings.vc_ping_role_ids == [10, 20, 30]
 
@@ -716,7 +719,7 @@ def test_parse_int_list_skips_malformed_list_entry(
     """Per-entry recovery also applies to direct list constructor input."""
     settings = Settings(
         discord_token="tmp",
-        vc_ping_role_ids=["10", "not_an_int", 30],  # type: ignore[arg-type]
+        vc_ping_role_ids=["10", "not_an_int", 30],  # type: ignore[list-item]
     )
 
     assert settings.vc_ping_role_ids == [10, 30]
@@ -735,7 +738,7 @@ def test_parse_int_list_warning_binds_field_name_vc_ping(
     """
     Settings(
         discord_token="tmp",
-        vc_ping_role_ids=["10", "broken_vc", 30],  # type: ignore[arg-type]
+        vc_ping_role_ids=["10", "broken_vc", 30],  # type: ignore[list-item]
     )
 
     output = capsys.readouterr().out + capsys.readouterr().err
@@ -750,7 +753,7 @@ def test_parse_int_list_warning_binds_field_name_photo_bonus(
     """L3 fix: ``photo_bonus_channel_ids`` malformed tokens carry the field name."""
     Settings(
         discord_token="tmp",
-        photo_bonus_channel_ids=["1", "broken_photo", 2],  # type: ignore[arg-type]
+        photo_bonus_channel_ids=["1", "broken_photo", 2],  # type: ignore[list-item]
     )
 
     output = capsys.readouterr().out + capsys.readouterr().err

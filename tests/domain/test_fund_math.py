@@ -43,7 +43,13 @@ NOW = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
 
 def _is_quantised(value: Decimal) -> bool:
     """True when ``value`` carries exactly two decimal places."""
-    return value == value.quantize(CENT) and -value.as_tuple().exponent == 2
+    exponent = value.as_tuple().exponent
+    # ``exponent`` is ``int | Literal["n", "N", "F"]`` per the stubs (the
+    # literal cases cover NaN / sNaN / inf). Real quantised currency values
+    # carry an int exponent — narrow before negating.
+    return (
+        value == value.quantize(CENT) and isinstance(exponent, int) and -exponent == 2
+    )
 
 
 def _make_account(

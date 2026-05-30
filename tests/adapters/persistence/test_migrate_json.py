@@ -68,7 +68,7 @@ async def engine() -> AsyncIterator[AsyncEngine]:
         await eng.dispose()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 def maker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """A sessionmaker bound to the in-memory engine."""
     return build_sessionmaker(engine)

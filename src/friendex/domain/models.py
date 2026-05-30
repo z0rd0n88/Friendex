@@ -31,9 +31,14 @@ deprecated ``datetime.utcnow`` is avoided so naive/aware datetimes do
 not leak through the persistence boundary in Phase 4.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from decimal import Decimal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from decimal import Decimal
 
 
 @dataclass
