@@ -58,12 +58,31 @@ def _with_voice(message: MagicMock, *, channel_id: int | None) -> MagicMock:
     return message
 
 
-def _with_role_mentions(message: MagicMock, *, role_ids: list[int]) -> MagicMock:
-    """Attach ``role_mentions`` to a message (each mock carries ``.id``)."""
+def _with_role_mentions(
+    message: MagicMock,
+    *,
+    role_ids: list[int],
+    role_members: dict[int, list[int]] | None = None,
+) -> MagicMock:
+    """Attach ``role_mentions`` to a message (each mock carries ``.id``).
+
+    ``role_members`` (optional) maps each role id to the list of member ids
+    that wear the role at the time the message fires. Each role mock then
+    exposes ``role.members`` as a list of stub members with ``.id`` populated
+    — matching the discord.py shape the listener iterates when snapshotting
+    the alt-account farming guard set.
+    """
     role_mocks: list[MagicMock] = []
+    members_by_role = role_members or {}
     for role_id in role_ids:
         role = MagicMock(name="Role")
         role.id = role_id
+        member_mocks: list[MagicMock] = []
+        for member_id in members_by_role.get(role_id, []):
+            member = MagicMock(name="RoleMember")
+            member.id = member_id
+            member_mocks.append(member)
+        role.members = member_mocks
         role_mocks.append(role)
     message.role_mentions = role_mocks
     return message
@@ -176,6 +195,140 @@ async def test_on_message_registers_voice_ping_when_author_in_voice_and_role_men
     from datetime import UTC
 
     assert kwargs["timestamp"].tzinfo is UTC
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 M — alt-account farming guard: production wiring
+#
+# PR #93 review H1: the service-level ``host_role_member_ids`` kwarg was
+# added to :meth:`VoicePingService.register_ping_message` and unit-tested in
+# isolation, but the production caller (``MessageListener.on_message``) did
+# NOT forward the snapshot, leaving the guard dead in real Discord traffic.
+# These tests pin the wiring at the listener boundary so a future refactor
+# that drops the snapshot fails loudly.
+
+
+async def test_on_message_forwards_host_role_member_ids_snapshot(
+    fake_message: Callable[..., MagicMock],
+    activity_service_factory: Callable[[str], object],
+    voice_ping_service: AsyncMock,
+    voice_ping_service_factory: Callable[[str], object],
+) -> None:
+    """Issue #84 M (H1) — snapshot of role members lands on ``register_ping_message``.
+
+    The listener must look up each matched VC ping role's live ``.members``
+    list and forward the union of their ids as ``host_role_member_ids`` so
+    the service-side alt-account guard has data to act on. Without this
+    wiring, the service kwarg is ``None`` for every production ping and
+    the guard is a silent no-op.
+    """
+    settings = _settings(vc_ping_role_ids=[111])
+    listener = MessageListener(
+        activity_service_factory=activity_service_factory,
+        voice_ping_service_factory=voice_ping_service_factory,
+        settings=settings,
+    )
+    message = fake_message(author_id=42, guild_id=999, content="@VC come join")
+    message.id = 88888
+    _with_channel(message, channel_id=4242)
+    _with_voice(message, channel_id=5555)
+    # The pinged role has three members: the host (42), an alt (1234), and
+    # an unrelated role-wearer (5678). All three must land in the snapshot;
+    # ``42`` (the host) being in the set is fine because the service already
+    # short-circuits ``responder_id == host_id``.
+    _with_role_mentions(
+        message,
+        role_ids=[111],
+        role_members={111: [42, 1234, 5678]},
+    )
+
+    await listener.on_message(message)
+
+    voice_ping_service.register_ping_message.assert_awaited_once()
+    kwargs = voice_ping_service.register_ping_message.await_args.kwargs
+    assert "host_role_member_ids" in kwargs
+    snapshot = kwargs["host_role_member_ids"]
+    # Use a ``frozenset`` so the contract surface is immutable; rejection-loop
+    # callers in the service use ``responder_id in host_role_member_ids``.
+    assert isinstance(snapshot, frozenset)
+    assert snapshot == frozenset({"42", "1234", "5678"})
+
+
+async def test_on_message_snapshot_unions_members_across_matched_roles(
+    fake_message: Callable[..., MagicMock],
+    activity_service_factory: Callable[[str], object],
+    voice_ping_service: AsyncMock,
+    voice_ping_service_factory: Callable[[str], object],
+) -> None:
+    """Issue #84 M (H1) — multi-role pings union ALL matched roles' members.
+
+    A single message can role-mention several configured VC ping roles at
+    once (e.g. ``@everyone @vc-listeners``). The snapshot must include the
+    union of all matched-role members, deduplicated, so an alt who shares
+    ANY of the pinged roles is still rejected.
+    """
+    settings = _settings(vc_ping_role_ids=[111, 222])
+    listener = MessageListener(
+        activity_service_factory=activity_service_factory,
+        voice_ping_service_factory=voice_ping_service_factory,
+        settings=settings,
+    )
+    message = fake_message(author_id=42, guild_id=999, content="@A @B come join")
+    message.id = 1
+    _with_channel(message, channel_id=4242)
+    _with_voice(message, channel_id=5555)
+    _with_role_mentions(
+        message,
+        role_ids=[111, 222],
+        # Member 7 wears BOTH roles — must appear exactly once in the snapshot.
+        role_members={111: [1, 2, 7], 222: [3, 4, 7]},
+    )
+
+    await listener.on_message(message)
+
+    voice_ping_service.register_ping_message.assert_awaited_once()
+    kwargs = voice_ping_service.register_ping_message.await_args.kwargs
+    snapshot = kwargs["host_role_member_ids"]
+    assert snapshot == frozenset({"1", "2", "3", "4", "7"})
+
+
+async def test_on_message_snapshot_excludes_unmatched_role_members(
+    fake_message: Callable[..., MagicMock],
+    activity_service_factory: Callable[[str], object],
+    voice_ping_service: AsyncMock,
+    voice_ping_service_factory: Callable[[str], object],
+) -> None:
+    """Issue #84 M (H1) — only members of CONFIGURED ping roles enter the snapshot.
+
+    If the message also mentions a role NOT in ``vc_ping_role_ids``, that
+    role's members must NOT bleed into the alt-account guard set — those
+    users are not part of the ping audience and have no reason to be
+    blocked from rewards.
+    """
+    settings = _settings(vc_ping_role_ids=[111])
+    listener = MessageListener(
+        activity_service_factory=activity_service_factory,
+        voice_ping_service_factory=voice_ping_service_factory,
+        settings=settings,
+    )
+    message = fake_message(author_id=42, guild_id=999, content="@VC @Other")
+    message.id = 1
+    _with_channel(message, channel_id=4242)
+    _with_voice(message, channel_id=5555)
+    _with_role_mentions(
+        message,
+        # ``222`` is mentioned but NOT in the config — its members are
+        # irrelevant to the guard.
+        role_ids=[111, 222],
+        role_members={111: [1, 2], 222: [3, 4]},
+    )
+
+    await listener.on_message(message)
+
+    voice_ping_service.register_ping_message.assert_awaited_once()
+    kwargs = voice_ping_service.register_ping_message.await_args.kwargs
+    snapshot = kwargs["host_role_member_ids"]
+    assert snapshot == frozenset({"1", "2"})
 
 
 async def test_on_message_does_not_register_ping_when_author_not_in_voice(
