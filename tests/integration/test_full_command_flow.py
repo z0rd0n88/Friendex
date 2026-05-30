@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -169,7 +169,9 @@ async def test_build_bot_wires_real_container(
     def stub(bot):  # type: ignore[return]
         runners = real_br(bot)
         for r in runners:
-            r.start = MagicMock()
+            # Replace the bound ``start`` method with a MagicMock so the test
+            # can assert the call without actually firing the task loop.
+            r.start = MagicMock()  # type: ignore[method-assign]
         captured.extend(runners)
         return runners
 
@@ -181,7 +183,9 @@ async def test_build_bot_wires_real_container(
     assert bot.add_cog.await_count == 12
     assert len(captured) == 8
     for runner in captured:
-        assert runner.start.call_count == 1
+        # ``runner.start`` was monkey-patched to MagicMock above; the static
+        # type comes from ``TaskRunner.start`` so we cast to access ``call_count``.
+        assert cast("MagicMock", runner.start).call_count == 1
     bot.tree.sync.assert_awaited()
 
 

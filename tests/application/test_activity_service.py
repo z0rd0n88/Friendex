@@ -648,10 +648,10 @@ class _BarrierUserRepo:
         self._barrier = barrier
         self.entered: list[str] = []
 
-    async def get(self, guild_id: str, user_id: str):  # type: ignore[no-untyped-def]
+    async def get(self, guild_id: str, user_id: str) -> UserAccount | None:
         return await self._inner.get(guild_id, user_id)
 
-    async def upsert(self, guild_id: str, account) -> None:  # type: ignore[no-untyped-def]
+    async def upsert(self, guild_id: str, account: UserAccount) -> None:
         self.entered.append(guild_id)
         await self._barrier.wait()
         await self._inner.upsert(guild_id, account)
@@ -659,10 +659,12 @@ class _BarrierUserRepo:
     async def delete(self, guild_id: str, user_id: str) -> None:
         await self._inner.delete(guild_id, user_id)
 
-    async def list_all(self, guild_id: str):  # type: ignore[no-untyped-def]
+    async def list_all(self, guild_id: str) -> list[UserAccount]:
         return await self._inner.list_all(guild_id)
 
-    async def list_active_in_last(self, guild_id: str, seconds: float):  # type: ignore[no-untyped-def]
+    async def list_active_in_last(
+        self, guild_id: str, seconds: float
+    ) -> list[UserAccount]:
         return await self._inner.list_active_in_last(guild_id, seconds)
 
 

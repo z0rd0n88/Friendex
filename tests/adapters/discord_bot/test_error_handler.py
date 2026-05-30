@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -42,7 +42,15 @@ from friendex.adapters.discord_bot.error_handler import register_error_handler
 from friendex.domain.errors import DomainError, InsufficientFunds, PersistenceError
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     import pytest
+
+    # The handler bound on ``bot.tree.on_error`` — the signature matches the
+    # discord.py ``CommandTree.on_error`` contract.
+    _TreeErrorHandler = Callable[
+        [discord.Interaction[Any], app_commands.AppCommandError], Awaitable[None]
+    ]
 
 # ---------------------------------------------------------------------------
 # Fake interaction
@@ -80,7 +88,19 @@ def _make_interaction(*, already_responded: bool = False) -> _FakeInteraction:
 # Helpers
 
 
-def _install_handler() -> tuple[MagicMock, object]:
+def _await_kwargs(mock: AsyncMock) -> dict[str, Any]:
+    """Return the ``kwargs`` of the most recent await on ``mock``.
+
+    ``AsyncMock.await_args`` is typed ``_Call | None`` to model the never-awaited
+    case. Tests in this file always call ``assert_awaited_once()`` first, so
+    ``await_args`` is guaranteed non-None — the runtime assert makes that
+    explicit for mypy's narrowing.
+    """
+    assert mock.await_args is not None
+    return dict(mock.await_args.kwargs)
+
+
+def _install_handler() -> tuple[MagicMock, _TreeErrorHandler]:
     """Build a fake bot whose ``tree`` records the registered handler.
 
     Returns the bot and the captured handler (the coroutine that the
@@ -91,8 +111,10 @@ def _install_handler() -> tuple[MagicMock, object]:
     settings = MagicMock(name="Settings")
     register_error_handler(bot, settings)
     # ``register_error_handler`` must have set ``bot.tree.on_error`` to the
-    # handler coroutine — exposing it for callback-direct invocation.
-    handler = bot.tree.on_error
+    # handler coroutine — exposing it for callback-direct invocation. The
+    # MagicMock attribute is dynamically typed; we cast it to the structural
+    # handler type for downstream call-site type safety.
+    handler: _TreeErrorHandler = bot.tree.on_error
     return bot, handler
 
 
@@ -110,7 +132,7 @@ async def test_domain_error_renders_ephemeral_red_embed_with_user_facing_message
     await handler(interaction, error)
 
     interaction.response.send_message.assert_awaited_once()
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = _await_kwargs(interaction.response.send_message)
     assert kwargs.get("ephemeral") is True
     assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
     embed = kwargs["embed"]
@@ -146,7 +168,7 @@ async def test_persistence_error_logs_with_structured_context_and_generic_reply(
     assert rec["detail"] == "constraint violation: 1062"
 
     interaction.response.send_message.assert_awaited_once()
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = _await_kwargs(interaction.response.send_message)
     assert kwargs.get("ephemeral") is True
     assert kwargs.get("content") == "Internal error, please try again"
 
@@ -181,7 +203,7 @@ async def test_unknown_exception_logs_critical_with_exc_info_and_generic_reply()
         assert isinstance(exc_info, RuntimeError)
 
     interaction.response.send_message.assert_awaited_once()
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = _await_kwargs(interaction.response.send_message)
     assert kwargs.get("ephemeral") is True
     assert kwargs.get("content") == "Unexpected error"
 
@@ -200,7 +222,7 @@ async def test_command_invoke_error_wrapping_domain_error_is_unwrapped() -> None
     await handler(interaction, wrapped)
 
     interaction.response.send_message.assert_awaited_once()
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = _await_kwargs(interaction.response.send_message)
     embed = kwargs["embed"]
     # Description equals "x" — the inner DomainError's user_facing_message.
     assert embed.description == "x"
@@ -228,7 +250,7 @@ async def test_nested_command_invoke_error_is_recursively_unwrapped() -> None:
     await handler(interaction, outer)
 
     interaction.response.send_message.assert_awaited_once()
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = _await_kwargs(interaction.response.send_message)
     embed = kwargs["embed"]
     assert embed.description == "deeply-wrapped"
 
@@ -248,7 +270,7 @@ async def test_handler_uses_followup_when_response_is_done() -> None:
     interaction.response.send_message.assert_not_awaited()
     # The followup must have been awaited with the same ephemeral red embed.
     interaction.followup.send.assert_awaited_once()
-    kwargs = interaction.followup.send.await_args.kwargs
+    kwargs = _await_kwargs(interaction.followup.send)
     assert kwargs.get("ephemeral") is True
     assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
     embed = kwargs["embed"]
@@ -301,7 +323,7 @@ async def test_check_failure_replies_ephemerally_and_does_not_log_critical(
     # The reply went out ephemerally (no embed — content-only is fine, the
     # CheckFailure surface is plain text).
     interaction.response.send_message.assert_awaited_once()
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = _await_kwargs(interaction.response.send_message)
     assert kwargs.get("ephemeral") is True
     assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
     content = kwargs.get("content", "")
@@ -344,7 +366,7 @@ async def test_check_failure_uses_followup_when_response_done() -> None:
 
     interaction.response.send_message.assert_not_awaited()
     interaction.followup.send.assert_awaited_once()
-    kwargs = interaction.followup.send.await_args.kwargs
+    kwargs = _await_kwargs(interaction.followup.send)
     assert kwargs.get("ephemeral") is True
     assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
 
@@ -378,7 +400,7 @@ async def test_wrapped_check_failure_replies_ephemerally_and_does_not_log_critic
 
     # The friendly ephemeral reply must have been sent.
     interaction.response.send_message.assert_awaited_once()
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = _await_kwargs(interaction.response.send_message)
     assert kwargs.get("ephemeral") is True
     assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
     content = kwargs.get("content", "")
@@ -415,7 +437,7 @@ async def test_nested_wrapped_check_failure_unwraps_recursively_to_friendly_repl
         await handler(interaction, outer)
 
     interaction.response.send_message.assert_awaited_once()
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = _await_kwargs(interaction.response.send_message)
     assert kwargs.get("ephemeral") is True
     content = kwargs.get("content", "")
     assert "permission" in content.lower()

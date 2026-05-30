@@ -29,8 +29,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import pytest
-
 from friendex.adapters.persistence.db import (
     Base,
     build_engine,
@@ -95,7 +93,6 @@ def _expected_counts(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_migrate_realistic_fixtures_round_trip_and_idempotent() -> None:
     """End-to-end migration + read-side spot-checks + idempotency re-run."""
     users = _load("users.json")

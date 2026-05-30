@@ -50,7 +50,10 @@ def test_score_monotonic_per_input(field: str, value: object) -> None:
     base = ActivityBucket()
     base_score = calculate_trending_score(base)
 
-    bumped = ActivityBucket(**{field: value})
+    # The parametrize matrix legitimately mixes int / float / list[str] values
+    # per row — mypy cannot narrow the splatted kwargs to each dataclass field's
+    # type. The matrix itself is the type contract; the dict splat is safe.
+    bumped = ActivityBucket(**{field: value})  # type: ignore[arg-type]
     bumped_score = calculate_trending_score(bumped)
 
     assert bumped_score > base_score
@@ -77,10 +80,13 @@ def test_score_non_decreasing_when_field_grows(field: str, value: object) -> Non
     elif isinstance(value, float):
         grown_value = getattr(baseline, field) + value
     else:
-        grown_value = getattr(baseline, field) + int(value)  # type: ignore[arg-type]
+        grown_value = getattr(baseline, field) + int(value)  # type: ignore[call-overload]
 
+    # See the comment on the parallel splat above: the parametrize matrix
+    # legitimately mixes types per row, mypy can't track the per-field
+    # narrowing through the dict.
     grown = ActivityBucket(
-        **{
+        **{  # type: ignore[arg-type]
             "text_msgs": baseline.text_msgs,
             "media_msgs": baseline.media_msgs,
             "voice_minutes": baseline.voice_minutes,

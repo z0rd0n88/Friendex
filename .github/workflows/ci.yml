@@ -38,8 +38,13 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check src/ tests/
 
-      - name: Mypy (strict)
-        run: uv run mypy --strict src/
+      - name: Mypy (strict, src/ and tests/)
+        # Wave 3 #82 H18: tests/ joined the gate; see mypy.ini for the
+        # [mypy-tests.*] relaxation rationale (per-module config still wins
+        # over the --strict CLI flag).
+        run: uv run mypy --strict src/ tests/
 
       - name: Pytest (with coverage)
-        run: uv run pytest --cov=friendex --cov-fail-under=0
+        # Wave 3 #82 M9: gate set to 95 (rounded down from the 95.62 % baseline
+        # measured on 2026-05-30); project rule mandates 80 % minimum.
+        run: uv run pytest --cov=friendex --cov-fail-under=95

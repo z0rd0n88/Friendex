@@ -15,7 +15,7 @@ patched so the assertions exercise the wiring contract, not Discord's network.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -64,7 +64,11 @@ def _capture_runners_stub(
     def stub(bot):  # type: ignore[return]
         runners = real_br(bot)
         for r in runners:
-            r.start = MagicMock(name=f"TaskRunner.start<{type(r._task).__name__}>")
+            # Replace the bound ``start`` method with a MagicMock so no
+            # ``discord.ext.tasks.Loop`` actually fires during the test.
+            r.start = MagicMock(  # type: ignore[method-assign]
+                name=f"TaskRunner.start<{type(r._task).__name__}>"
+            )
         captured.extend(runners)
         return runners
 
@@ -135,7 +139,9 @@ async def test_setup_hook_starts_every_runner_and_syncs_tree(
 
     assert len(captured) == 8, f"Expected 8 runners, got {len(captured)}"
     for runner in captured:
-        runner.start.assert_called_once()
+        # ``runner.start`` was monkey-patched to MagicMock in the stub above;
+        # cast so mypy sees the mock's introspection surface.
+        cast("MagicMock", runner.start).assert_called_once()
     bot.tree.sync.assert_awaited()
     bot.tree.copy_global_to.assert_not_called()
 

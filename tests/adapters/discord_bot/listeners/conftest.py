@@ -29,23 +29,23 @@ conftest.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from friendex.application.activity_service import ActivityService
+from friendex.application.daily_service import DailyService
+from friendex.application.discipline_service import DisciplineService
+from friendex.application.fund_service import FundService
+from friendex.application.portfolio_service import PortfolioService
+from friendex.application.stats_service import StatsService
+from friendex.application.trading_service import TradingService
+from friendex.application.voice_ping_service import VoicePingService
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
-
-    from friendex.application.activity_service import ActivityService
-    from friendex.application.daily_service import DailyService
-    from friendex.application.discipline_service import DisciplineService
-    from friendex.application.fund_service import FundService
-    from friendex.application.portfolio_service import PortfolioService
-    from friendex.application.stats_service import StatsService
-    from friendex.application.trading_service import TradingService
-    from friendex.application.voice_ping_service import VoicePingService
 
 
 # Stub Discord snowflake IDs — large positive ints so they always serialise
@@ -178,64 +178,48 @@ def _async_mock_for(cls: type) -> AsyncMock:
 @pytest.fixture
 def activity_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`ActivityService`."""
-    from friendex.application.activity_service import ActivityService
-
     return _async_mock_for(ActivityService)
 
 
 @pytest.fixture
 def discipline_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`DisciplineService`."""
-    from friendex.application.discipline_service import DisciplineService
-
     return _async_mock_for(DisciplineService)
 
 
 @pytest.fixture
 def voice_ping_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`VoicePingService`."""
-    from friendex.application.voice_ping_service import VoicePingService
-
     return _async_mock_for(VoicePingService)
 
 
 @pytest.fixture
 def trading_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`TradingService` (Phase 12b carry-over)."""
-    from friendex.application.trading_service import TradingService
-
     return _async_mock_for(TradingService)
 
 
 @pytest.fixture
 def fund_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`FundService` (Phase 12b carry-over)."""
-    from friendex.application.fund_service import FundService
-
     return _async_mock_for(FundService)
 
 
 @pytest.fixture
 def daily_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`DailyService` (Phase 12b carry-over)."""
-    from friendex.application.daily_service import DailyService
-
     return _async_mock_for(DailyService)
 
 
 @pytest.fixture
 def portfolio_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`PortfolioService` (Phase 12b carry-over)."""
-    from friendex.application.portfolio_service import PortfolioService
-
     return _async_mock_for(PortfolioService)
 
 
 @pytest.fixture
 def stats_service() -> AsyncMock:
     """AsyncMock stand-in for :class:`StatsService` (Phase 12b carry-over)."""
-    from friendex.application.stats_service import StatsService
-
     return _async_mock_for(StatsService)
 
 
@@ -255,7 +239,7 @@ def activity_service_factory(
     """Return a factory yielding ``activity_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> ActivityService:
-        return activity_service  # type: ignore[return-value]
+        return cast("ActivityService", activity_service)
 
     return _factory
 
@@ -267,7 +251,7 @@ def discipline_service_factory(
     """Return a factory yielding ``discipline_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> DisciplineService:
-        return discipline_service  # type: ignore[return-value]
+        return cast("DisciplineService", discipline_service)
 
     return _factory
 
@@ -279,7 +263,7 @@ def voice_ping_service_factory(
     """Return a factory yielding ``voice_ping_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> VoicePingService:
-        return voice_ping_service  # type: ignore[return-value]
+        return cast("VoicePingService", voice_ping_service)
 
     return _factory
 
@@ -291,7 +275,7 @@ def trading_service_factory(
     """Return a factory yielding ``trading_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> TradingService:
-        return trading_service  # type: ignore[return-value]
+        return cast("TradingService", trading_service)
 
     return _factory
 
@@ -303,7 +287,7 @@ def fund_service_factory(
     """Return a factory yielding ``fund_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> FundService:
-        return fund_service  # type: ignore[return-value]
+        return cast("FundService", fund_service)
 
     return _factory
 
@@ -315,7 +299,7 @@ def daily_service_factory(
     """Return a factory yielding ``daily_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> DailyService:
-        return daily_service  # type: ignore[return-value]
+        return cast("DailyService", daily_service)
 
     return _factory
 
@@ -327,7 +311,7 @@ def portfolio_service_factory(
     """Return a factory yielding ``portfolio_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> PortfolioService:
-        return portfolio_service  # type: ignore[return-value]
+        return cast("PortfolioService", portfolio_service)
 
     return _factory
 
@@ -339,7 +323,7 @@ def stats_service_factory(
     """Return a factory yielding ``stats_service`` for any guild id."""
 
     def _factory(_guild_id: str) -> StatsService:
-        return stats_service  # type: ignore[return-value]
+        return cast("StatsService", stats_service)
 
     return _factory
 
