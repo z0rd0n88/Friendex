@@ -658,13 +658,22 @@ class TradingService:
     ) -> CoverResult:
         """Close (some or all of) a short position on ``target_id``.
 
-        Requires market open (no Sunday exception), target opted in, the
-        coverer holds at least ``shares`` of an unfrozen short on the target,
-        sufficient cash to pay the cover cost, the actor is not the target,
-        and that the actor is not currently on the short/cover cooldown.
-        Released collateral is proportional to the shares being covered;
-        positive P&L is credited to cash on top of the released cash. The
-        short position is *deleted* when shares hit zero.
+        Requires market open (no Sunday exception), the coverer holds at
+        least ``shares`` of an unfrozen short on the target, sufficient
+        cash to pay the cover cost, the actor is not the target, and that
+        the actor is not currently on the short/cover cooldown. Released
+        collateral is proportional to the shares being covered; positive
+        P&L is credited to cash on top of the released cash. The short
+        position is *deleted* when shares hit zero.
+
+        **Opt-out asymmetry vs. ``buy``/``sell``/``short`` (issue #84 M).**
+        Cover deliberately does NOT require the target to be opted in.
+        A short can outlive the target's consent (the target may have
+        opted out after the short was opened); blocking cover would trap
+        the holder with no exit and leave their locked collateral
+        stranded indefinitely. The other three open-position directions
+        still enforce the opt-in gate at the public-method boundary.
+        See :meth:`_cover_internal` for the implementation note.
 
         The public method always rejects a frozen position with
         :class:`PositionFrozen`. The Phase 8f
