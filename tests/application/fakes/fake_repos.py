@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING
 from friendex.domain.models import HedgeFund
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from friendex.application.interfaces import SystemState, TradeCooldown
     from friendex.domain.models import (
         FundPenalty,
@@ -67,7 +69,7 @@ class FakeUserRepo:
         """Delete the account for ``(guild_id, user_id)`` if present."""
         self._store.pop((guild_id, user_id), None)
 
-    async def list_all(self, guild_id: str) -> list[UserAccount]:
+    async def list_all(self, guild_id: str) -> Sequence[UserAccount]:
         """Return every account in ``guild_id``."""
         return [
             account
@@ -77,7 +79,7 @@ class FakeUserRepo:
 
     async def list_active_in_last(
         self, guild_id: str, seconds: float
-    ) -> list[UserAccount]:
+    ) -> Sequence[UserAccount]:
         """Return accounts whose ``last_activity`` is within ``seconds`` of now.
 
         Mirrors the adapter's ``last_activity >= now - seconds`` (inclusive
@@ -116,7 +118,7 @@ class FakePriceRepo:
         self._store.pop((guild_id, user_id), None)
         self._history.pop((guild_id, user_id), None)
 
-    async def list_all(self, guild_id: str) -> list[Stock]:
+    async def list_all(self, guild_id: str) -> Sequence[Stock]:
         """Return every stock in ``guild_id``."""
         return [
             stock
@@ -132,7 +134,7 @@ class FakePriceRepo:
 
     async def get_history(
         self, guild_id: str, user_id: str, *, since: datetime | None = None
-    ) -> list[PricePoint]:
+    ) -> Sequence[PricePoint]:
         """Return a stock's price history, oldest first.
 
         ``since`` (tz-aware UTC) restricts the result to points at or after that
@@ -178,7 +180,7 @@ class FakeFundRepo:
         """Delete the fund for ``(guild_id, fund_id)`` if present."""
         self._store.pop((guild_id, fund_id), None)
 
-    async def list_all(self, guild_id: str) -> list[HedgeFund]:
+    async def list_all(self, guild_id: str) -> Sequence[HedgeFund]:
         """Return every fund in ``guild_id``."""
         return [
             fund
@@ -229,7 +231,7 @@ class FakePenaltyRepo:
         """Delete the penalty for ``(guild_id, user_id)`` if present."""
         self._store.pop((guild_id, user_id), None)
 
-    async def list_all(self, guild_id: str) -> list[FundPenalty]:
+    async def list_all(self, guild_id: str) -> Sequence[FundPenalty]:
         """Return every penalty in ``guild_id`` (live and expired alike)."""
         return [
             penalty
@@ -273,7 +275,7 @@ class FakeTradeCooldownRepo:
         """Delete the cooldown for ``(guild_id, user_id)`` if present."""
         self._store.pop((guild_id, user_id), None)
 
-    async def list_all(self, guild_id: str) -> list[TradeCooldown]:
+    async def list_all(self, guild_id: str) -> Sequence[TradeCooldown]:
         """Return every cooldown row in ``guild_id`` (including expired ones)."""
         return [
             cooldown
@@ -319,6 +321,6 @@ class FakeSystemStateRepo:
         """Delete the state row for ``guild_id`` if present."""
         self._store.pop(guild_id, None)
 
-    async def list_all(self) -> list[SystemState]:
+    async def list_all(self) -> Sequence[SystemState]:
         """Return the state row for every guild (unscoped)."""
         return list(self._store.values())
