@@ -57,8 +57,12 @@ class UtcDateTime(TypeDecorator[datetime]):
     """Store a tz-aware UTC :class:`~datetime.datetime` as ISO-8601 ``TEXT``.
 
     Aware inputs are converted to UTC before storage; the loaded value is
-    always tz-aware in UTC. Naive datetimes are rejected at bind time because
-    the domain layer never produces them (Phase 3.1).
+    always tz-aware in UTC. Naive datetimes are rejected at **both**
+    boundaries — the bind side because the domain layer never produces them
+    (Phase 3.1), the read side because a stored value without tz info is a
+    signal of schema drift (another writer / older migration / direct SQL
+    insert that bypassed this type) and silently re-tagging it would let
+    semantically-wrong data flow into the domain layer.
     """
 
     impl = String
@@ -80,5 +84,18 @@ class UtcDateTime(TypeDecorator[datetime]):
             return None
         parsed = datetime.fromisoformat(value)
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
+            # #82 M7 — surface schema drift loudly. Every value bound through
+            # this type carries tz info; a naive value at the read boundary
+            # means the column was written outside this code path. Re-tagging
+            # would let semantically-wrong data flow inward; raising forces
+            # the operator to investigate the offending writer.
+            #
+            # PR #92 review L-4: the message quotes the offending value but
+            # cannot name the source column — a ``TypeDecorator`` does not
+            # see the column it is bound to. Operators tracing a drift
+            # should grep the writer set for the quoted value pattern.
+            raise ValueError(
+                f"UtcDateTime read a naive datetime ({value!r}); "
+                "expected a tz-aware value (schema drift?)"
+            )
         return parsed.astimezone(UTC)

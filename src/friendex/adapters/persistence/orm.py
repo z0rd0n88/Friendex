@@ -225,6 +225,14 @@ class ActivityBucketORM(Base):
     bucket_type: Mapped[str] = mapped_column(primary_key=True)
     text_msgs: Mapped[int] = mapped_column(default=0)
     media_msgs: Mapped[int] = mapped_column(default=0)
+    # #84 M — ``voice_minutes`` and ``role_ping_join_minutes`` are stored as
+    # ``float``, deliberately diverging from the Phase 3.1 "money is Decimal"
+    # invariant. They are *durations* (accumulated minutes), not money: the
+    # game-side precision floor is one second, and the IEEE-754 error at the
+    # scale a bucket accumulates over a day/week (≤ ~10⁴ minutes) is well
+    # below that floor. Domain dataclasses mirror the type, so a regression
+    # to Decimal here would force a churn-y type change across the
+    # activity/voice-ping services for no observable gain.
     voice_minutes: Mapped[float] = mapped_column(default=0.0)
     reaction_count: Mapped[int] = mapped_column(default=0)
     reply_count: Mapped[int] = mapped_column(default=0)

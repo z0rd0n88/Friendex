@@ -336,14 +336,17 @@ def test_cli_missing_source_dir_errors(tmp_path: Path) -> None:
     assert exit_code != 0
 
 
-def test_migrate_handles_missing_files(
+async def test_migrate_handles_missing_files(
     maker: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
-    """AC1 — absent source files are treated as empty (zero rows), not errors."""
-    import asyncio
+    """AC1 — absent source files are treated as empty (zero rows), not errors.
 
-    counts = asyncio.run(migrate(tmp_path, maker, guild_id=GUILD_ID))
+    Uses the file's standard ``async def`` + ``asyncio_mode=auto`` pattern
+    so the inline ``import asyncio`` / ``asyncio.run`` plumbing is gone (PR
+    #92 review L-1).
+    """
+    counts = await migrate(tmp_path, maker, guild_id=GUILD_ID)
 
     assert counts == dict.fromkeys(_EXPECTED_COUNTS, 0)
 
@@ -438,3 +441,209 @@ def test_cli_top_level_not_an_object_exits_one(
     assert "users.json" in message
     # The message should explain the shape problem, not surface a stray AttributeError.
     assert "object" in message or "mapping" in message or "dict" in message
+
+
+# ---------------------------------------------------------------------------
+# #82 H11 — clear-then-append for price history is atomic in one transaction
+# ---------------------------------------------------------------------------
+
+
+async def test_price_history_rewrite_is_atomic_when_insert_fails(
+    maker: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#82 H11 — if the insert raises mid-flight, the clear must roll back.
+
+    Pre-fix the migrator cleared a user's price history in one committed
+    session, then re-appended each point in *another* committed session. A
+    kill (or any raised exception) between the commit of the clear and the
+    last append left the rows visibly gone. The fix groups the clear + bulk
+    insert into a single session and a single transaction, so any failure
+    rolls back the delete too — the pre-migration history stays intact for
+    the operator to retry.
+
+    Test technique: seed an existing history, monkeypatch
+    ``PriceHistoryORM.from_domain`` so producing a new row raises, then call
+    the migrator's rewrite helper directly. The exception must propagate
+    and the seeded history must remain because the DELETE was uncommitted.
+    """
+    from friendex.adapters.persistence import migrate_json_to_sqlite
+    from friendex.adapters.persistence.orm import PriceHistoryORM, StockORM
+    from friendex.domain.models import PricePoint
+
+    user_id = "999"
+    # Seed: stock row + two existing history points (the "pre-migration data").
+    # The stock row is flushed first so SQLite's FK check on the history
+    # inserts has a parent to point at (FK enforcement is ON via ADR-0002).
+    async with maker() as session:
+        session.add(
+            StockORM(
+                guild_id=GUILD_ID,
+                user_id=user_id,
+                current=Decimal("100.00"),
+                high_24h=Decimal("100.00"),
+                low_24h=Decimal("100.00"),
+                all_time_high=Decimal("100.00"),
+            )
+        )
+        await session.flush()
+        session.add_all(
+            [
+                PriceHistoryORM(
+                    guild_id=GUILD_ID,
+                    user_id=user_id,
+                    price=Decimal("90.00"),
+                    recorded_at=datetime(2026, 5, 22, 12, 0, 0, tzinfo=UTC),
+                ),
+                PriceHistoryORM(
+                    guild_id=GUILD_ID,
+                    user_id=user_id,
+                    price=Decimal("95.00"),
+                    recorded_at=datetime(2026, 5, 22, 13, 0, 0, tzinfo=UTC),
+                ),
+            ]
+        )
+        await session.commit()
+
+    async def _count_rows() -> int:
+        async with maker() as s:
+            return int(
+                (
+                    await s.execute(
+                        select(func.count())
+                        .select_from(PriceHistoryORM)
+                        .where(
+                            PriceHistoryORM.guild_id == GUILD_ID,
+                            PriceHistoryORM.user_id == user_id,
+                        )
+                    )
+                ).scalar_one()
+            )
+
+    assert await _count_rows() == 2
+
+    # The migrator must expose an atomic rewrite helper that owns both the
+    # clear and the inserts in one transaction. Pre-fix, this name does not
+    # exist (the migrator does the clear and the inserts in two committed
+    # sessions); the test fails clearly when the helper is missing.
+    rewrite_name = "_rewrite_price_history"
+    assert hasattr(migrate_json_to_sqlite, rewrite_name), (
+        f"migrate_json_to_sqlite.{rewrite_name} is missing; "
+        "H11 atomic rewrite is not in place"
+    )
+    rewrite = getattr(migrate_json_to_sqlite, rewrite_name)
+
+    new_points = [
+        PricePoint(
+            price=Decimal("100.00"),
+            timestamp=datetime(2026, 5, 23, 12, 0, 0, tzinfo=UTC),
+        ),
+        PricePoint(
+            price=Decimal("102.50"),
+            timestamp=datetime(2026, 5, 23, 13, 0, 0, tzinfo=UTC),
+        ),
+    ]
+
+    # Force the insert step to raise after the DELETE has been issued but
+    # before the transaction commits.
+    def _exploding_from_domain(*_: object, **__: object) -> object:
+        raise RuntimeError("simulated kill between clear and last insert")
+
+    monkeypatch.setattr(PriceHistoryORM, "from_domain", _exploding_from_domain)
+
+    with pytest.raises(RuntimeError, match="simulated kill"):
+        await rewrite(maker, GUILD_ID, user_id, new_points)
+
+    # The original two history points survive because the DELETE was in the
+    # same uncommitted transaction as the (would-be) inserts.
+    assert await _count_rows() == 2, (
+        "clear-then-append for price history is not atomic; "
+        "the seeded rows were lost when the rewrite raised mid-flight"
+    )
+
+    # Restore from_domain (monkeypatch unwinds at teardown) and run the real
+    # helper once on the live data to prove it commits cleanly on the happy
+    # path.
+    monkeypatch.undo()
+    await rewrite(maker, GUILD_ID, user_id, new_points)
+    assert await _count_rows() == 2
+    async with maker() as session:
+        loaded = (
+            (
+                await session.execute(
+                    select(PriceHistoryORM).where(
+                        PriceHistoryORM.guild_id == GUILD_ID,
+                        PriceHistoryORM.user_id == user_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert {p.price for p in loaded} == {Decimal("100.00"), Decimal("102.50")}
+
+
+# ---------------------------------------------------------------------------
+# #84 L — CLI resolves --source through Path.resolve() (symlink hardening)
+# ---------------------------------------------------------------------------
+
+
+def test_cli_resolves_source_path_through_resolve(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#84 L — ``main`` passes ``Path.resolve()``'d source into the migrator.
+
+    Argparse hands back a literal text path; an unresolved symlink target
+    silently redirects the migration to a different fixture directory if the
+    symlink is changed after parsing. ``Path(args.source).resolve()`` pins
+    the *current* realpath at the moment of the CLI call.
+
+    We assert this by symlinking a fixtures dir, calling ``main`` against
+    the symlink, and capturing the path forwarded to the internal ``_run``
+    helper. The captured path must be the *resolved* (symlink-followed)
+    absolute path, not the raw symlink string from argparse.
+    """
+    from friendex.adapters.persistence import migrate_json_to_sqlite
+
+    real_source = tmp_path / "real_fixtures"
+    real_source.mkdir()
+    for filename in ("users.json", "prices.json", "funds.json", "fund_penalties.json"):
+        (real_source / filename).write_text("{}", encoding="utf-8")
+
+    linked_source = tmp_path / "link_to_fixtures"
+    linked_source.symlink_to(real_source, target_is_directory=True)
+
+    captured: dict[str, Path] = {}
+    original_run = migrate_json_to_sqlite._run
+
+    async def _capturing_run(
+        source: Path,
+        target: str,
+        guild_id: str,
+        *,
+        dry_run: bool = False,
+    ) -> dict[str, int]:
+        captured["source"] = source
+        return await original_run(source, target, guild_id, dry_run=dry_run)
+
+    monkeypatch.setattr(migrate_json_to_sqlite, "_run", _capturing_run)
+
+    target = f"sqlite+aiosqlite:///{tmp_path / 'out.db'}"
+    exit_code = migrate_json_to_sqlite.main(
+        [
+            "--source",
+            str(linked_source),
+            "--target",
+            target,
+            "--guild-id",
+            GUILD_ID,
+        ]
+    )
+
+    assert exit_code == 0
+    captured_source = captured["source"]
+    # The captured path is the *resolved* absolute path through the symlink,
+    # not the literal symlink string argparse received.
+    assert captured_source == real_source.resolve()
+    assert captured_source != linked_source

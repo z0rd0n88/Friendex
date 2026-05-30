@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import pytest_asyncio
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from friendex.adapters.persistence.db import Base, build_engine, build_sessionmaker
 from friendex.adapters.persistence.fund_repo import SqlFundRepository
@@ -35,7 +36,7 @@ from friendex.domain.models import HedgeFund
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
     from friendex.application.interfaces import IFundRepo
 
@@ -284,3 +285,52 @@ async def test_delete_missing_fund_is_noop(repo: SqlFundRepository) -> None:
     """AC2 — deleting an absent fund does not raise."""
     await repo.delete(GUILD_ID, "ghost")
     assert await repo.get(GUILD_ID, "ghost") is None
+
+
+# ---------------------------------------------------------------------------
+# M-1 — explicit flush after merge() pins the merge→delete→insert ordering
+#         (parity carry-forward of #82 H10 from SqlUserRepository to
+#          SqlFundRepository — same aggregate-replace shape, same latent bug)
+# ---------------------------------------------------------------------------
+
+
+async def test_upsert_replace_survives_autoflush_disabled(
+    engine: AsyncEngine,
+) -> None:
+    """M-1 — ``upsert`` must work even when the session's ``autoflush=False``.
+
+    ``SqlFundRepository.upsert`` follows the identical ``merge(parent) →
+    DELETE investors → INSERT investors`` pattern as the user repo. With
+    ``autoflush=True`` (today's default) the merged parent is implicitly
+    flushed before the child DELETE / INSERT chain runs; flipping autoflush
+    off — a future hardening sweep, or any session-config drift — silently
+    breaks the merge → delete → insert ordering and trips the FK constraint
+    on the investor re-inserts (``FundInvestorORM`` has a composite FK back
+    to ``hedge_funds``). The explicit ``await session.flush()`` after the
+    ``merge`` keeps the contract independent of the autoflush default,
+    mirroring the #82 H10 fix in ``SqlUserRepository``.
+    """
+    autoflush_off = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    repo = SqlFundRepository(autoflush_off)
+
+    # First insert (creates the parent + investors).
+    await repo.upsert(GUILD_ID, _fund("fund-1"))
+
+    # Replace the same aggregate with a different investor set; the second
+    # upsert is where the ordering bites — ``merge`` stages the parent,
+    # ``DELETE`` must see it, then the re-insert of investor rows must
+    # satisfy the FK back to the (now-merged) parent.
+    replacement = _fund(
+        "fund-1",
+        investors={"333": Decimal("4500.00"), "444": Decimal("550.25")},
+    )
+
+    await repo.upsert(GUILD_ID, replacement)
+
+    loaded = await repo.get(GUILD_ID, "fund-1")
+    assert loaded == replacement
