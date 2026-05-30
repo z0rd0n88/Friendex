@@ -1,0 +1,36 @@
+# Project prelude — example skip-list
+
+This is an example of the file passed to
+`xan-multi-agent-review --prompt-prelude .claude/xan-review-modes/skip-list.md`.
+
+Copy it to `skip-list.md` (gitignored if you choose, or tracked if your
+team wants a single source of truth) and refresh from the open tracker
+issues before each review pass.
+
+## DO NOT report findings already tracked in:
+
+- **Issue #82** (Multi-agent codebase review): hexagonal boundary leaks
+  in `application/portfolio.py:114`; `tasks/activity_tick.py` missing
+  back-off on transient SQLite locked errors; ARCH.md drift in
+  `adapters/discord_bot/embeds/`.
+- **Issue #83** (Sweep/simplifier): unused `_empty_guild_ids` helper
+  (already removed in PR #96); duplicate `_relative_timestamp` helpers
+  in cogs; ARG002 violations in tests/.
+- **Issue #84** (Net-new from python-pro/security/silent-failure):
+  3 CRITICALs in `main.py` + `error_handler.py` (logging exception in
+  finally without re-raise; bare except: pass; sentinel-leaking format
+  string); 17 HIGH; 14 MEDIUM. See issue body for full list.
+
+## House style
+
+- Money: `Decimal` quantised to `$0.01`, `ROUND_HALF_EVEN`. Reviewers
+  must NOT recommend `float` for any monetary path.
+- Datetimes: tz-aware UTC. `UtcDateTime` SQLAlchemy column rejects
+  naive on bind. Recommendations that introduce naive datetimes are
+  invalid.
+- Per-guild isolation: composite primary keys `(guild_id, user_id)`.
+  Recommendations that drop `guild_id` are invalid.
+- Logging: `structlog` only; no `print()` in `src/friendex/`.
+
+Trim aggressively — the file is capped at 16 KB and pollutes every
+reviewer's context window. Keep only the highest-signal items.

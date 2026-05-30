@@ -50,3 +50,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Per-developer skip-list for xan-multi-agent-review --prompt-prelude
+# (the .example sibling is the tracked starter)
+.claude/xan-review-modes/skip-list.md
