@@ -38,19 +38,18 @@ clobbered.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
-from decimal import ROUND_HALF_EVEN, Decimal
+from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import structlog
 
+from friendex.application.account_seed import seed_user_account
 from friendex.application.daily_result import DailyClaimResult
+from friendex.application.lock_manager import guild_lock_key
 from friendex.domain.errors import AlreadyClaimedToday
-from friendex.domain.models import (
-    ActivityBucket,
-    DailyProgress,
-    UserAccount,
-)
+from friendex.domain.models import DailyProgress, UserAccount
+from friendex.domain.price_engine import quantise
 
 if TYPE_CHECKING:
     from friendex.adapters.config import Settings
@@ -63,8 +62,6 @@ if TYPE_CHECKING:
 _log = structlog.get_logger(__name__)
 
 
-# Currency quantisation unit — two decimal places, banker's rounding.
-_CENT = Decimal("0.01")
 # Claim cadence window — 24 h since last claim is the cooldown line
 # (spec line 960 ``time_since >= timedelta(days=1)``).
 _CLAIM_WINDOW = timedelta(days=1)
@@ -75,11 +72,6 @@ _STREAK_GAP = timedelta(days=2)
 _STREAK_BONUS_LENGTH = 7
 # Streak counter value immediately after the bonus fires (spec line 980).
 _POST_BONUS_STREAK = 0
-
-
-def _quantise(value: Decimal) -> Decimal:
-    """Round ``value`` to two decimal places with banker's rounding."""
-    return value.quantize(_CENT, rounding=ROUND_HALF_EVEN)
 
 
 def _next_streak(
@@ -126,34 +118,24 @@ class DailyService:
     # -- internal helpers ---------------------------------------------------
 
     def _lock_key(self, user_id: str) -> str:
-        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001)."""
-        return f"{self._guild_id}:{user_id}"
+        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001).
+
+        Thin shim around :func:`guild_lock_key` (#82 H16).
+        """
+        return guild_lock_key(self._guild_id, user_id)
 
     async def _get_or_create_account(self, user_id: str) -> UserAccount:
         """Return the stored account (creating an initial-cash one if absent).
 
-        Mirrors :meth:`TradingService._get_or_create_user` (Phase 8c digest):
-        a never-seen user is seeded with ``settings.initial_cash`` and
-        empty positions / fresh zeroed buckets so first-time ``/daily``
-        works without requiring a prior trade.
+        Delegates the default-account shape to the shared
+        :func:`friendex.application.account_seed.seed_user_account` helper
+        (#82 H16) — pre-fix, four services carried near-identical copies of
+        the seed block.
         """
         existing = await self._user_repo.get(self._guild_id, user_id)
         if existing is not None:
             return existing
-        now = datetime.now(tz=UTC)
-        initial_cash = _quantise(Decimal(str(self._settings.initial_cash)))
-        seeded = UserAccount(
-            user_id=user_id,
-            cash_balance=initial_cash,
-            net_worth=initial_cash,
-            month_start_net_worth=initial_cash,
-            long_positions={},
-            short_positions={},
-            today=ActivityBucket(bucket_start=now),
-            week=ActivityBucket(bucket_start=now),
-            daily=DailyProgress(last_claim=None, streak=0),
-            last_activity=now,
-        )
+        seeded = seed_user_account(user_id, self._settings)
         await self._user_repo.upsert(self._guild_id, seeded)
         return seeded
 
@@ -204,8 +186,8 @@ class DailyService:
 
             is_bonus = candidate_streak == _STREAK_BONUS_LENGTH
 
-            daily_reward = _quantise(Decimal(str(self._settings.daily_reward)))
-            streak_bonus = _quantise(Decimal(str(self._settings.streak_bonus)))
+            daily_reward = quantise(Decimal(str(self._settings.daily_reward)))
+            streak_bonus = quantise(Decimal(str(self._settings.streak_bonus)))
             reward = daily_reward + streak_bonus if is_bonus else daily_reward
 
             # Spec line 980: after the bonus fires the counter resets to 0.
@@ -213,7 +195,7 @@ class DailyService:
 
             new_account = replace(
                 account,
-                cash_balance=_quantise(account.cash_balance + reward),
+                cash_balance=quantise(account.cash_balance + reward),
                 daily=DailyProgress(last_claim=now, streak=recorded_streak),
             )
             await self._user_repo.upsert(self._guild_id, new_account)

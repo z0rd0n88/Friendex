@@ -53,9 +53,9 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from friendex.application.account_seed import seed_user_account
+from friendex.application.lock_manager import guild_lock_key
 from friendex.domain.models import (
-    ActivityBucket,
-    DailyProgress,
     PricePoint,
     UserAccount,
     VcExtraBoost,
@@ -343,13 +343,11 @@ class VoicePingService:
     def _lock_key(self, user_id: str) -> str:
         """Return the ``LockManager`` key for ``user_id`` in this guild.
 
-        ADR-0001 mandates per-guild market isolation: the same user in two
-        guilds must NOT serialise against themselves on the single shared
-        :class:`~friendex.application.lock_manager.LockManager` that
-        Phase 14 injects into every per-guild service scope. Composing the
-        guild id into the key guarantees that.
+        Thin shim around :func:`guild_lock_key` (#82 H16). ADR-0001 mandates
+        per-guild market isolation: the same user in two guilds must NOT
+        serialise against themselves on the single shared :class:`LockManager`.
         """
-        return f"{self._guild_id}:{user_id}"
+        return guild_lock_key(self._guild_id, user_id)
 
     def _ping_lock_key(self, message_id: int) -> str:
         """Return the ``LockManager`` key for a ping session's RMW critical section.
@@ -427,21 +425,12 @@ class VoicePingService:
             )
 
     async def _get_or_create(self, user_id: str) -> UserAccount:
-        """Return the stored account for ``user_id`` or a fresh default one."""
+        """Return the stored account for ``user_id`` or a fresh default one.
+
+        Delegates to the shared
+        :func:`friendex.application.account_seed.seed_user_account` (#82 H16).
+        """
         existing = await self._user_repo.get(self._guild_id, user_id)
         if existing is not None:
             return existing
-        now = datetime.now(tz=UTC)
-        initial_cash = Decimal(str(self._settings.initial_cash))
-        return UserAccount(
-            user_id=user_id,
-            cash_balance=initial_cash,
-            net_worth=initial_cash,
-            month_start_net_worth=initial_cash,
-            long_positions={},
-            short_positions={},
-            today=ActivityBucket(bucket_start=now),
-            week=ActivityBucket(bucket_start=now),
-            daily=DailyProgress(last_claim=None, streak=0),
-            last_activity=now,
-        )
+        return seed_user_account(user_id, self._settings)

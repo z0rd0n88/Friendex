@@ -70,6 +70,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from friendex.application.lock_manager import guild_lock_key
 from friendex.domain.models import PricePoint
 from friendex.domain.price_engine import (
     apply_floor_stall,
@@ -123,12 +124,13 @@ class PriceTickService:
     def _lock_key(self, user_id: str) -> str:
         """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001).
 
-        The single :class:`LockManager` Phase 14 wires across every per-guild
-        service scope would otherwise serialise the same user across guilds —
+        Thin shim around :func:`guild_lock_key` (#82 H16). The single
+        :class:`LockManager` Phase 14 wires across every per-guild service
+        scope would otherwise serialise the same user across guilds —
         composing the guild id into the key guarantees per-guild isolation,
         verified by the load-bearing two-guild barrier test in Phase 8a.
         """
-        return f"{self._guild_id}:{user_id}"
+        return guild_lock_key(self._guild_id, user_id)
 
     async def _rmw_price(
         self,

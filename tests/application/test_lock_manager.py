@@ -17,7 +17,32 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from friendex.application.lock_manager import LockManager
+from friendex.application.lock_manager import LockManager, guild_lock_key
+
+# ---------------------------------------------------------------------------
+# Module-level ``guild_lock_key`` helper (#82 H16)
+# ---------------------------------------------------------------------------
+
+
+def test_guild_lock_key_is_composite_pair() -> None:
+    """The single source of truth for the ``"<guild>:<user>"`` shape."""
+    assert guild_lock_key("g1", "u1") == "g1:u1"
+
+
+def test_guild_lock_key_per_guild_isolation_pins_distinct_keys() -> None:
+    """ADR-0001 isolation invariant: the same user across two guilds maps
+    to two distinct keys.
+
+    Pre-#82 H16 every service carried its own ``_lock_key`` f-string copy
+    and the per-guild key shape lived in nine places at once. A future
+    edit that mutated the shape (e.g. swapping the separator, adding a
+    namespace prefix) had to hit every service in lockstep or risk
+    silently breaking guild isolation in one corner of the codebase.
+    Consolidating into this helper makes any future tweak land once and
+    propagate to every caller.
+    """
+    assert guild_lock_key("g1", "u1") != guild_lock_key("g2", "u1")
+
 
 # A timeout long enough to never trip on a healthy machine, short enough that a
 # genuine deadlock fails the suite quickly.

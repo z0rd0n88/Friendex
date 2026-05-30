@@ -31,10 +31,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
+from friendex.application.lock_manager import guild_lock_key
 from friendex.domain.models import PricePoint
+from friendex.domain.price_engine import quantise
 
 if TYPE_CHECKING:
     from friendex.adapters.config import Settings
@@ -43,14 +45,6 @@ if TYPE_CHECKING:
 
 
 DisciplineReason = Literal["timeout", "ban"]
-
-# Currency quantisation unit — two decimal places, banker's rounding.
-_CENT = Decimal("0.01")
-
-
-def _quantise(value: Decimal) -> Decimal:
-    """Round ``value`` to two decimal places with banker's rounding."""
-    return value.quantize(_CENT, rounding=ROUND_HALF_EVEN)
 
 
 @dataclass(frozen=True)
@@ -92,8 +86,14 @@ class DisciplineService:
         self._settings = settings
 
     def _lock_key(self, user_id: str) -> str:
-        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001)."""
-        return f"{self._guild_id}:{user_id}"
+        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001).
+
+        Thin per-service shim around the canonical
+        :func:`friendex.application.lock_manager.guild_lock_key` (#82 H16);
+        kept on the class so the rest of the service body reads naturally
+        as ``self._lock_key(uid)``.
+        """
+        return guild_lock_key(self._guild_id, user_id)
 
     async def apply_discipline_penalty(
         self,
@@ -135,8 +135,8 @@ class DisciplineService:
                 )
 
             old_price = stock.current
-            proposed = _quantise(old_price * multiplier)
-            new_price = max(proposed, _quantise(min_price))
+            proposed = quantise(old_price * multiplier)
+            new_price = max(proposed, quantise(min_price))
 
             if new_price == old_price:
                 # No-op short-circuit (stock already at floor) — skip
