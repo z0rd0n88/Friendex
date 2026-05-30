@@ -12,7 +12,7 @@ aware distinction does not change the day-of-week result, but we keep every
 instant aware to match domain conventions.
 """
 
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 
 import pytest
 
@@ -268,3 +268,65 @@ def test_is_market_open_rejects_naive_even_with_sunday_buy_allowed() -> None:
             MARKET_CLOSE,
             sunday_buy_allowed=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# UTC-anchored guard (PR #94 review L3)
+#
+# A future caller could pass a non-UTC tz-aware datetime — e.g.
+# ``datetime.now(tz=ZoneInfo("America/Chicago"))`` — and the original
+# ``tzinfo is None`` check would not catch it. Because the time-of-day
+# window math is UTC-anchored (market_open / market_close are UTC clock
+# values per ``Settings``), accepting non-UTC tzinfo would silently mis-
+# decide. The tightened guard rejects any non-zero UTC offset and the
+# ``utcoffset(dt) is None`` edge case (custom tzinfo per the
+# :mod:`datetime` protocol).
+# ---------------------------------------------------------------------------
+
+
+def test_is_market_open_rejects_non_utc_tz() -> None:
+    """A tz-aware datetime with a non-zero UTC offset must raise."""
+    from datetime import timezone
+
+    minus_six = timezone(timedelta(hours=-6))  # e.g. America/Chicago in CST
+    chicago_noon = datetime(2026, 5, 23, 12, 0, tzinfo=minus_six)
+    with pytest.raises(ValueError, match="UTC-anchored"):
+        is_market_open(chicago_noon, MARKET_OPEN, MARKET_CLOSE)
+
+
+def test_is_market_open_accepts_utc_aliases() -> None:
+    """Both the project ``UTC`` alias and a fresh +00:00 ``timezone`` pass.
+
+    The guard checks ``utcoffset() == timedelta(0)`` rather than identity
+    so any tzinfo with a zero offset is accepted — defends against a
+    future regression that switches to identity-comparison.
+    """
+    from datetime import timezone
+
+    fresh_utc = timezone(timedelta(0))
+    saturday_noon_utc = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
+    saturday_noon_zero_offset = datetime(2026, 5, 23, 12, 0, tzinfo=fresh_utc)
+    # Saturday at noon is inside the trading window — both tzinfos agree.
+    assert is_market_open(saturday_noon_utc, MARKET_OPEN, MARKET_CLOSE) is True
+    assert is_market_open(saturday_noon_zero_offset, MARKET_OPEN, MARKET_CLOSE) is True
+
+
+def test_is_market_open_rejects_tzinfo_whose_utcoffset_returns_none() -> None:
+    """Per the :mod:`datetime` protocol, ``tzinfo.utcoffset`` may return
+    ``None`` — a state that's not strictly tz-aware. Pin the edge case.
+    """
+    from datetime import tzinfo as tzinfo_base
+
+    class NoneOffsetTz(tzinfo_base):
+        def utcoffset(self, dt: datetime | None) -> timedelta | None:
+            return None
+
+        def dst(self, dt: datetime | None) -> timedelta | None:
+            return None
+
+        def tzname(self, dt: datetime | None) -> str | None:
+            return "weird"
+
+    weird = datetime(2026, 5, 23, 12, 0, tzinfo=NoneOffsetTz())
+    with pytest.raises(ValueError, match="UTC-anchored"):
+        is_market_open(weird, MARKET_OPEN, MARKET_CLOSE)

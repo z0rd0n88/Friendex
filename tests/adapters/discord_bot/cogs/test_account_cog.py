@@ -8,12 +8,11 @@ walk ``interaction.response.send_message.call_args`` and the embed's
 
 from __future__ import annotations
 
-import logging
 from decimal import Decimal
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
+import structlog
 
 from friendex.adapters.discord_bot.cogs.account_cog import AccountCog
 from friendex.adapters.discord_bot.embeds import (
@@ -22,9 +21,6 @@ from friendex.adapters.discord_bot.embeds import (
     build_intro_embed,
 )
 from friendex.application.snapshot_models import PortfolioSnapshot
-
-if TYPE_CHECKING:
-    import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -274,7 +270,6 @@ async def test_optin_logs_when_intro_dm_is_forbidden(
     activity_service: AsyncMock,
     portfolio_service_factory,  # type: ignore[no-untyped-def]
     activity_service_factory,  # type: ignore[no-untyped-def]
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Phase 17 follow-up (17c INFO carry-forward): the ``discord.Forbidden``
     DM-fallback path must emit ONE structured ``INFO`` log so operators can
@@ -286,6 +281,15 @@ async def test_optin_logs_when_intro_dm_is_forbidden(
     name + ``user_id`` / ``guild_id`` keys. The log MUST fire BEFORE the
     fallback send so the failure is recorded even if the fallback itself
     later fails. Embed contents are deliberately NOT logged.
+
+    PR #94 review (M1): pre-fix this callsite used ``logging.getLogger`` +
+    ``extra={...}`` so the structured fields were silently dropped at the
+    production ``%(message)s`` formatter. The migration to structlog routes
+    ``user_id`` / ``guild_id`` as top-level keys via the JSON renderer.
+    Capture mechanism switches from ``caplog`` to
+    ``structlog.testing.capture_logs()`` for the same reason as the
+    ``voice_listener`` test — the production logger factory bypasses
+    stdlib.
     """
     activity_service.opt_in_and_consume_intro.return_value = True
     cog = AccountCog(
@@ -299,27 +303,26 @@ async def test_optin_logs_when_intro_dm_is_forbidden(
     )
     _attach_user_send(interaction, raises=forbidden)
 
-    cog_logger_name = "friendex.adapters.discord_bot.cogs.account_cog"
-    with caplog.at_level(logging.INFO, logger=cog_logger_name):
+    with structlog.testing.capture_logs() as captured:
         await AccountCog.optin.callback(cog, interaction)
 
     matching = [
-        record
-        for record in caplog.records
-        if record.name == cog_logger_name
-        and record.message == "account.optin_intro_dm_forbidden"
-    ]
-    cog_records = [
-        (r.levelname, r.message) for r in caplog.records if r.name == cog_logger_name
+        rec
+        for rec in captured
+        if rec.get("event") == "account.optin_intro_dm_forbidden"
     ]
     assert len(matching) == 1, (
-        f"expected exactly one 'account.optin_intro_dm_forbidden' log on the "
-        f"cog logger, got {len(matching)} (all cog records: {cog_records!r})"
+        f"expected exactly one 'account.optin_intro_dm_forbidden' structlog "
+        f"entry, got {len(matching)} (all captured records: {captured!r})"
     )
-    record = matching[0]
-    assert record.levelno == logging.INFO
-    assert getattr(record, "user_id", None) == "4242"
-    assert getattr(record, "guild_id", None) == "99"
+    rec = matching[0]
+    assert rec["log_level"] == "info"
+    # PR #94 review (M1): the structured fields MUST be top-level keys,
+    # not nested in an ``extra`` sub-dict — that's the silent-failure trap
+    # this fix removes. ``user_id`` / ``guild_id`` are the only operator
+    # signals (embed payload is deliberately omitted).
+    assert rec["user_id"] == "4242"
+    assert rec["guild_id"] == "99"
 
 
 async def test_optin_consumes_intro_before_acking(

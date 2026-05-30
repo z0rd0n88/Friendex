@@ -19,6 +19,7 @@ from ``Settings`` at the call site) so the domain layer holds no configuration.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -60,15 +61,24 @@ def is_market_open(
     at/after ``market_open`` *or* strictly before ``market_close``. ``dt`` is
     not mutated.
 
-    ``dt`` must be timezone-aware (Phase 3.1 invariant). A naive
-    :class:`datetime` is rejected with :class:`ValueError` because a caller
-    that passed ``datetime.now()`` (without ``tz=UTC``) would otherwise get a
-    silently wrong open/closed decision when the host timezone differs from
-    UTC. The check fires before the Sunday + time-of-day branches so the same
-    error surfaces for every input.
+    ``dt`` must be timezone-aware *and anchored to UTC* (Phase 3.1
+    invariant: the project is UTC-only). The guard rejects three failure
+    modes — naive ``datetime`` (``tzinfo is None``), a custom ``tzinfo``
+    whose ``utcoffset`` returns ``None`` (per the
+    :mod:`datetime` protocol that's still not strictly tz-aware), and any
+    non-zero offset (a caller passing ``datetime.now(tz=ZoneInfo("America/
+    Chicago"))`` would otherwise get a silently wrong open/closed
+    decision because the time-of-day window math is UTC-anchored). The
+    check fires before the Sunday + time-of-day branches so the same
+    error surfaces for every input. (PR #94 review L3 tightens the
+    original ``tzinfo is None`` guard with both the ``utcoffset is None``
+    edge case and the UTC-only assertion.)
     """
     if dt.tzinfo is None:
         raise ValueError("is_market_open requires a tz-aware datetime")
+    offset = dt.utcoffset()
+    if offset is None or offset != timedelta(0):
+        raise ValueError("is_market_open requires a UTC-anchored datetime")
 
     if is_sunday(dt) and not sunday_buy_allowed:
         return False

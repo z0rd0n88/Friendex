@@ -32,10 +32,10 @@ Domain errors **propagate uncaught**; Phase 13 will install a tree-wide
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import discord
+import structlog
 from discord import app_commands
 from discord.ext import commands
 
@@ -53,7 +53,13 @@ if TYPE_CHECKING:
     from friendex.application.activity_service import ActivityService
     from friendex.application.portfolio_service import PortfolioService
 
-logger = logging.getLogger(__name__)
+# PR #94 review (M1): pre-fix this module held ``logger = logging.getLogger(
+# __name__)`` and passed structured fields via the stdlib ``extra={...}``
+# kwarg. ``configure_logging`` (``adapters/config.py``) installs the bare
+# ``%(message)s`` format on the stdlib root, so ``extra`` was silently
+# dropped from every rendered log line. Structlog routes the structured
+# kwargs through the JSON renderer as top-level keys.
+_log = structlog.get_logger(__name__)
 
 
 class AccountCog(commands.Cog):
@@ -154,12 +160,12 @@ class AccountCog(commands.Cog):
             # ephemeral confirmation so the user still sees it. Record the
             # block at INFO so operators can spot trends (e.g. server-wide
             # DM restrictions); the embed payload is deliberately omitted.
-            logger.info(
+            # Structlog accepts the structured fields as keyword arguments —
+            # they land as top-level keys in the JSON sink. (PR #94 review M1.)
+            _log.info(
                 "account.optin_intro_dm_forbidden",
-                extra={
-                    "user_id": str(interaction.user.id),
-                    "guild_id": guild_id_of(interaction),
-                },
+                user_id=str(interaction.user.id),
+                guild_id=guild_id_of(interaction),
             )
             await interaction.followup.send(
                 embeds=[intro_embed, confirmation_embed],

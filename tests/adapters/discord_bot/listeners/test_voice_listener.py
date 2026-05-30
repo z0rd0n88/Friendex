@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import structlog
 
 from friendex.adapters.discord_bot.listeners.voice_listener import VoiceListener
 from friendex.application.voice_session_store import VoiceSessionStore
@@ -441,7 +442,6 @@ async def test_switch_leave_failure_does_not_skip_subsequent_join(
     activity_service_factory: Callable[[str], object],
     voice_ping_service: AsyncMock,
     voice_ping_service_factory: Callable[[str], object],
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """SWITCH: if ``_do_leave`` raises, ``_do_join`` MUST still run.
 
@@ -453,9 +453,13 @@ async def test_switch_leave_failure_does_not_skip_subsequent_join(
     Mutation-hardening: a regression that drops the try/except (or
     re-raises) will cause this test to fail because ``_do_join`` is never
     called.
-    """
-    import logging
 
+    PR #94 review (M1): the failure log now flows through structlog rather
+    than stdlib ``logging`` so the structured kwargs survive the JSON
+    renderer. The capture mechanism is ``structlog.testing.capture_logs()``
+    rather than ``caplog`` because the production logger factory bypasses
+    stdlib (``PrintLoggerFactory`` per ``adapters/config.py``).
+    """
     start = datetime(2026, 5, 25, 11, 30, 0, tzinfo=UTC)
     when = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
     store = VoiceSessionStore()
@@ -484,10 +488,7 @@ async def test_switch_leave_failure_does_not_skip_subsequent_join(
     before = fake_voice_state(channel_id=5555)
     after = fake_voice_state(channel_id=6666)
 
-    with caplog.at_level(
-        logging.ERROR,
-        logger="friendex.adapters.discord_bot.listeners.voice_listener",
-    ):
+    with structlog.testing.capture_logs() as captured:
         await listener.on_voice_state_update(member, before, after)
 
     # leave fired and raised — confirmed by side_effect surfacing in caplog
@@ -503,18 +504,101 @@ async def test_switch_leave_failure_does_not_skip_subsequent_join(
         channel_id=6666,
         now=when,
     )
-    # The leave failure was logged at ERROR with exc_info.
-    leave_failure_records = [
-        r
-        for r in caplog.records
-        if r.name == "friendex.adapters.discord_bot.listeners.voice_listener"
-        and r.levelno == logging.ERROR
-    ]
-    assert leave_failure_records, (
-        "expected an ERROR log entry for the swallowed leave failure"
+    # The leave failure was logged at ERROR with the original RuntimeError
+    # carried via ``exc_info`` so operators can diagnose the leave after the
+    # fact. Structlog captures ``exc_info=True`` as either the bare sentinel
+    # or the resolved exception tuple, depending on the configured
+    # processor chain; either shape is acceptable here — the contract is
+    # "the exception survived the log call".
+    error_records = [r for r in captured if r["log_level"] == "error"]
+    assert error_records, (
+        "expected an ERROR-level structlog entry for the swallowed leave failure"
     )
-    assert leave_failure_records[0].exc_info is not None
-    assert leave_failure_records[0].exc_info[0] is RuntimeError
+    assert error_records[0]["event"] == "voice_listener.switch_leave_failed"
+    assert error_records[0].get("exc_info") is not None
+
+
+# ---------------------------------------------------------------------------
+# PR #94 review (M1) — structlog migration of the swallowed-leave log
+#
+# Pre-fix the listener held ``logger = logging.getLogger(__name__)`` and
+# passed structured fields via the stdlib ``extra={}`` kwarg. ``configure_
+# logging`` in ``adapters/config.py`` clears stdlib handlers and sets the
+# bare ``%(message)s`` format — so ``extra={}`` was silently dropped from
+# every rendered log line. Same silent-failure class the rest of the PR is
+# migrating elsewhere. Pin: the swallowed-leave log goes through structlog
+# with the structured fields visible as top-level keys.
+#
+# This test uses ``structlog.testing.capture_logs()`` rather than ``caplog``
+# because the production processor chain runs through structlog's
+# wrapper-class — the caplog-based ``test_switch_leave_failure_does_not_
+# skip_subsequent_join`` above remains the behavioural pin (the leave
+# fails, the join still runs), and this one pins the *log shape*.
+
+
+async def test_switch_leave_failure_log_carries_structured_fields_via_structlog(
+    fake_member: Callable[..., MagicMock],
+    fake_voice_state: Callable[..., MagicMock],
+    activity_service: AsyncMock,
+    activity_service_factory: Callable[[str], object],
+    voice_ping_service: AsyncMock,
+    voice_ping_service_factory: Callable[[str], object],
+) -> None:
+    """``logger.error("event", k=v, exc_info=...)`` round-trips through structlog.
+
+    Asserts the event name + every structured key (``guild_id``, ``user_id``,
+    ``before_channel_id``, ``after_channel_id``) lands as a top-level field
+    in the captured log dict — exactly the surface the production
+    ``JSONRenderer`` indexes. The pre-fix ``extra={}`` shape would surface
+    as ``extra={...}`` (a nested dict) and the JSON sink would silently
+    drop it.
+    """
+    start = datetime(2026, 5, 25, 11, 30, 0, tzinfo=UTC)
+    when = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+    store = VoiceSessionStore()
+    await store.set(
+        VoiceSession(
+            user_id="42",
+            channel_id=5555,
+            start=start,
+            from_ping_message_ids=set(),
+        )
+    )
+    boom = RuntimeError("transient persistence error on leave")
+    activity_service.handle_voice_leave.side_effect = boom
+    voice_ping_service.collect_extra_boosts.return_value = []
+    task = _vc_boost_task()
+    listener = _build_listener(
+        activity_service_factory=activity_service_factory,
+        voice_ping_service_factory=voice_ping_service_factory,
+        voice_session_store=store,
+        vc_boost_task=task,
+        clock=_fixed_clock(when),
+    )
+
+    member = fake_member(user_id=42, guild_id=999)
+    before = fake_voice_state(channel_id=5555)
+    after = fake_voice_state(channel_id=6666)
+
+    with structlog.testing.capture_logs() as captured:
+        await listener.on_voice_state_update(member, before, after)
+
+    error_records = [r for r in captured if r["log_level"] == "error"]
+    assert error_records, (
+        "expected an ERROR-level structlog entry for the swallowed leave failure"
+    )
+    rec = error_records[0]
+    assert rec["event"] == "voice_listener.switch_leave_failed"
+    # The four structured fields MUST be top-level keys, not nested in an
+    # ``extra`` sub-dict — that's the silent-failure trap this fix removes.
+    assert rec["guild_id"] == "999"
+    assert rec["user_id"] == "42"
+    assert rec["before_channel_id"] == 5555
+    assert rec["after_channel_id"] == 6666
+    # ``exc_info=True`` survives the structlog round-trip as either the
+    # bare sentinel or the exception instance, per the configured processor
+    # chain — ``capture_logs`` captures whatever the call site passed.
+    assert rec.get("exc_info") is not None
 
 
 # ---------------------------------------------------------------------------

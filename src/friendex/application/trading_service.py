@@ -734,6 +734,23 @@ class TradingService:
         cooldown after the lock release on success; liquidation does not
         set a cooldown at all (a force-cover is a system action, not a
         user-initiated short/cover).
+
+        **UoW envelope responsibility (PR #94 review L2 — pre-existing
+        gap, tracked in issue #95).** ``cover()`` wraps its call to
+        this helper in ``async with self._uow.transaction()`` so the
+        writes (user upsert, fund cash, price upsert, cooldown set)
+        commit atomically. :class:`LiquidationService` does NOT — it
+        relies on the underlying persistence adapter's autocommit
+        behaviour, so a mid-sequence failure inside this helper invoked
+        from liquidation produces a narrow inconsistency window where
+        the target stub (persisted via ``target_created``) could land
+        without the accompanying money writes. The gap is intentionally
+        narrow — the target stub is a fresh zero-state row that any
+        subsequent trade would resurrect, and no money is misstated —
+        but it is real, and wrapping the liquidation call site in a UoW
+        envelope is the canonical fix. Crosses Wave 1 #88's territory
+        (atomicity of money flows), so it is deferred to issue #95
+        rather than bundled into this Wave 2 silent-failures PR.
         """
         target, target_created = await self._resolve_user(target_id)
         self._check_opt_in(target)
