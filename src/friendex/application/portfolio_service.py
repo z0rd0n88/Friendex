@@ -46,6 +46,7 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from friendex.application.lock_manager import guild_lock_key
 from friendex.application.snapshot_models import PortfolioSnapshot
 from friendex.domain.fund_math import compute_net_worth
 
@@ -86,8 +87,11 @@ class PortfolioService:
     # -- internal helpers ---------------------------------------------------
 
     def _lock_key(self, user_id: str) -> str:
-        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001)."""
-        return f"{self._guild_id}:{user_id}"
+        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001).
+
+        Thin shim around :func:`guild_lock_key` (#82 H16).
+        """
+        return guild_lock_key(self._guild_id, user_id)
 
     async def _personal_fund_cash(self, user_id: str) -> Decimal:
         """Return the cash balance of ``user_id``'s personal hedge fund, or 0."""

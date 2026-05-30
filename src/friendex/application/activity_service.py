@@ -39,10 +39,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from friendex.application.account_seed import seed_user_account
+from friendex.application.lock_manager import guild_lock_key
 from friendex.domain.activity import reset_activity_bucket
 from friendex.domain.models import (
     ActivityBucket,
-    DailyProgress,
     PricePoint,
     UserAccount,
     VoiceSession,
@@ -87,38 +88,25 @@ class ActivityService:
     def _lock_key(self, user_id: str) -> str:
         """Return the ``LockManager`` key for ``user_id`` in this guild.
 
-        ADR-0001 mandates per-guild market isolation: the same user in two
-        guilds must NOT serialise against themselves on the single shared
+        Thin shim around :func:`guild_lock_key` (#82 H16). ADR-0001 mandates
+        per-guild market isolation: the same user in two guilds must NOT
+        serialise against themselves on the single shared
         :class:`~friendex.application.lock_manager.LockManager` that
-        Phase 14 injects into every per-guild service scope. Composing the
-        guild id into the key guarantees that.
+        Phase 14 injects into every per-guild service scope.
         """
-        return f"{self._guild_id}:{user_id}"
+        return guild_lock_key(self._guild_id, user_id)
 
     async def _get_or_create(self, user_id: str) -> UserAccount:
         """Return the stored account for ``user_id``, creating a default one.
 
-        Mirrors the original ``ensure_user``: a never-seen user starts with the
-        configured initial cash, a flat net worth, empty positions, and fresh
-        zeroed buckets. The caller persists any subsequent mutation.
+        Delegates the default shape to the shared
+        :func:`friendex.application.account_seed.seed_user_account` helper
+        (#82 H16). The caller persists any subsequent mutation.
         """
         existing = await self._user_repo.get(self._guild_id, user_id)
         if existing is not None:
             return existing
-        now = datetime.now(tz=UTC)
-        initial_cash = Decimal(str(self._settings.initial_cash))
-        return UserAccount(
-            user_id=user_id,
-            cash_balance=initial_cash,
-            net_worth=initial_cash,
-            month_start_net_worth=initial_cash,
-            long_positions={},
-            short_positions={},
-            today=ActivityBucket(bucket_start=now),
-            week=ActivityBucket(bucket_start=now),
-            daily=DailyProgress(last_claim=None, streak=0),
-            last_activity=now,
-        )
+        return seed_user_account(user_id, self._settings)
 
     async def _mutate(
         self,
