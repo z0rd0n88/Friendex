@@ -263,9 +263,11 @@ STEPS: Final[tuple[SmokeStep, ...]] = (
             "cash by <amount>, credits the target fund's cash_balance, "
             "records the invoker's investor stake; public reply "
             "confirms. Self-invest (invoker == fund.manager_id) is "
-            "blocked by InvalidAmount('cannot invest in own fund') and "
-            "surfaces as an ephemeral DomainError; insufficient "
-            "investor cash raises InsufficientFunds."
+            "blocked by NotFundManager('Cannot invest in your own fund.') "
+            "and a missing fund by FundNotFound (#82 H17 — previously "
+            "both repurposed InvalidAmount); both surface as ephemeral "
+            "DomainErrors. Insufficient investor cash raises "
+            "InsufficientFunds."
         ),
     ),
     SmokeStep(

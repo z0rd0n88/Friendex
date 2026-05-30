@@ -122,16 +122,21 @@ def test_every_slash_command_is_represented_exactly_once() -> None:
 def test_fund_invest_step_describes_live_invest_path() -> None:
     """C4: ``/fund invest`` is live in Phase 17b — the smoke step now
     describes the happy-path (debit invoker, credit fund, record stake)
-    plus the two pinned domain errors (self-invest blocked + insufficient
-    funds), and no longer mentions ``NotImplementedError`` or "deferred".
+    plus the pinned domain errors (self-invest blocked, missing fund,
+    insufficient funds), and no longer mentions ``NotImplementedError``
+    or "deferred". #82 H17 promoted the self-invest gate to
+    :class:`NotFundManager` and the missing-fund gate to
+    :class:`FundNotFound`; pre-fix both repurposed :class:`InvalidAmount`.
     """
     invest_steps = [s for s in STEPS if s.command == "/fund invest"]
     assert len(invest_steps) == 1
     expected_text = invest_steps[0].expected.lower()
     # Live-invest semantics: the investor's stake on the fund is recorded.
     assert "stake" in expected_text
-    # Self-invest pin: surfaces as InvalidAmount per Phase 17b §Q2.
-    assert "invalidamount" in expected_text
+    # Self-invest pin (#82 H17): surfaces as NotFundManager.
+    assert "notfundmanager" in expected_text
+    # Missing-fund pin (#82 H17): surfaces as FundNotFound.
+    assert "fundnotfound" in expected_text
     # The retired "deferred / NotImplementedError" pin must NOT be back.
     assert "notimplementederror" not in expected_text
     assert "deferred" not in expected_text

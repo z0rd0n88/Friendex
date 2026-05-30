@@ -268,7 +268,9 @@ async def test_prune_history_returns_zero_when_nothing_old(
     """AC3 — pruning with no old rows deletes nothing and returns 0."""
     await repo.upsert(GUILD_ID, _stock("111"))
     await repo.append_history(
-        GUILD_ID, "111", PricePoint(Decimal("110.00"), _utc(2026, 5, 20, 8))
+        GUILD_ID,
+        "111",
+        PricePoint(price=Decimal("110.00"), timestamp=_utc(2026, 5, 20, 8)),
     )
 
     assert await repo.prune_history_older_than(_utc(2026, 5, 1, 0)) == 0
@@ -306,10 +308,14 @@ async def test_delete_cascades_to_history(
     """AC1 — ``delete`` removes the stock and cascades to its price history."""
     await repo.upsert(GUILD_ID, _stock("victim"))
     await repo.append_history(
-        GUILD_ID, "victim", PricePoint(Decimal("100.00"), _utc(2026, 5, 20, 8))
+        GUILD_ID,
+        "victim",
+        PricePoint(price=Decimal("100.00"), timestamp=_utc(2026, 5, 20, 8)),
     )
     await repo.append_history(
-        GUILD_ID, "victim", PricePoint(Decimal("101.00"), _utc(2026, 5, 21, 8))
+        GUILD_ID,
+        "victim",
+        PricePoint(price=Decimal("101.00"), timestamp=_utc(2026, 5, 21, 8)),
     )
 
     assert await _stock_count(session, GUILD_ID, "victim") == 1

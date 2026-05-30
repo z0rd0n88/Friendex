@@ -31,6 +31,7 @@ from friendex.domain.errors import (
     AlreadyOptedIn,
     FundInsufficientBalance,
     InvalidAmount,
+    NotFundManager,
 )
 from friendex.domain.models import HedgeFund
 
@@ -421,17 +422,20 @@ async def test_fund_invest_reply_is_public_with_allowed_mentions_none(
     assert isinstance(embed, discord.Embed)
 
 
-async def test_fund_invest_propagates_invalid_amount(
+async def test_fund_invest_propagates_not_fund_manager(
     fake_interaction,  # type: ignore[no-untyped-def]
     fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
-    """DomainError propagates uncaught — Phase 13 handler renders it."""
-    fund_service.invest.side_effect = InvalidAmount(reason="cannot invest in own fund")
+    """#82 H17: self-invest now raises :class:`NotFundManager` (was repurposed
+    :class:`InvalidAmount`). The cog re-raises uncaught so the Phase 13
+    tree-wide error handler can render it.
+    """
+    fund_service.invest.side_effect = NotFundManager("Cannot invest in your own fund.")
     group = _build_group(fund_service_factory)
     interaction = fake_interaction()
     target = _make_member(555)
-    with pytest.raises(InvalidAmount):
+    with pytest.raises(NotFundManager):
         await FundGroup.invest.callback(group, interaction, user=target, amount=100.0)
     interaction.followup.send.assert_not_awaited()
 
