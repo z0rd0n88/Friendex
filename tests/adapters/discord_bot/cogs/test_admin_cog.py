@@ -144,3 +144,43 @@ def test_admin_commands_are_guild_only() -> None:
         assert getattr(cmd, "guild_only", None) is True, (
             f"{cmd.name}: must be decorated @app_commands.guild_only()"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 L — every send carries AllowedMentions.none()
+# ---------------------------------------------------------------------------
+
+
+async def test_help_passes_allowed_mentions_none(
+    fake_interaction,  # type: ignore[no-untyped-def]
+) -> None:
+    """Issue #84 L — ``/help`` must not be able to broadcast mass mentions.
+
+    Even though the help embed is static (no user-controlled content),
+    every cog send pinning ``allowed_mentions=AllowedMentions.none()``
+    matches the project-wide I2 invariant — adding a runtime guard so a
+    future embed change that accidentally includes a ``<@&role>`` token
+    cannot silently ping everyone.
+    """
+    cog = AdminCog()
+    interaction = fake_interaction()
+    await AdminCog.help.callback(cog, interaction)
+    kwargs = _send_call_kwargs(interaction)
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
+
+
+async def test_game_intro_passes_allowed_mentions_none(
+    fake_interaction,  # type: ignore[no-untyped-def]
+) -> None:
+    """Issue #84 L — ``/game_intro`` (public) must not mass-mention.
+
+    The static intro embed is moderator-gated by ``manage_guild`` but the
+    reply is PUBLIC, so a stale or future intro template that mentions a
+    role would broadcast it. ``allowed_mentions=AllowedMentions.none()``
+    is the load-bearing guard.
+    """
+    cog = AdminCog()
+    interaction = fake_interaction()
+    await AdminCog.game_intro.callback(cog, interaction)
+    kwargs = _send_call_kwargs(interaction)
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)

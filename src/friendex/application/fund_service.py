@@ -339,6 +339,21 @@ class FundService:
         Locks both the user and the events-wallet pseudo-id in a single
         ``locked(...)`` call so the treasury update cannot interleave with
         another guild member's send.
+
+        **TOCTOU note (issue #82 M8).** The
+        :meth:`IFundRepo.ensure_events_wallet` call is technically a
+        check-then-act read-modify-write on the events-wallet row: two
+        concurrent senders could see "no wallet yet" and both create one.
+        In single-process asyncio this is benign — the event loop is
+        single-threaded and the outer
+        ``self._locks.locked(_EVENTS_WALLET_ID)`` serialises every code
+        path that touches the wallet, so the two ``ensure_*`` calls cannot
+        actually interleave. **Revisit if Friendex ever runs as more than
+        one process against the same database** (e.g. horizontally-scaled
+        deployment, worker fan-out) — the in-process lock will no longer
+        serialise across processes and the underlying
+        ``INSERT ... ON CONFLICT`` (or equivalent) needs to be the
+        load-bearing guard. See ADR-0001 for the single-process invariant.
         """
         if amount <= _ZERO_CASH:
             raise InvalidAmount("amount must be positive")

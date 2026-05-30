@@ -562,11 +562,12 @@ async def test_cover_raises_insufficient_funds_when_cash_below_cost(
 
 
 # ---------------------------------------------------------------------------
-# C6 — OptedOut blocks every direction
+# C6 — OptedOut blocks open-position directions (buy / sell / short).
+#       Cover is intentionally exempt — see the cover-when-opted-out test.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("op", ["buy", "sell", "short", "cover"])
+@pytest.mark.parametrize("op", ["buy", "sell", "short"])
 async def test_op_raises_opted_out_when_target_opt_in_is_false(
     op: str,
     fake_user_repo: FakeUserRepo,
@@ -576,34 +577,26 @@ async def test_op_raises_opted_out_when_target_opt_in_is_false(
     lock_manager: LockManager,
     default_settings: Settings,
 ) -> None:
-    """C6: a target with opt_in=False is untradable in all four directions."""
-    actor_id = {"buy": BUYER, "sell": SELLER, "short": SHORTER, "cover": COVERER}[op]
-    # Seed actor with a long for sell + a short for cover so we get past the
-    # position-existence checks to the opt-in gate.
+    """C6: a target with opt_in=False is untradable in open-position directions.
+
+    Cover is exempt by design: a holder may have opened the short *before*
+    the target opted out; blocking cover would trap the holder with no exit.
+    The cover exemption is pinned by
+    :func:`test_cover_succeeds_when_target_opted_out`.
+    """
+    actor_id = {"buy": BUYER, "sell": SELLER, "short": SHORTER}[op]
+    # Seed actor with a long for sell so we get past the position-existence
+    # check to the opt-in gate.
     long_for_sell = LongPosition(
         target_user_id=TARGET, shares=10, avg_entry=Decimal("80.00")
     )
     longs = {TARGET: long_for_sell} if op == "sell" else {}
-    shorts: dict[str, ShortPosition] = {}
-    if op == "cover":
-        shorts = {
-            TARGET: ShortPosition(
-                target_user_id=TARGET,
-                shares=10,
-                entry_price=Decimal("100.00"),
-                locked_cash=Decimal("400.00"),
-                locked_fund=Decimal("600.00"),
-                created_at=WEEKDAY_OPEN - timedelta(minutes=5),
-                frozen=False,
-            )
-        }
     await fake_user_repo.upsert(
         GUILD,
         _account(
             actor_id,
             cash=Decimal("5000.00"),
             long_positions=longs,
-            short_positions=shorts,
         ),
     )
     await fake_user_repo.upsert(GUILD, _account(TARGET, opt_in=False))
@@ -621,6 +614,68 @@ async def test_op_raises_opted_out_when_target_opt_in_is_false(
 
     with freeze_time(WEEKDAY_OPEN), pytest.raises(OptedOut):
         await getattr(service, op)(actor_id, TARGET, 1)
+
+
+async def test_cover_succeeds_when_target_opted_out(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Issue #84 M — cover must succeed even when the target opted out post-short.
+
+    A short can outlive the target's consent: a holder shorts ``TARGET``,
+    later ``TARGET`` opts out, and the holder still needs a way to close the
+    position. If cover enforced the opt-in gate (as buy/sell/short do), the
+    holder would be trapped with no exit and the locked collateral would
+    rot in their account.
+
+    Invariant pinned: the cover use case skips ``_check_opt_in`` so the
+    holder can always close a pre-existing short. Open-position directions
+    (buy/sell/short) keep the opt-out guard via the parametrised C6 test.
+    """
+    initial_short = ShortPosition(
+        target_user_id=TARGET,
+        shares=10,
+        entry_price=Decimal("100.00"),
+        locked_cash=Decimal("400.00"),
+        locked_fund=Decimal("600.00"),
+        created_at=WEEKDAY_OPEN - timedelta(minutes=5),
+        frozen=False,
+    )
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(
+            COVERER,
+            cash=Decimal("5000.00"),
+            short_positions={TARGET: initial_short},
+        ),
+    )
+    # Target has opted out *after* the short was opened.
+    await fake_user_repo.upsert(GUILD, _account(TARGET, opt_in=False))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+    await fake_fund_repo.upsert(GUILD, _fund(COVERER, cash=Decimal("1400.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with freeze_time(WEEKDAY_OPEN):
+        result = await service.cover(COVERER, TARGET, 5)
+
+    # Cover succeeds: 5 shares closed, collateral released proportionally.
+    assert result.shares == 5
+    assert result.released_cash == Decimal("200.00")
+    assert result.released_fund == Decimal("300.00")
+    assert result.position_after is not None
+    assert result.position_after.shares == 5
 
 
 # ---------------------------------------------------------------------------

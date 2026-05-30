@@ -52,7 +52,11 @@ class AdminCog(commands.Cog):
         """Reply ephemerally with the static help embed."""
         await interaction.response.defer(ephemeral=True)
         embed = build_help_embed()
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     @app_commands.command(
         name="game_intro",
@@ -71,4 +75,7 @@ class AdminCog(commands.Cog):
         """
         await interaction.response.defer(ephemeral=False)
         embed = build_intro_embed()
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )

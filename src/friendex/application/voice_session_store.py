@@ -79,10 +79,34 @@ class VoicePingSessionStore:
     A ping session is created when a host pings a VC role and lives until it
     expires (older than the response window) or is swept. Guarded by an
     :class:`asyncio.Lock` so the register / reward / cleanup paths serialise.
+
+    **Co-located host-role-member snapshot (PR #93 C1 / issue #84 M).** A
+    parallel dict keyed by ``message_id`` carries the union of role-member
+    ids who shared the host's pinged VC role at ping time, captured by
+    :meth:`~friendex.adapters.discord_bot.listeners.message_listener.MessageListener.on_message`
+    from each matched :class:`discord.Role`'s live ``.members`` view. The
+    snapshot lives ON THE STORE — NOT on the :class:`VoicePingService`
+    instance — because the per-guild service factory in
+    :class:`~friendex.adapters.container.Container` returns a **fresh**
+    service per call. ``MessageListener`` calls the factory once (instance
+    A) to register; ``VoiceListener`` calls the factory a second time
+    (instance B) to reward. Instance B's per-instance dict is empty, so a
+    per-service snapshot would silently degrade the alt-account guard to
+    a no-op exactly where the exploit lives (PR #93 iter-2 review C1).
+    The store is the same per-guild singleton both instances receive, so
+    co-locating the snapshot with the session itself fixes the lifecycle
+    and keeps both dicts in lockstep under the same lock (every mutation
+    touches both atomically).
     """
 
     def __init__(self) -> None:
         self._sessions: dict[int, VoicePingSession] = {}
+        # Co-located host-role-member snapshot (PR #93 C1). Keyed by the
+        # same ``message_id`` as ``_sessions``; populated only when the
+        # caller supplies a snapshot via :meth:`set_with_snapshot`. Both
+        # dicts are mutated under ``self._lock`` so a reader never sees a
+        # half-written pair.
+        self._host_role_member_ids: dict[int, frozenset[str]] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
 
     async def get(self, message_id: int) -> VoicePingSession | None:
@@ -95,9 +119,51 @@ class VoicePingSessionStore:
         async with self._lock:
             self._sessions[session.message_id] = session
 
-    async def pop(self, message_id: int) -> VoicePingSession | None:
-        """Remove and return the ping session for ``message_id``, or ``None``."""
+    async def set_with_snapshot(
+        self,
+        session: VoicePingSession,
+        host_role_member_ids: frozenset[str] | None,
+    ) -> None:
+        """Store ``session`` and (optionally) its role-member snapshot atomically.
+
+        Both writes happen under the same lock acquisition so a concurrent
+        reader of either dict cannot observe a half-written pair. The
+        snapshot dict is written **before** the session dict so the only
+        possible drift is ``snapshot present, session missing`` — the
+        reward path is already defensive about a missing session — rather
+        than the inverse, which would degrade the alt-account guard to a
+        no-op for that ping.
+
+        ``None`` is the explicit historic-call signal: no snapshot is
+        recorded, the alt-account guard is a no-op for this ping (legacy
+        callers + simpler tests that omit the kwarg). An empty
+        :class:`frozenset` is the explicit "no role members" snapshot:
+        recorded as-is, the guard runs but rejects nobody.
+        """
         async with self._lock:
+            if host_role_member_ids is not None:
+                self._host_role_member_ids[session.message_id] = host_role_member_ids
+            self._sessions[session.message_id] = session
+
+    async def get_role_snapshot(self, message_id: int) -> frozenset[str] | None:
+        """Return the host-role-member snapshot for ``message_id`` or ``None``.
+
+        ``None`` means either the ping was registered without a snapshot
+        (historic call signature) or the ping is already swept — callers
+        distinguish those by checking the session presence separately.
+        Either way the alt-account guard short-circuits on ``None``.
+        """
+        async with self._lock:
+            return self._host_role_member_ids.get(message_id)
+
+    async def pop(self, message_id: int) -> VoicePingSession | None:
+        """Remove and return the ping session for ``message_id``, or ``None``.
+
+        The co-located role-member snapshot is dropped in the same lock
+        acquisition so the two dicts cannot drift past eviction.
+        """
+        async with self._lock:
+            self._host_role_member_ids.pop(message_id, None)
             return self._sessions.pop(message_id, None)
 
     async def list_all(self) -> list[VoicePingSession]:

@@ -105,7 +105,11 @@ class AccountCog(commands.Cog):
             )
         else:
             embed = build_balance_embed(snapshot)
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     # -- /optin -------------------------------------------------------------
 
@@ -198,4 +202,8 @@ class AccountCog(commands.Cog):
             color=COLOR_SUCCESS,
             description="Your stock has been removed from the market.",
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
