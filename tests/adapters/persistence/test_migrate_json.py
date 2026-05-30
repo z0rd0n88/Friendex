@@ -336,14 +336,17 @@ def test_cli_missing_source_dir_errors(tmp_path: Path) -> None:
     assert exit_code != 0
 
 
-def test_migrate_handles_missing_files(
+async def test_migrate_handles_missing_files(
     maker: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
-    """AC1 — absent source files are treated as empty (zero rows), not errors."""
-    import asyncio
+    """AC1 — absent source files are treated as empty (zero rows), not errors.
 
-    counts = asyncio.run(migrate(tmp_path, maker, guild_id=GUILD_ID))
+    Uses the file's standard ``async def`` + ``asyncio_mode=auto`` pattern
+    so the inline ``import asyncio`` / ``asyncio.run`` plumbing is gone (PR
+    #92 review L-1).
+    """
+    counts = await migrate(tmp_path, maker, guild_id=GUILD_ID)
 
     assert counts == dict.fromkeys(_EXPECTED_COUNTS, 0)
 

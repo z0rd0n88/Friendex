@@ -24,6 +24,7 @@ The fixture pattern (shared in-memory engine, ``AsyncSession``) mirrors
 from __future__ import annotations
 
 import contextlib
+import math
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -556,7 +557,15 @@ async def test_list_all_chunks_in_clause_below_bind_cap(
     behaviour that keeps the call working on older SQLite where the cap is
     still 999.
     """
-    user_ids = [f"u{n:04d}" for n in range(25)]
+    # Named constants document the arithmetic that drives the assertion below
+    # — keeping ``expected_minimum`` derived rather than literal so a future
+    # 5th child table (e.g. ``trade_cooldowns``) only requires bumping
+    # ``n_child_tables`` instead of recomputing ``1 + 3 * 4`` by hand. (PR #92
+    # review M-3.)
+    n_users = 25
+    chunk_size_for_test = 10
+    n_child_tables = 4  # long_positions, short_positions, activity_buckets, voice
+    user_ids = [f"u{n:04d}" for n in range(n_users)]
     for uid in user_ids:
         await repo.upsert(GUILD_ID, _minimal_account(uid))
 
@@ -569,23 +578,25 @@ async def test_list_all_chunks_in_clause_below_bind_cap(
         pytest.fail(
             "user_repo._IN_CLAUSE_CHUNK_SIZE is missing; H9 chunking is not in place"
         )
-    monkeypatch.setattr(user_repo_module, "_IN_CLAUSE_CHUNK_SIZE", 10)
+    monkeypatch.setattr(user_repo_module, "_IN_CLAUSE_CHUNK_SIZE", chunk_size_for_test)
 
     with _count_selects(engine) as tally:
         accounts = await repo.list_all(GUILD_ID)
 
     # Correctness: every user comes back, including the tail that crosses the
     # final chunk boundary (25 = 10 + 10 + 5).
-    assert len(accounts) == 25
+    assert len(accounts) == n_users
     assert {a.user_id for a in accounts} == set(user_ids)
     # Behaviour: with a chunk size of 10 over 25 ids, each of the 4 child
-    # tables (long, short, bucket, voice) is queried 3 times — plus the
-    # single parent query. The exact tally proves chunks are *being* issued
-    # and never accidentally short-circuited into one big IN.
-    expected_minimum = 1 + 3 * 4
+    # tables (long, short, bucket, voice) is queried ceil(25/10) = 3 times —
+    # plus the single parent query. The exact tally proves chunks are *being*
+    # issued and never accidentally short-circuited into one big IN.
+    expected_chunks_per_table = math.ceil(n_users / chunk_size_for_test)
+    expected_minimum = 1 + expected_chunks_per_table * n_child_tables
     assert tally[0] >= expected_minimum, (
-        f"list_all over 25 users with chunk size 10 issued {tally[0]} SELECTs; "
-        f"expected at least {expected_minimum} (parent + chunks per child table)"
+        f"list_all over {n_users} users with chunk size {chunk_size_for_test} "
+        f"issued {tally[0]} SELECTs; expected at least {expected_minimum} "
+        f"(parent + chunks per child table)"
     )
 
 

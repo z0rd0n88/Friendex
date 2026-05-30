@@ -89,6 +89,11 @@ class UtcDateTime(TypeDecorator[datetime]):
             # means the column was written outside this code path. Re-tagging
             # would let semantically-wrong data flow inward; raising forces
             # the operator to investigate the offending writer.
+            #
+            # PR #92 review L-4: the message quotes the offending value but
+            # cannot name the source column — a ``TypeDecorator`` does not
+            # see the column it is bound to. Operators tracing a drift
+            # should grep the writer set for the quoted value pattern.
             raise ValueError(
                 f"UtcDateTime read a naive datetime ({value!r}); "
                 "expected a tz-aware value (schema drift?)"

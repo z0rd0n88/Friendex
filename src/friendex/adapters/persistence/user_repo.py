@@ -63,11 +63,21 @@ _TODAY = "today"
 _WEEK = "week"
 
 # Maximum number of bound parameters in any one ``IN (...)`` clause emitted
-# by :meth:`_rebuild_many`. SQLite ≤3.31 caps
-# ``SQLITE_MAX_VARIABLE_NUMBER`` at 999 by default; modern builds raised it to
-# 32766 but server distros (Debian / Ubuntu LTS, embedded systems) can still
-# carry the older limit. 999 is safe across both — see #82 H9. Tests may
-# monkeypatch this down to force the chunking path on small fixtures.
+# by :meth:`_rebuild_many`. SQLite ≤3.31 caps ``SQLITE_MAX_VARIABLE_NUMBER``
+# at 999 by default; modern builds (≥3.32) raised it to 32766, but server
+# distros (Debian / Ubuntu LTS, embedded systems) can still carry the older
+# limit. 999 is safe across both — see #82 H9. Tests may monkeypatch this
+# down to force the chunking path on small fixtures.
+#
+# **Why a conservative hard-coded constant rather than a runtime probe?**
+# (PR #92 review M-2.) The cost of choosing 999 over the modern 32766 cap is
+# ``ceil(N / 999)`` extra SELECTs per child table per list call — for the
+# activity-tick hot path that is ~4 extra SELECTs per 1000 active users,
+# negligible against the 15-min cadence. The cost of choosing the modern cap
+# and being wrong is ``OperationalError: too many SQL variables`` at scale.
+# A runtime probe (``PRAGMA compile_options`` for ``MAX_VARIABLE_NUMBER=<N>``
+# cached on the engine) or a ``Settings``-bound knob is a reasonable future
+# enhancement — file as a follow-up if the extra SELECTs ever measurably hurt.
 _IN_CLAUSE_CHUNK_SIZE = 999
 
 

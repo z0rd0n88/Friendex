@@ -68,6 +68,7 @@ import sys
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete
@@ -92,7 +93,6 @@ from friendex.domain.models import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
-    from pathlib import Path
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -361,10 +361,16 @@ def _build_penalty(user_id: str, raw: Mapping[str, Any]) -> FundPenalty:
 
 
 async def _migrate_users(
-    source: Path, repo: SqlUserRepository, guild_id: str
+    records: Mapping[str, Any], repo: SqlUserRepository, guild_id: str
 ) -> tuple[int, int, int]:
-    """Migrate ``users.json``; return ``(users, long_positions, short_positions)``."""
-    records = _load_json_object(source / _USERS_FILE)
+    """Migrate the pre-parsed ``users.json`` records.
+
+    Returns ``(users, long_positions, short_positions)``. Takes the parsed
+    mapping rather than re-loading from disk (PR #92 review L-3) — ``migrate``
+    parses ``users.json`` once at its entry point and threads the records
+    here, plus into the post-run orphan check, so the source file is read
+    exactly once per migrator invocation.
+    """
     users = longs = shorts = 0
     for user_id, raw in records.items():
         with _record_context(_USERS_FILE, user_id):
@@ -485,13 +491,22 @@ async def migrate(
 
     Aggregates are written via their repositories so parents precede children
     and writes are idempotent (``session.merge`` on the natural keys).
+
+    After the writes complete, an advisory orphan-position check is logged
+    for every long / short position whose ``target_user_id`` does not appear
+    in ``users.json``; the check warns rather than fails, so a corrupt
+    position reference does not block the cutover. ``users.json`` is parsed
+    exactly once and threaded through both the user-migration step and the
+    orphan check (PR #92 review L-3).
     """
     user_repo = SqlUserRepository(maker)
     price_repo = SqlPriceRepository(maker)
     fund_repo = SqlFundRepository(maker)
     penalty_repo = SqlPenaltyRepository(maker)
 
-    users, longs, shorts = await _migrate_users(source, user_repo, guild_id)
+    user_records = _load_json_object(source / _USERS_FILE)
+
+    users, longs, shorts = await _migrate_users(user_records, user_repo, guild_id)
     stocks, history_points = await _migrate_prices(source, price_repo, maker, guild_id)
     funds, investors = await _migrate_funds(source, fund_repo, guild_id)
     penalties = await _migrate_penalties(source, penalty_repo, guild_id)
@@ -508,6 +523,11 @@ async def migrate(
     }
     for table, rows in counts.items():
         logger.info("migrated %d row(s) into %s", rows, table)
+
+    # Advisory orphan-position check, re-using the already-parsed user
+    # records (PR #92 review L-3 — pre-fix this re-read users.json a
+    # second time after migrate() had already loaded it).
+    _warn_orphan_positions(user_records)
     return counts
 
 
@@ -516,22 +536,25 @@ async def migrate(
 # ---------------------------------------------------------------------------
 
 
-def _warn_orphan_positions(source: Path) -> None:
+def _warn_orphan_positions(users: Mapping[str, Any]) -> None:
     """Log a ``WARNING`` for every long / short position with no matching account.
 
-    Walks ``users.json`` once and checks every ``LongPosition.target_user_id``
-    and ``ShortPosition.target_user_id`` against the set of known user ids.
-    The check is purely advisory — per the Phase 15 spec it warns rather than
-    fails, so a corrupt position reference does not block the cutover. Both
-    the real-run and ``--dry-run`` paths invoke it so an operator gets the
-    same diagnostic without having to commit to a write.
+    Walks the already-parsed ``users.json`` mapping and checks every
+    ``LongPosition.target_user_id`` and ``ShortPosition.target_user_id``
+    against the set of known user ids. The check is purely advisory — per
+    the Phase 15 spec it warns rather than fails, so a corrupt position
+    reference does not block the cutover. Both the real-run and
+    ``--dry-run`` paths invoke it so an operator gets the same diagnostic
+    without having to commit to a write.
 
-    Source-side rather than DB-side: every migrated row originates in
-    ``users.json``, so the source carries the same orphan set as the
-    persisted state but is also available on the dry-run path (where nothing
-    is persisted).
+    Takes the parsed ``users`` mapping rather than a ``Path`` so the source
+    file is read exactly once per migrator invocation (PR #92 review L-3 —
+    pre-fix the orphan check re-parsed ``users.json`` on top of the
+    in-migration parse). Source-side rather than DB-side because every
+    migrated row originates in ``users.json``: the source carries the same
+    orphan set as the persisted state and is also available on the dry-run
+    path (where nothing is persisted).
     """
-    users = _load_json_object(source / _USERS_FILE)
     known_user_ids = set(users.keys())
     for owner_id, raw in users.items():
         portfolio = raw.get("portfolio", {})
@@ -613,6 +636,10 @@ async def _run(
         in-memory engine instead of ``target`` so nothing is persisted. The
         target URL is not opened, so a dry-run against a live database has
         zero side effects.
+
+    The advisory orphan-position check runs from inside :func:`migrate` so
+    operators get the same diagnostic from a programmatic call as they do
+    from this CLI shim (PR #92 review L-3).
     """
     from friendex.adapters.persistence.db import Base
 
@@ -622,14 +649,9 @@ async def _run(
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         maker = build_sessionmaker(engine)
-        counts = await migrate(source, maker, guild_id=guild_id)
+        return await migrate(source, maker, guild_id=guild_id)
     finally:
         await engine.dispose()
-
-    # Orphan check is advisory and runs on both real and dry-run paths so the
-    # operator gets the same diagnostic regardless of whether they committed.
-    _warn_orphan_positions(source)
-    return counts
 
 
 def _print_report(counts: Mapping[str, int]) -> None:
@@ -652,14 +674,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    from pathlib import Path as _Path
-
     # #84 L — resolve the source path through ``Path.resolve()`` so an
     # unresolved symlink in ``--source`` cannot silently redirect the
     # migration to a different directory later in the run. The realpath is
     # captured here, at parse time, and threaded through every downstream
-    # call.
-    source = _Path(args.source).resolve()
+    # call. (PR #92 review L-2: ``Path`` is hoisted to the module header so
+    # there is no defensive ``_Path`` alias to maintain.)
+    source = Path(args.source).resolve()
     if not source.is_dir():
         logger.error("source directory does not exist: %s", source)
         return 1
