@@ -17,6 +17,15 @@ no mutation of inputs. They mirror the price logic of the original monolith
 
 The ``min_price`` floor (default $70) is passed in explicitly rather than read
 from a module-level constant, keeping the domain layer free of configuration.
+
+**Canonical money quantisation seam (#82 H16).** :data:`CENT` and
+:func:`quantise` are the single source of truth for currency rounding across
+the entire codebase. Every other module (``domain/fund_math``, the
+application services) imports them from here instead of carrying its own
+private ``_CENT`` / ``_quantise`` copy. The previous per-module duplicates
+made it possible for a future edit to land a quantisation tweak in one
+service without propagating it to the other five; consolidating eliminates
+that drift surface.
 """
 
 from __future__ import annotations
@@ -30,7 +39,9 @@ from friendex.domain.activity import calculate_trending_score
 if TYPE_CHECKING:
     from friendex.domain.models import ActivityBucket
 
-# Currency quantisation unit — two decimal places.
+# Currency quantisation unit — two decimal places. The canonical money-
+# quantisation seam for the whole project: import this rather than
+# re-declaring it (#82 H16).
 CENT = Decimal("0.01")
 
 # Trade impact in the original bot is expressed per-100-shares:
@@ -43,9 +54,23 @@ _ATTENUATION_DISTANCE = Decimal("10.0")
 _MIN_DISTANCE = Decimal("0.1")
 
 
-def _quantise(value: Decimal) -> Decimal:
-    """Round ``value`` to two decimal places with banker's rounding."""
+def quantise(value: Decimal) -> Decimal:
+    """Round ``value`` to two decimal places with banker's rounding.
+
+    The canonical money-quantisation helper for the whole codebase (#82 H16).
+    Every other module imports this rather than declaring a private
+    ``_quantise`` copy — pre-fix, six modules carried their own identical
+    copy and a future edit to one would have silently desynced from the
+    rest.
+    """
     return value.quantize(CENT, rounding=ROUND_HALF_EVEN)
+
+
+# Backward-compat alias so the price-engine body itself can keep its
+# pre-consolidation ``_quantise(...)`` call sites unchanged in this PR
+# (a future cleanup may rename in-module call sites). External imports
+# should use the public :func:`quantise` name.
+_quantise = quantise
 
 
 def apply_trade_impact(

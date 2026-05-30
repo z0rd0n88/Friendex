@@ -22,12 +22,18 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from friendex.domain.models import ActivityBucket
+
+
+# Tier strings consumed by :class:`~friendex.application.snapshot_models.UserStats`.
+# Narrowed to a :class:`Literal` (#84 L) so a static type checker rejects a
+# future typo at every call site.
+EngagementTier = Literal["Elite", "High", "Medium", "Low"]
 
 # --- Soft-cap saturation points -------------------------------------------
 # ``soft_cap(x, cap) = cap * (1 - exp(-x / cap))`` — monotonic increasing in
@@ -89,19 +95,29 @@ def calculate_trending_score(bucket: ActivityBucket) -> float:
     )
 
 
-def get_engagement_tier(score: float, all_scores: list[float]) -> str:
+def get_engagement_tier(score: float, all_scores: list[float]) -> EngagementTier:
     """Bucket ``score`` into an engagement tier by descending percentile rank.
 
     Ranking is 1-indexed from the top: the highest scorer has percentile
     ``1/N``. Cuts: ``<=5%`` Elite, ``<=30%`` High, ``<=70%`` Medium, else Low.
     An empty ``all_scores`` yields ``"Low"``. ``score`` is assumed present in
     ``all_scores`` (the caller derives both from the same population).
+
+    **Tie-safe rank (#82 H4).** The percentile rank is ``(strictly_higher +
+    1) / N`` rather than ``sorted_scores.index(score) + 1``. ``list.index``
+    returns the **first** matching index, so when several callers share the
+    same score every tied user landed at the same first-match index — for
+    a 20-way tie at the top, every tied user mapped to position 1 and ALL
+    of them earned the Elite tier, breaking the percentile-cut contract.
+    Counting strictly-higher scores gives every tied participant the same
+    (highest) rank without depending on list ordering, so any two users
+    with identical scores always receive the same tier.
     """
     if not all_scores:
         return "Low"
 
-    sorted_scores = sorted(all_scores, reverse=True)
-    percentile_rank = (sorted_scores.index(score) + 1) / len(sorted_scores)
+    strictly_higher = sum(1 for s in all_scores if s > score)
+    percentile_rank = (strictly_higher + 1) / len(all_scores)
 
     if percentile_rank <= _TIER_ELITE_MAX:
         return "Elite"

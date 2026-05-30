@@ -29,6 +29,16 @@ not money.
 Datetime defaults use ``datetime.now(tz=UTC)`` (timezone-aware). The
 deprecated ``datetime.utcnow`` is avoided so naive/aware datetimes do
 not leak through the persistence boundary in Phase 4.
+
+**Keyword-only construction (#84 M).** Every dataclass below is declared
+with ``@dataclass(kw_only=True)``. Domain aggregates carry between 5 and 12
+fields and several share matching scalar types (``Decimal`` / ``int`` /
+``str``); positional construction makes it possible for a field rename or
+reorder to silently rewire a caller without surfacing the mismatch until
+runtime. Keyword-only construction forces every call site to be explicit
+about which field receives which value, so any rename/reorder lands as a
+``TypeError: missing required keyword argument`` at construction time
+instead of a wonky value silently flowing into the wrong field.
 """
 
 from __future__ import annotations
@@ -41,7 +51,7 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ActivityBucket:
     text_msgs: int = 0
     media_msgs: int = 0
@@ -57,7 +67,7 @@ class ActivityBucket:
         self.voice_unique_channels = [str(c) for c in self.voice_unique_channels]
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DailyProgress:
     last_claim: datetime | None
     streak: int
@@ -67,7 +77,7 @@ class DailyProgress:
             raise ValueError("streak must be non-negative")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LongPosition:
     target_user_id: str
     shares: int
@@ -80,7 +90,7 @@ class LongPosition:
             raise ValueError("avg_entry must be positive")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ShortPosition:
     target_user_id: str
     shares: int
@@ -99,7 +109,7 @@ class ShortPosition:
             raise ValueError("locked collateral must be non-negative")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class UserAccount:
     """Per-guild user account: cash, positions, activity buckets, and daily streak.
 
@@ -157,13 +167,13 @@ class UserAccount:
         # class docstring for the full rationale (PR #94 review M2).
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PricePoint:
     price: Decimal
     timestamp: datetime
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Stock:
     user_id: str
     current: Decimal
@@ -177,7 +187,7 @@ class Stock:
             raise ValueError("price must be non-negative")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class HedgeFund:
     fund_id: str
     name: str
@@ -190,14 +200,14 @@ class HedgeFund:
             raise ValueError("fund cash must be non-negative")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FundPenalty:
     user_id: str
     penalty_apr: Decimal
     penalty_until: datetime
 
 
-@dataclass
+@dataclass(kw_only=True)
 class VoiceSession:
     user_id: str
     channel_id: int
@@ -205,7 +215,7 @@ class VoiceSession:
     from_ping_message_ids: set[int]
 
 
-@dataclass
+@dataclass(kw_only=True)
 class VoicePingSession:
     message_id: int
     host_id: str
@@ -215,7 +225,7 @@ class VoicePingSession:
     extra_joiners: list[str]
 
 
-@dataclass
+@dataclass(kw_only=True)
 class VcExtraBoost:
     user_id: str
     ping_time: datetime

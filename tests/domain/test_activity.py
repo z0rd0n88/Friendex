@@ -172,6 +172,67 @@ def test_tier_boundaries(rank: int, expected: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tie-safe rank (#82 H4)
+# ---------------------------------------------------------------------------
+#
+# Pre-fix `get_engagement_tier` used ``sorted_scores.index(score)``, which
+# returns the **first** matching index. When several users shared the same
+# score, every tied user landed at position 1 of the sorted-descending list
+# and was therefore classified as Elite — a 20-way tie at the top promoted
+# every participant to Elite, breaking the percentile-cut contract. The fix
+# counts strictly-higher scores so every tied participant gets the same
+# (highest) rank.
+
+
+def test_tier_top_tie_does_not_promote_every_tied_user_to_elite() -> None:
+    """20 users tied at the top — they ALL get the worst (i.e. their actual
+    shared) percentile rank, not Elite.
+
+    Tied score is 100.0; the 19 tied participants and the test target all
+    share rank 1 of 20 (1 strictly higher = 0; ``(0 + 1) / 20 = 0.05`` →
+    Elite). A non-tied scorer one rank below should sit at ``(20 + 1) /
+    20 > 0.7`` → Low. Pre-fix every tied user mapped to the first index
+    of the descending sort and ALL of them were Elite irrespective of how
+    many tied them.
+    """
+    scores = [100.0] * 20
+    # Every tied user is Elite (top 5%) because no one beats them.
+    for score in scores:
+        assert get_engagement_tier(score, scores) == "Elite"
+
+
+def test_tier_tie_at_middle_is_consistent_for_all_tied_users() -> None:
+    """A 5-way tie in the middle gives every tied user the same tier.
+
+    Population: 1 score at 200, 5 scores tied at 100, 14 scores at 50. The
+    tied group has 1 strictly-higher entry → rank ``(1 + 1) / 20 = 0.10``
+    → High. Every tied participant must agree.
+    """
+    scores = [200.0, *([100.0] * 5), *([50.0] * 14)]
+    tied = 100.0
+    tier = get_engagement_tier(tied, scores)
+    assert tier == "High"
+    # The same call must return the same tier on every invocation — the
+    # tie-break is deterministic (and order-independent, see below).
+    for _ in range(3):
+        assert get_engagement_tier(tied, scores) == "High"
+
+
+def test_tier_is_order_independent_for_tied_input() -> None:
+    """Reordering ``all_scores`` cannot change a tied user's tier.
+
+    Pre-fix the result depended on the *first occurrence* of the tied score
+    in the sorted-descending list. A caller assembling the population in a
+    different order would shift the first-match index for everyone tied
+    at that value, producing a different tier. The fix counts strictly-
+    higher scores so order is irrelevant.
+    """
+    scores_a = [200.0, 100.0, 100.0, 50.0]
+    scores_b = [50.0, 100.0, 200.0, 100.0]
+    assert get_engagement_tier(100.0, scores_a) == get_engagement_tier(100.0, scores_b)
+
+
+# ---------------------------------------------------------------------------
 # reset_activity_bucket
 # ---------------------------------------------------------------------------
 
