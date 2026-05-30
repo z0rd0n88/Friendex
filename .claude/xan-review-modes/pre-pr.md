@@ -14,14 +14,18 @@ an issue** — the synthesizer's output is for the author's eyes only.
 
 ## Usage
 
-```
-xan-multi-agent-review pr <draft-pr-number> --mode pre-pr
+Run against the local uncommitted diff (the change you are about to
+ship), not against a not-yet-opened draft PR:
+
+```bash
+xan-multi-agent-review diff --mode pre-pr            # working tree
+xan-multi-agent-review diff --staged --mode pre-pr   # staged hunks only
 ```
 
 If a CRITICAL or HIGH lands, fix on the same worktree before opening.
 Optionally chain the `superpowers:verification-before-completion` skill
 before declaring the diff clean.
 
-The exclusion-list step in `.claude/xan-review-modes/README.md` is
-**optional** for this mode — pre-PR review is local-only and not
-intended to feed a tracker issue.
+The exclusion-list step (`--prompt-prelude`) in
+`.claude/xan-review-modes/README.md` is **optional** for this mode —
+pre-PR review is local-only and not intended to feed a tracker issue.

@@ -20,25 +20,49 @@ The available modes:
 | `docs` | `ARCH.md` / ADR / baton-pass drift |
 | `pre-pr` | Diff-only sanity check before `gh pr create` |
 
-## Layer-slice fan-out
+## Layer-slice fan-out (use the `slices` target)
 
-The user-scope skill reviews **one target per invocation**. Friendex's
-hexagonal layout (`domain / application / persistence / discord / tasks
-/ wiring / tests`) is documented in `ARCH.md`; to replicate the full
-"slice-by-slice review" pattern, invoke the skill once per slice with
-the same `--mode`. Each mode file lists the relevant invocations under
-its own *Layer-slice usage* heading.
+Friendex's hexagonal layout is documented in `ARCH.md`. The seven slices
+are: `src/friendex/domain/`, `src/friendex/application/`,
+`src/friendex/adapters/persistence/`, `src/friendex/adapters/discord_bot/`,
+`src/friendex/adapters/tasks/`, `src/friendex/adapters/` (wiring + config),
+and `tests/`.
 
-This stays out of the core skill on purpose — it's Friendex-specific
-operational discipline, not a generic review feature.
+Use the user-scope skill's `slices` target to fan out one roster across
+multiple slices in a single invocation:
 
-## Exclusion-list pass (avoid duplicate findings)
+```bash
+xan-multi-agent-review slices \
+  src/friendex/domain/ \
+  src/friendex/application/ \
+  src/friendex/adapters/persistence/ \
+  src/friendex/adapters/discord_bot/ \
+  src/friendex/adapters/tasks/ \
+  --mode architecture \
+  --prompt-prelude .claude/xan-review-modes/skip-list.md
+```
 
-Before running any mode that will file a tracker issue (everything
-except `pre-pr`), fetch the open-issue findings to skip. This is the
-operational lesson from issues #82, #83, and #84 (the 2026-05-28
-review pass) — without an exclusion step, parallel reviewers
-re-discover the same items and you do triage twice.
+The skill dispatches `len(roster) × len(slices)` reviewer agents in **one
+parallel message** (no sequential per-slice loop), then the synthesizer
+emits a single report with findings attributed per slice and a
+"Cross-Slice Patterns" section that calls out themes that repeat across
+slices. The user-scope skill caps slice count at 6 by default — lift
+with `--max-slices <n>` deliberately.
+
+> The seven-slice canonical list above is 7 paths; pick the slices most
+> relevant to the mode, or run two invocations (`adapters/*` first,
+> `domain/ + application/ + tests/` second).
+
+## Exclusion-list pass (use `--prompt-prelude`)
+
+Before running any mode that will file a tracker issue (everything except
+`pre-pr`), refresh `.claude/xan-review-modes/skip-list.md` from the open
+tracker issues, then pass it via `--prompt-prelude`. This is the
+operational lesson from issues #82, #83, and #84 (the 2026-05-28 review
+pass) — without an exclusion step, parallel reviewers re-discover the
+same items and you do triage twice.
+
+Fetch the open findings:
 
 ```bash
 gh issue list \
@@ -50,20 +74,34 @@ gh issue list \
   --jq '.[] | "#\(.number) — \(.title)"'
 ```
 
-For each matched issue, extract the checkbox lines from the body and
-build a flat skip list of the form `<short title> — <file:line>`.
-Inject it verbatim into the synthesizer's prompt under a heading like:
+For each matched issue, pull its checkbox lines and write them into
+`.claude/xan-review-modes/skip-list.md` (gitignored sample lives at
+`skip-list.md.example`) under a `DO NOT report findings already tracked in`
+heading. Then run the mode:
 
-> **DO NOT report findings already tracked in:**
-> - Issue #N (<short title>): <skip rule 1>, <skip rule 2>, …
-> - Issue #M: …
+```bash
+xan-multi-agent-review dir src/friendex/application/ \
+  --mode security \
+  --prompt-prelude .claude/xan-review-modes/skip-list.md
+```
 
-The user-scope skill doesn't have a first-class "prompt prelude" hook
-yet, so the workflow is: run the skill, then before the synthesizer
-fires, paste the skip list into the chat (the orchestrator can include
-it when expanding the synthesizer brief). If this workflow proves
-load-bearing, file an issue on the user-scope skill to add a
-`--prompt-prelude <path>` flag.
+The skill injects the file's contents verbatim as `## PROJECT PRELUDE` at
+the top of every reviewer brief AND the synthesizer brief. Max 16 KB —
+trim to the highest-signal items if the raw `gh` output exceeds that.
+
+## Pre-PR sanity check (use the `diff` target)
+
+For the `pre-pr` mode, run against the uncommitted working-tree diff —
+not against a draft PR you have not opened yet:
+
+```bash
+xan-multi-agent-review diff --mode pre-pr            # working-tree changes
+xan-multi-agent-review diff --staged --mode pre-pr   # only staged hunks
+```
+
+Empty diff = hard-fail. Fix CRITICAL / HIGH findings on the same
+worktree before opening the PR; the synthesizer output is for the
+author's eyes only.
 
 ## When to file an issue vs. propose a patch
 
@@ -85,5 +123,5 @@ always go through `.claude/worktrees/<name>` on a `feat/` / `fix/` /
 CRITICAL = block / data corruption / money loss; HIGH = bug or
 significant quality issue; MEDIUM = maintainability; LOW = style.
 Reviewers must cite `file:line`. The user-scope skill's synthesizer
-deduplicates by reviewer; the exclusion-list step deduplicates against
-already-tracked work.
+deduplicates by reviewer; `--prompt-prelude` deduplicates against
+already-tracked work; `slices` adds cross-slice pattern attribution.
