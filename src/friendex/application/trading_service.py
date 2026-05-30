@@ -19,10 +19,10 @@ persistence ports, enforcing the full game-rule envelope around every trade:
   after creation; a frozen position blocks manual cover and any short top-up.
   The :meth:`update_frozen_shorts` sweep (Phase 9 background loop) walks every
   account and flips ``frozen=True`` once the age threshold is crossed. The
-  liquidation bypass for cover (Phase 8f) is *not* implemented in this phase —
-  the public :meth:`cover` always raises :class:`PositionFrozen` on a frozen
-  position; Phase 8f will add a private ``_cover_internal`` variant that
-  liquidations use to bypass the check.
+  user-facing :meth:`cover` always raises :class:`PositionFrozen` on a frozen
+  position; :class:`LiquidationService` bypasses the freeze guard via the
+  public :meth:`cover_forced` (#82 M1 — was a direct reach into the private
+  ``_cover_internal`` until this consolidation).
 
 **Guild scoping (ADR-0001 / Phase 8a digest).** ``guild_id`` is a constructor
 argument captured once as ``self._guild_id``; domain models stay
@@ -65,10 +65,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from friendex.application.account_seed import seed_user_account
 from friendex.application.interfaces import TradeCooldown
+from friendex.application.lock_manager import guild_lock_key
 from friendex.application.trade_results import (
     BuyResult,
     CoverResult,
@@ -89,8 +91,6 @@ from friendex.domain.errors import (
 )
 from friendex.domain.market_hours import is_market_open, is_sunday
 from friendex.domain.models import (
-    ActivityBucket,
-    DailyProgress,
     HedgeFund,
     LongPosition,
     PricePoint,
@@ -98,7 +98,7 @@ from friendex.domain.models import (
     Stock,
     UserAccount,
 )
-from friendex.domain.price_engine import apply_trade_impact
+from friendex.domain.price_engine import apply_trade_impact, quantise
 
 if TYPE_CHECKING:
     from friendex.adapters.config import Settings
@@ -111,15 +111,8 @@ if TYPE_CHECKING:
     from friendex.application.lock_manager import LockManager
     from friendex.application.unit_of_work import IUnitOfWork
 
-# Currency quantisation unit — two decimal places, banker's rounding.
-_CENT = Decimal("0.01")
 # Fraction of the shorter's hedge fund that counts toward collateral.
 _FUND_COLLATERAL_FRACTION = Decimal("0.5")
-
-
-def _quantise(value: Decimal) -> Decimal:
-    """Round ``value`` to two decimal places with banker's rounding."""
-    return value.quantize(_CENT, rounding=ROUND_HALF_EVEN)
 
 
 class TradingService:
@@ -156,8 +149,11 @@ class TradingService:
     # -- internal helpers ---------------------------------------------------
 
     def _lock_key(self, user_id: str) -> str:
-        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001)."""
-        return f"{self._guild_id}:{user_id}"
+        """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001).
+
+        Thin shim around :func:`guild_lock_key` (#82 H16).
+        """
+        return guild_lock_key(self._guild_id, user_id)
 
     def _check_market_open(self, *, allow_sunday: bool) -> None:
         """Raise :class:`MarketClosed` when trading is not permitted now.
@@ -236,24 +232,14 @@ class TradingService:
         ``created`` flag lets the caller persist the stub once if needed and
         skip the redundant second ``get`` entirely (issue #84 M, silent-
         failures branch).
+
+        The fresh-account shape is delegated to the shared
+        :func:`friendex.application.account_seed.seed_user_account` (#82 H16).
         """
         existing = await self._user_repo.get(self._guild_id, user_id)
         if existing is not None:
             return existing, False
-        now = datetime.now(tz=UTC)
-        initial_cash = _quantise(Decimal(str(self._settings.initial_cash)))
-        stub = UserAccount(
-            user_id=user_id,
-            cash_balance=initial_cash,
-            net_worth=initial_cash,
-            month_start_net_worth=initial_cash,
-            long_positions={},
-            short_positions={},
-            today=ActivityBucket(bucket_start=now),
-            week=ActivityBucket(bucket_start=now),
-            daily=DailyProgress(last_claim=None, streak=0),
-            last_activity=now,
-        )
+        stub = seed_user_account(user_id, self._settings)
         return stub, True
 
     async def _get_or_create_stock(self, target_id: str) -> Stock:
@@ -268,7 +254,7 @@ class TradingService:
         existing = await self._price_repo.get(self._guild_id, target_id)
         if existing is not None:
             return existing
-        initial = _quantise(Decimal(str(self._settings.initial_price)))
+        initial = quantise(Decimal(str(self._settings.initial_price)))
         return Stock(
             user_id=target_id,
             current=initial,
@@ -391,7 +377,7 @@ class TradingService:
             buyer = await self._get_or_create_user(buyer_id)
             stock = await self._get_or_create_stock(target_id)
             price = stock.current
-            cost = _quantise(price * Decimal(shares))
+            cost = quantise(price * Decimal(shares))
             if buyer.cash_balance < cost:
                 raise InsufficientFunds(need=cost, have=buyer.cash_balance)
 
@@ -402,7 +388,7 @@ class TradingService:
                 )
             else:
                 new_shares = existing.shares + shares
-                new_avg = _quantise(
+                new_avg = quantise(
                     (
                         existing.avg_entry * Decimal(existing.shares)
                         + price * Decimal(shares)
@@ -415,7 +401,7 @@ class TradingService:
                     avg_entry=new_avg,
                 )
 
-            new_cash = _quantise(buyer.cash_balance - cost)
+            new_cash = quantise(buyer.cash_balance - cost)
             new_longs = {**buyer.long_positions, target_id: position}
             updated_buyer = replace(
                 buyer, cash_balance=new_cash, long_positions=new_longs
@@ -480,7 +466,7 @@ class TradingService:
                 raise InsufficientShares(requested=shares, held=held)
             stock = await self._get_or_create_stock(target_id)
             price = stock.current
-            revenue = _quantise(price * Decimal(shares))
+            revenue = quantise(price * Decimal(shares))
 
             remaining = existing.shares - shares
             new_longs = dict(seller.long_positions)
@@ -496,7 +482,7 @@ class TradingService:
                 )
                 new_longs[target_id] = position_after
 
-            new_cash = _quantise(seller.cash_balance + revenue)
+            new_cash = quantise(seller.cash_balance + revenue)
             updated_seller = replace(
                 seller, cash_balance=new_cash, long_positions=new_longs
             )
@@ -566,26 +552,26 @@ class TradingService:
                 shorter = await self._get_or_create_user(shorter_id)
                 stock = await self._get_or_create_stock(target_id)
                 price = stock.current
-                notional = _quantise(price * Decimal(shares))
+                notional = quantise(price * Decimal(shares))
 
                 cash_available = shorter.cash_balance
                 fund_cash = await self._get_fund_cash(shorter_id)
-                fund_available = _quantise(fund_cash * _FUND_COLLATERAL_FRACTION)
+                fund_available = quantise(fund_cash * _FUND_COLLATERAL_FRACTION)
                 total_collateral = cash_available + fund_available
                 if total_collateral < notional:
                     raise InsufficientFunds(need=notional, have=total_collateral)
 
                 locked_cash = min(cash_available, notional)
                 locked_fund = min(fund_available, notional - locked_cash)
-                locked_cash = _quantise(locked_cash)
-                locked_fund = _quantise(locked_fund)
+                locked_cash = quantise(locked_cash)
+                locked_fund = quantise(locked_fund)
 
                 existing = shorter.short_positions.get(target_id)
                 if existing is not None:
                     if existing.frozen:
                         raise PositionFrozen(target_id=target_id)
                     new_shares = existing.shares + shares
-                    new_entry = _quantise(
+                    new_entry = quantise(
                         (
                             existing.entry_price * Decimal(existing.shares)
                             + price * Decimal(shares)
@@ -596,8 +582,8 @@ class TradingService:
                         target_user_id=target_id,
                         shares=new_shares,
                         entry_price=new_entry,
-                        locked_cash=_quantise(existing.locked_cash + locked_cash),
-                        locked_fund=_quantise(existing.locked_fund + locked_fund),
+                        locked_cash=quantise(existing.locked_cash + locked_cash),
+                        locked_fund=quantise(existing.locked_fund + locked_fund),
                         created_at=existing.created_at,
                         frozen=False,
                     )
@@ -612,8 +598,8 @@ class TradingService:
                         frozen=False,
                     )
 
-                new_cash = _quantise(cash_available - locked_cash)
-                new_fund_cash = _quantise(fund_cash - locked_fund)
+                new_cash = quantise(cash_available - locked_cash)
+                new_fund_cash = quantise(fund_cash - locked_fund)
                 new_shorts = {**shorter.short_positions, target_id: position}
                 updated_shorter = replace(
                     shorter, cash_balance=new_cash, short_positions=new_shorts
@@ -714,6 +700,34 @@ class TradingService:
                 await self._set_cooldown(coverer_id, now)
         return result
 
+    async def cover_forced(
+        self,
+        coverer_id: str,
+        target_id: str,
+        shares: int,
+    ) -> CoverResult:
+        """Force-cover a short position; bypasses the freeze guard.
+
+        Public adapter over the inside-lock body shared with the user-facing
+        :meth:`cover`. **Locking + UoW contract:** the caller MUST already
+        hold ``self._locks.locked(coverer_id, target_id)`` and MUST envelope
+        the call in any required UoW transaction —
+        :class:`LiquidationService` does both at the call site (the lock
+        wraps the in-lock re-read; the UoW gap is tracked in issue #95 per
+        the comment on the body).
+
+        Pre-#82 M1 the liquidation sweep reached directly into
+        :meth:`_cover_internal` (a private helper), making the cross-service
+        dependency opaque to ``mypy`` / ``ruff`` and tying liquidation to
+        an implementation detail of the trading service. Exposing this
+        thin public wrapper makes the dependency explicit and lets the
+        force-cover surface evolve independently of the private body.
+
+        ``force=True`` is hard-coded here; user-facing ``/cover`` cannot
+        reach this method by name (the cog wires :meth:`cover` instead).
+        """
+        return await self._cover_internal(coverer_id, target_id, shares, force=True)
+
     async def _cover_internal(
         self,
         coverer_id: str,
@@ -780,12 +794,12 @@ class TradingService:
             raise PositionFrozen(target_id=target_id)
         stock = await self._get_or_create_stock(target_id)
         price = stock.current
-        cost = _quantise(price * Decimal(shares))
+        cost = quantise(price * Decimal(shares))
         if coverer.cash_balance < cost:
             raise InsufficientFunds(need=cost, have=coverer.cash_balance)
 
         remaining = existing.shares - shares
-        pnl = _quantise((existing.entry_price - price) * Decimal(shares))
+        pnl = quantise((existing.entry_price - price) * Decimal(shares))
 
         new_shorts = dict(coverer.short_positions)
         position_after: ShortPosition | None
@@ -803,25 +817,25 @@ class TradingService:
             position_after = None
         else:
             proportion = Decimal(shares) / Decimal(existing.shares)
-            released_cash = _quantise(existing.locked_cash * proportion)
-            released_fund = _quantise(existing.locked_fund * proportion)
+            released_cash = quantise(existing.locked_cash * proportion)
+            released_fund = quantise(existing.locked_fund * proportion)
             position_after = ShortPosition(
                 target_user_id=target_id,
                 shares=remaining,
                 entry_price=existing.entry_price,
-                locked_cash=_quantise(existing.locked_cash - released_cash),
-                locked_fund=_quantise(existing.locked_fund - released_fund),
+                locked_cash=quantise(existing.locked_cash - released_cash),
+                locked_fund=quantise(existing.locked_fund - released_fund),
                 created_at=existing.created_at,
                 frozen=existing.frozen,
             )
             new_shorts[target_id] = position_after
 
-        cash_after_pay = _quantise(coverer.cash_balance - cost + released_cash)
+        cash_after_pay = quantise(coverer.cash_balance - cost + released_cash)
         if pnl > 0:
-            cash_after_pay = _quantise(cash_after_pay + pnl)
+            cash_after_pay = quantise(cash_after_pay + pnl)
 
         fund_cash = await self._get_fund_cash(coverer_id)
-        new_fund_cash = _quantise(fund_cash + released_fund)
+        new_fund_cash = quantise(fund_cash + released_fund)
         updated_coverer = replace(
             coverer, cash_balance=cash_after_pay, short_positions=new_shorts
         )

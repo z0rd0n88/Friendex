@@ -3,10 +3,10 @@
 The liquidation service sweeps every account in the guild for short positions
 whose target price has rallied to at least
 ``entry_price * settings.liquidation_threshold`` (default 1.5x). Each such
-short is auto-covered via the private
-:meth:`TradingService._cover_internal(..., force=True)` so the freeze guard
-is bypassed (a liquidation cannot be blocked by the short's post-open freeze
-window).
+short is auto-covered via :meth:`TradingService.cover_forced` (#82 M1 —
+the previous direct reach into the private ``_cover_internal`` was
+promoted to a public wrapper) so the freeze guard is bypassed (a
+liquidation cannot be blocked by the short's post-open freeze window).
 
 Acceptance criteria pinned here:
 
@@ -15,7 +15,7 @@ Acceptance criteria pinned here:
 * **F2** — a short at exactly 150% of entry IS liquidated.
 * **F3** — a FROZEN short IS still liquidated (the public
   :meth:`TradingService.cover` would raise :class:`PositionFrozen`; the
-  liquidation path bypasses it via ``_cover_internal(force=True)``).
+  liquidation path bypasses it via :meth:`cover_forced`).
 * **F4** — :class:`LiquidationEvent` payload correctness (holder, target,
   shares, entry, exit, collateral returned, P&L) for a concrete scenario.
 """
