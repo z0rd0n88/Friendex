@@ -311,8 +311,12 @@ async def test_user_with_positions_round_trip(session: AsyncSession) -> None:
         net_worth=Decimal("7000.00"),
         month_start_net_worth=Decimal("6000.00"),
         long_positions={
-            "aaa": LongPosition("aaa", 5, Decimal("80.00")),
-            "bbb": LongPosition("bbb", 3, Decimal("150.50")),
+            "aaa": LongPosition(
+                target_user_id="aaa", shares=5, avg_entry=Decimal("80.00")
+            ),
+            "bbb": LongPosition(
+                target_user_id="bbb", shares=3, avg_entry=Decimal("150.50")
+            ),
         },
         short_positions={
             "ccc": ShortPosition(

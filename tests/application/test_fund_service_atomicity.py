@@ -27,7 +27,10 @@ import pytest
 
 from friendex.adapters.config import Settings
 from friendex.application.fund_service import FundService
-from friendex.domain.errors import FundInsufficientBalance, InvalidAmount
+from friendex.domain.errors import (
+    FundInsufficientBalance,
+    NotFundManager,
+)
 from friendex.domain.models import (
     ActivityBucket,
     DailyProgress,
@@ -405,7 +408,9 @@ async def test_invest_manager_still_blocked_from_own_fund(
     lock_manager: LockManager,
     default_settings: Settings,
 ) -> None:
-    """#84 H: a true manager-self-invest is still rejected."""
+    """#84 H + #82 H17: a true manager-self-invest is still rejected, now
+    with the dedicated :class:`NotFundManager` taxonomy.
+    """
     fund_id = "vault-1"
     manager_id = "manager-1"
 
@@ -428,7 +433,7 @@ async def test_invest_manager_still_blocked_from_own_fund(
         settings=default_settings,
     )
 
-    with pytest.raises(InvalidAmount):
+    with pytest.raises(NotFundManager):
         await service.invest(manager_id, fund_id, Decimal("100.00"))
 
 
@@ -439,7 +444,11 @@ async def test_invest_personal_fund_self_block_still_works(
     lock_manager: LockManager,
     default_settings: Settings,
 ) -> None:
-    """For personal funds (``fund_id == manager_id``), the block still fires."""
+    """For personal funds (``fund_id == manager_id``), the block still fires.
+
+    #82 H17: now surfaces as :class:`NotFundManager` rather than the
+    repurposed :class:`InvalidAmount`.
+    """
     await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
     await fake_fund_repo.upsert(
         GUILD,
@@ -459,5 +468,5 @@ async def test_invest_personal_fund_self_block_still_works(
         settings=default_settings,
     )
 
-    with pytest.raises(InvalidAmount):
+    with pytest.raises(NotFundManager):
         await service.invest(USER, USER, Decimal("100.00"))

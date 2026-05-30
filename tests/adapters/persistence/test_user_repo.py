@@ -104,8 +104,12 @@ def _rich_account(user_id: str = "111") -> UserAccount:
         net_worth=Decimal("12500.00"),
         month_start_net_worth=Decimal("9500.00"),
         long_positions={
-            "aaa": LongPosition("aaa", 5, Decimal("80.00")),
-            "bbb": LongPosition("bbb", 3, Decimal("150.50")),
+            "aaa": LongPosition(
+                target_user_id="aaa", shares=5, avg_entry=Decimal("80.00")
+            ),
+            "bbb": LongPosition(
+                target_user_id="bbb", shares=3, avg_entry=Decimal("150.50")
+            ),
         },
         short_positions={
             "ccc": ShortPosition(
@@ -261,7 +265,11 @@ async def test_upsert_replaces_existing_aggregate(repo: SqlUserRepository) -> No
         cash_balance=Decimal("100.00"),
         net_worth=Decimal("100.00"),
         month_start_net_worth=Decimal("100.00"),
-        long_positions={"zzz": LongPosition("zzz", 1, Decimal("70.00"))},
+        long_positions={
+            "zzz": LongPosition(
+                target_user_id="zzz", shares=1, avg_entry=Decimal("70.00")
+            )
+        },
         short_positions={},
         today=ActivityBucket(bucket_start=_utc(2026, 5, 24, 0)),
         week=ActivityBucket(bucket_start=_utc(2026, 5, 18, 0)),
@@ -636,7 +644,11 @@ async def test_upsert_replace_survives_autoflush_disabled(
         cash_balance=Decimal("250.00"),
         net_worth=Decimal("250.00"),
         month_start_net_worth=Decimal("250.00"),
-        long_positions={"zzz": LongPosition("zzz", 1, Decimal("70.00"))},
+        long_positions={
+            "zzz": LongPosition(
+                target_user_id="zzz", shares=1, avg_entry=Decimal("70.00")
+            )
+        },
         short_positions={},
         today=ActivityBucket(bucket_start=_utc(2026, 5, 24, 0)),
         week=ActivityBucket(bucket_start=_utc(2026, 5, 18, 0)),

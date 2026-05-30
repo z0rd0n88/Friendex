@@ -35,7 +35,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from friendex.application.fund_service import FundService
-from friendex.domain.errors import FundInsufficientBalance, InvalidAmount
+from friendex.domain.errors import (
+    FundInsufficientBalance,
+    FundNotFound,
+    InvalidAmount,
+    NotFundManager,
+)
 from friendex.domain.models import (
     ActivityBucket,
     DailyProgress,
@@ -609,14 +614,19 @@ async def test_invest_zero_or_negative_amount_raises_invalid_amount(
         await service.invest(USER, OTHER_USER, Decimal("-1.00"))
 
 
-async def test_invest_missing_fund_raises_invalid_amount(
+async def test_invest_missing_fund_raises_fund_not_found(
     fake_user_repo: FakeUserRepo,
     fake_fund_repo: FakeFundRepo,
     fake_penalty_repo: FakePenaltyRepo,
     lock_manager: LockManager,
     default_settings: Settings,
 ) -> None:
-    """Phase 17b B1: investing in a non-existent fund raises ``InvalidAmount``."""
+    """#82 H17: investing in a non-existent fund raises ``FundNotFound``.
+
+    Pre-fix this case raised ``InvalidAmount("fund does not exist")``, which
+    made it impossible for the cog's error handler to discriminate "the fund
+    is missing" from "the amount was bad".
+    """
     await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
     service = _make_service(
         user_repo=fake_user_repo,
@@ -626,8 +636,9 @@ async def test_invest_missing_fund_raises_invalid_amount(
         settings=default_settings,
     )
 
-    with pytest.raises(InvalidAmount):
+    with pytest.raises(FundNotFound) as exc:
         await service.invest(USER, OTHER_USER, Decimal("100.00"))
+    assert exc.value.fund_id == OTHER_USER
 
 
 async def test_invest_self_invest_is_blocked(
@@ -637,7 +648,12 @@ async def test_invest_self_invest_is_blocked(
     lock_manager: LockManager,
     default_settings: Settings,
 ) -> None:
-    """Phase 17b §Q2: a manager may not invest in their own fund."""
+    """#82 H17 / Phase 17b §Q2: a manager may not invest in their own fund.
+
+    Pre-fix raised ``InvalidAmount("cannot invest in own fund")``; #82 H17
+    promotes the manager-only guard to its own :class:`NotFundManager`
+    type so the error taxonomy is 1-to-1 with the actual fault.
+    """
     await fake_user_repo.upsert(GUILD, _account(USER, cash=Decimal("500.00")))
     await fake_fund_repo.upsert(GUILD, _fund(USER, cash=Decimal("100.00")))
     service = _make_service(
@@ -648,7 +664,7 @@ async def test_invest_self_invest_is_blocked(
         settings=default_settings,
     )
 
-    with pytest.raises(InvalidAmount):
+    with pytest.raises(NotFundManager):
         await service.invest(USER, USER, Decimal("100.00"))
 
 
