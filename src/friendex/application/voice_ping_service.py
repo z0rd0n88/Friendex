@@ -17,17 +17,23 @@ guarded by an :class:`asyncio.Lock`) — intentionally not persisted, mirroring 
 original ``voice_ping_sessions`` dict, since an open ping is meaningless after a
 restart.
 
-**Alt-account farming guard (issue #84 M).** ``register_ping_message`` accepts
-an optional ``host_role_member_ids`` snapshot — the set of member ids wearing
-the pinged VC role at the moment the ping was issued. The service holds the
-snapshot in a parallel in-memory dict keyed by ``message_id`` (alongside the
-session itself, since the role list is not durable state). On every reward
-attempt, a responder whose id is in that set is rejected — closing the
-exploit where a host pings their own role and then claims responder credit
-from an alt-account that wears the same role. The host-self check
-(``host_id == responder_id``) covers the host themselves; this guard catches
-the alts. Omitting the kwarg disables the alt-account guard (historic
-behaviour) so legacy callers and tests are not broken on adoption.
+**Alt-account farming guard (issue #84 M / PR #93 C1).**
+``register_ping_message`` accepts an optional ``host_role_member_ids``
+snapshot — the set of member ids wearing the pinged VC role at the moment
+the ping was issued. The snapshot lives on the injected
+:class:`~friendex.application.voice_session_store.VoicePingSessionStore`
+(NOT on the service instance) so it survives the per-guild factory
+boundary: ``MessageListener`` builds instance A to register, and
+``VoiceListener`` builds a distinct instance B to reward — both share the
+same store via ``container._ping_session_store_for(guild_id)``, so the
+snapshot is reachable from both call paths. On every reward attempt, a
+responder whose id is in that set is rejected — closing the exploit where
+a host pings their own role and then claims responder credit from an
+alt-account that wears the same role. The host-self check
+(``host_id == responder_id``) covers the host themselves; this guard
+catches the alts. Omitting the kwarg disables the alt-account guard
+(historic behaviour) so legacy callers and tests are not broken on
+adoption.
 
 **Guild scoping (ADR-0001) + concurrency + immutability** follow the same rules
 as :class:`~friendex.application.activity_service.ActivityService`: ``guild_id``
@@ -88,15 +94,17 @@ class VoicePingService:
         self._price_repo = price_repo
         self._locks = lock_manager
         self._settings = settings
+        # The injected :class:`VoicePingSessionStore` carries BOTH the open
+        # ping sessions and the parallel host-role-member snapshot used by
+        # the alt-account farming guard (issue #84 M / PR #93 C1). The
+        # snapshot lives on the store — NOT on the service instance —
+        # because the per-guild factory in
+        # :class:`~friendex.adapters.container.Container` returns a fresh
+        # ``VoicePingService`` per call, so a per-instance snapshot dict
+        # would die between register (instance A from MessageListener) and
+        # reward (instance B from VoiceListener). The store is the same
+        # per-guild singleton both instances receive.
         self._ping_sessions = ping_sessions
-        # Parallel in-memory snapshot of the role-member ids that share the
-        # host's VC role at ping time (issue #84 M — alt-account farming
-        # guard). Kept off the durable :class:`VoicePingSession` because the
-        # session itself is volatile and the role membership has the same
-        # lifetime; storing it in a parallel dict avoids touching the
-        # domain model. Cleared in lockstep with the session in
-        # :meth:`cleanup_expired_pings`.
-        self._host_role_member_ids: dict[int, frozenset[str]] = {}
 
     # -- ping lifecycle -----------------------------------------------------
 
@@ -144,10 +152,11 @@ class VoicePingService:
         gracefully (no session → no responders to reject). The inverse
         (``session present, snapshot missing``) would degrade the alt-
         account guard to a no-op for that ping, so write-then-set keeps
-        the security primitive consistent.
+        the security primitive consistent. Both writes happen under the
+        store's single lock acquisition (via
+        :meth:`VoicePingSessionStore.set_with_snapshot`) so a concurrent
+        reader cannot observe a half-written pair.
         """
-        if host_role_member_ids is not None:
-            self._host_role_member_ids[message_id] = frozenset(host_role_member_ids)
         session = VoicePingSession(
             message_id=message_id,
             host_id=host_id,
@@ -156,7 +165,12 @@ class VoicePingService:
             first_10_joiners=[],
             extra_joiners=[],
         )
-        await self._ping_sessions.set(session)
+        snapshot = (
+            frozenset(host_role_member_ids)
+            if host_role_member_ids is not None
+            else None
+        )
+        await self._ping_sessions.set_with_snapshot(session, snapshot)
         await self._credit(host_id, role_ping_joins=1.0)
 
     async def collect_extra_boosts(self, now: datetime) -> list[VcExtraBoost]:
@@ -194,16 +208,16 @@ class VoicePingService:
         """Evict ping sessions older than the response window; return the count.
 
         A session expires once ``now - timestamp`` exceeds
-        ``voice_ping_window_seconds``. The parallel host-role-member
-        snapshot for the evicted session is also dropped to keep the two
-        dicts from drifting (issue #84 M).
+        ``voice_ping_window_seconds``. The store's :meth:`pop` drops the
+        co-located host-role-member snapshot in the same lock acquisition
+        as the session itself, so the two dicts cannot drift past
+        eviction (issue #84 M / PR #93 C1).
         """
         window = self._settings.voice_ping_window_seconds
         evicted = 0
         for session in await self._ping_sessions.list_all():
             age = (now - session.timestamp).total_seconds()
             if age > window and await self._ping_sessions.pop(session.message_id):
-                self._host_role_member_ids.pop(session.message_id, None)
                 evicted += 1
         return evicted
 
@@ -236,11 +250,18 @@ class VoicePingService:
                 continue
             if responder_id == session.host_id:
                 continue
-            # Alt-account farming guard (issue #84 M): reject responders
-            # who share the host's pinged VC role. The snapshot is empty
-            # (or absent) for legacy callers that did not supply role-member
-            # ids — that case falls through to the historic behaviour.
-            host_role_members = self._host_role_member_ids.get(session.message_id)
+            # Alt-account farming guard (issue #84 M / PR #93 C1): reject
+            # responders who share the host's pinged VC role. The snapshot
+            # is read from the SHARED per-guild
+            # :class:`VoicePingSessionStore` so it survives the
+            # MessageListener → factory → VoiceListener boundary (where
+            # the service instance writing the snapshot is GC'd before the
+            # instance reading it is constructed). The snapshot is absent
+            # for legacy callers that did not supply role-member ids —
+            # that case falls through to the historic behaviour.
+            host_role_members = await self._ping_sessions.get_role_snapshot(
+                session.message_id
+            )
             if host_role_members is not None and responder_id in host_role_members:
                 continue
             age = (now - session.timestamp).total_seconds()
