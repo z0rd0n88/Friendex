@@ -37,6 +37,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import structlog
+
 from friendex.domain.activity import reset_activity_bucket
 from friendex.domain.models import (
     ActivityBucket,
@@ -53,6 +55,10 @@ if TYPE_CHECKING:
     from friendex.application.interfaces import IPriceRepo, IUserRepo
     from friendex.application.lock_manager import LockManager
     from friendex.application.voice_session_store import VoiceSessionStore
+
+# Module-level structlog logger — keyword arguments are picked up by the
+# configured processor chain in ``adapters/config.py``.
+_log = structlog.get_logger(__name__)
 
 
 class ActivityService:
@@ -230,6 +236,27 @@ class ActivityService:
         is recorded as a unique channel, and a stay at or beyond
         ``voice_stay_bonus_minutes`` earns a one-time price boost
         (``voice_stay_boost``) clamped through :func:`apply_floor_stall`.
+
+        **Atomicity (issue #84 M — silent-failures branch).** ``_mutate`` and
+        ``_apply_stay_boost`` each take the same composite
+        ``(guild_id, user_id)`` lock key independently — they do NOT share a
+        single composite-lock acquisition. The pre-fix concern was that a
+        concurrent path could land between the two releases and observe an
+        intermediate state. The realised risk is small because:
+
+        * the two writes target different aggregates (``UserAccount`` bucket
+          vs ``Stock`` price) — they do not race on the same row;
+        * ``_apply_stay_boost`` re-reads the stock inside its own lock
+          acquisition, so any concurrent price write is preserved (the boost
+          composes onto the latest value);
+        * the boost is gated by an external ``stay_minutes`` threshold the
+          caller computed; it is *not* a derived predicate that could fire
+          twice on the same stay.
+
+        Documenting rather than consolidating: a single composite lock would
+        widen the critical section across an unrelated I/O hop (the stock
+        upsert) for every voice-leave even when no boost fires. The bucket
+        write is the hot path; the price write is the cold path.
         """
         await self._voice_sessions.pop(user_id)
 
@@ -266,12 +293,23 @@ class ActivityService:
         )
 
     async def _apply_stay_boost(self, user_id: str) -> None:
-        """Apply the one-time long-stay price boost to ``user_id``'s stock."""
+        """Apply the one-time long-stay price boost to ``user_id``'s stock.
+
+        Logs ``stay_boost_no_stock`` (warning) when the user's stock row is
+        missing — issue #84 M (silent-failures branch). Silently dropping the
+        boost hid a persistence drift; the structured log lets the operator
+        catch it without changing user-visible behaviour.
+        """
         min_price = Decimal(str(self._settings.min_price))
         boost = Decimal(str(self._settings.voice_stay_boost))
         async with self._locks.locked(self._lock_key(user_id)):
             stock = await self._price_repo.get(self._guild_id, user_id)
             if stock is None:
+                _log.warning(
+                    "stay_boost_no_stock",
+                    user_id=user_id,
+                    guild_id=self._guild_id,
+                )
                 return
             proposed = stock.current * boost
             new_price = apply_floor_stall(stock.current, proposed, min_price)

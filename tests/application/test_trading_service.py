@@ -1585,3 +1585,228 @@ async def test_check_opt_in_still_raises_when_toggle_default_true(
 
     with pytest.raises(OptedOut):
         service._check_opt_in(opted_out_target)
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 M (silent-failures branch): double-`get` stub-overwrite pattern
+#
+# The pre-fix code called ``repo.get(target_id)`` once via
+# ``_get_or_create_user``, *then* called ``repo.get(target_id) is None`` again
+# at upsert time before persisting the stub. The locking discipline made the
+# race benign in practice (both calls run inside the per-target lock), but the
+# extra read is redundant and the pattern *looks* like a TOCTOU window. The
+# fix collapses the check into a single call using a ``(account, created)``
+# tuple and persists the stub once if needed — and ONLY then.
+#
+# These tests pin the externally observable contracts:
+#   1. A trade against a never-seen target persists the target stub (so the
+#      next trade sees the opt-in flag).
+#   2. The number of ``IUserRepo.get(target)`` calls inside the lock is at
+#      most 1 — the second redundant call is gone.
+
+
+class _CountingUserRepo:
+    """Wrap a :class:`FakeUserRepo` and tally per-target ``get`` calls.
+
+    Only the methods :class:`TradingService` uses are forwarded; anything
+    else surfaces as :class:`AttributeError`. ``get`` keeps a per-user
+    counter so tests can assert the redundant-second-get is gone (issue
+    #84 M, silent-failures branch).
+    """
+
+    def __init__(self, inner: FakeUserRepo) -> None:
+        self._inner = inner
+        self.get_counts: dict[str, int] = {}
+
+    async def get(self, guild_id: str, user_id: str) -> UserAccount | None:
+        self.get_counts[user_id] = self.get_counts.get(user_id, 0) + 1
+        return await self._inner.get(guild_id, user_id)
+
+    async def upsert(self, guild_id: str, account: UserAccount) -> None:
+        await self._inner.upsert(guild_id, account)
+
+    async def delete(self, guild_id: str, user_id: str) -> None:
+        await self._inner.delete(guild_id, user_id)
+
+    async def list_all(self, guild_id: str) -> list[UserAccount]:
+        return await self._inner.list_all(guild_id)
+
+    async def list_active_in_last(
+        self, guild_id: str, seconds: float
+    ) -> list[UserAccount]:
+        return await self._inner.list_active_in_last(guild_id, seconds)
+
+
+async def test_buy_persists_target_stub_when_target_never_seen(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """First buy against a never-seen target stores the target stub."""
+    await fake_user_repo.upsert(GUILD, _account(BUYER, cash=Decimal("5000.00")))
+    # TARGET deliberately NOT pre-upserted — the trade must seed the stub.
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with freeze_time(WEEKDAY_OPEN):
+        await service.buy(BUYER, TARGET, 1)
+
+    # The target stub MUST be persisted so a subsequent trade sees its
+    # opt-in flag (the "sticky" docstring contract preserved from pre-fix).
+    target = await fake_user_repo.get(GUILD, TARGET)
+    assert target is not None
+    assert target.opt_in is True
+    assert target.cash_balance == Decimal("10000.00")
+
+
+async def test_buy_does_not_re_get_target_after_initial_resolution(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """A buy issues at most ONE ``get(target)`` inside the lock (no redundant 2nd).
+
+    Pre-fix the code called ``get(target)`` twice — once via
+    ``_get_or_create_user`` and once at the stub-persist site. The fix folds
+    those into a single resolution. The counter is on a wrapping repo so
+    behaviour against the real ``FakeUserRepo`` is unchanged.
+    """
+    await fake_user_repo.upsert(GUILD, _account(BUYER, cash=Decimal("5000.00")))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+    counting = _CountingUserRepo(fake_user_repo)
+
+    service = _make_service(
+        user_repo=counting,  # type: ignore[arg-type]
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with freeze_time(WEEKDAY_OPEN):
+        await service.buy(BUYER, TARGET, 1)
+
+    assert counting.get_counts.get(TARGET, 0) == 1
+
+
+async def test_sell_does_not_re_get_target_after_initial_resolution(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Sell issues at most ONE ``get(target)`` inside the lock."""
+    seller = _account(
+        SELLER,
+        cash=Decimal("1000.00"),
+        long_positions={
+            TARGET: LongPosition(
+                target_user_id=TARGET, shares=10, avg_entry=Decimal("80.00")
+            )
+        },
+    )
+    await fake_user_repo.upsert(GUILD, seller)
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+    counting = _CountingUserRepo(fake_user_repo)
+
+    service = _make_service(
+        user_repo=counting,  # type: ignore[arg-type]
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with freeze_time(WEEKDAY_OPEN):
+        await service.sell(SELLER, TARGET, 1)
+
+    assert counting.get_counts.get(TARGET, 0) == 1
+
+
+async def test_short_does_not_re_get_target_after_initial_resolution(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Short issues at most ONE ``get(target)`` inside the lock."""
+    await fake_user_repo.upsert(GUILD, _account(SHORTER, cash=Decimal("5000.00")))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+    counting = _CountingUserRepo(fake_user_repo)
+
+    service = _make_service(
+        user_repo=counting,  # type: ignore[arg-type]
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with freeze_time(WEEKDAY_OPEN):
+        await service.short(SHORTER, TARGET, 1)
+
+    assert counting.get_counts.get(TARGET, 0) == 1
+
+
+async def test_cover_does_not_re_get_target_after_initial_resolution(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Cover issues at most ONE ``get(target)`` inside the lock."""
+    coverer = _account(
+        COVERER,
+        cash=Decimal("5000.00"),
+        short_positions={
+            TARGET: ShortPosition(
+                target_user_id=TARGET,
+                shares=5,
+                entry_price=Decimal("120.00"),
+                locked_cash=Decimal("600.00"),
+                locked_fund=Decimal("0.00"),
+                created_at=WEEKDAY_OPEN - timedelta(minutes=10),
+                frozen=False,
+            )
+        },
+    )
+    await fake_user_repo.upsert(GUILD, coverer)
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+    counting = _CountingUserRepo(fake_user_repo)
+
+    service = _make_service(
+        user_repo=counting,  # type: ignore[arg-type]
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with freeze_time(WEEKDAY_OPEN):
+        await service.cover(COVERER, TARGET, 1)
+
+    assert counting.get_counts.get(TARGET, 0) == 1

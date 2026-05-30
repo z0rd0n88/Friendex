@@ -135,6 +135,19 @@ class LiquidationService:
         :meth:`TradingService._cover_internal` with ``force=True`` so the
         :class:`PositionFrozen` guard is bypassed (the freeze window
         applies only to user-initiated covers).
+
+        **Atomicity gap (PR #94 review L2 — pre-existing, tracked in
+        issue #95).** Unlike the user-facing ``cover()`` entry point on
+        :class:`TradingService`, this call site does NOT wrap
+        ``_cover_internal`` in a ``_uow.transaction()`` envelope. The
+        sweep relies on the underlying persistence adapter's autocommit
+        behaviour. A mid-helper failure can persist a fresh target stub
+        (via ``_cover_internal``'s ``target_created`` write) without the
+        accompanying money writes; the inconsistency window is narrow
+        and money-safe (the stub is zero-state and any subsequent trade
+        would resurrect it), but the gap is real. Wrapping this call in
+        a UoW envelope is the canonical fix; it crosses Wave 1 #88's
+        atomicity territory and is deferred to issue #95.
         """
         async with self._locks.locked(
             self._lock_key(holder_id), self._lock_key(target_id)

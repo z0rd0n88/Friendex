@@ -50,10 +50,10 @@ owns the central handler).
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import structlog
 from discord.ext import commands
 
 if TYPE_CHECKING:
@@ -67,7 +67,16 @@ if TYPE_CHECKING:
     from friendex.application.voice_session_store import VoiceSessionStore
 
 
-logger = logging.getLogger(__name__)
+# PR #94 review (M1): pre-fix this module held ``logger = logging.getLogger(
+# __name__)`` and passed structured fields via the stdlib ``extra={...}``
+# kwarg. ``configure_logging`` (``adapters/config.py``) installs the bare
+# ``%(message)s`` format on the stdlib root, so ``extra`` was silently
+# dropped from every rendered log line — the same silent-failure pattern
+# the rest of the Wave 2 PR is migrating away from. Structlog accepts the
+# structured fields as keyword arguments natively, so the JSON renderer in
+# the production processor chain emits ``guild_id`` / ``user_id`` /
+# ``before_channel_id`` / ``after_channel_id`` as top-level keys.
+_log = structlog.get_logger(__name__)
 
 
 class VoiceListener(commands.Cog):
@@ -158,14 +167,17 @@ class VoiceListener(commands.Cog):
                     now=now,
                 )
             except Exception:
-                logger.error(
+                # Structlog accepts the structured fields as keyword
+                # arguments — they land as top-level keys in the JSON sink.
+                # The pre-fix call passed them via stdlib ``extra={...}``,
+                # which the bare ``%(message)s`` formatter dropped silently.
+                # (PR #94 review M1.)
+                _log.error(
                     "voice_listener.switch_leave_failed",
-                    extra={
-                        "guild_id": guild_id,
-                        "user_id": user_id,
-                        "before_channel_id": before_id,
-                        "after_channel_id": after_id,
-                    },
+                    guild_id=guild_id,
+                    user_id=user_id,
+                    before_channel_id=before_id,
+                    after_channel_id=after_id,
                     exc_info=True,
                 )
             await self._do_join(

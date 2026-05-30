@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
+import structlog
 from discord import app_commands
 
 from friendex.adapters.discord_bot.embeds import COLOR_ERROR
@@ -42,7 +43,6 @@ from friendex.domain.errors import DomainError, InsufficientFunds, PersistenceEr
 
 if TYPE_CHECKING:
     import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fake interaction
@@ -125,24 +125,25 @@ async def test_domain_error_renders_ephemeral_red_embed_with_user_facing_message
 # AC1 — PersistenceError → log + generic ephemeral reply
 
 
-async def test_persistence_error_logs_with_structured_context_and_generic_reply(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+async def test_persistence_error_logs_with_structured_context_and_generic_reply() -> (
+    None
+):
     _bot, handler = _install_handler()
     interaction = _make_interaction()
     error = PersistenceError("upsert_user", "constraint violation: 1062")
 
-    with caplog.at_level("ERROR", logger="friendex.adapters.discord_bot.error_handler"):
+    with structlog.testing.capture_logs() as captured:
         await handler(interaction, error)
 
-    # ERROR-level log entry with structured kwargs covering operation + detail.
-    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    # Structured log entry: structlog routes ``log.error("event", k=v)`` into
+    # a dict carrying both ``event`` and the keyword arguments. With
+    # ``stdlib.logging.getLogger`` + ``extra={...}`` (the pre-fix call shape)
+    # those kwargs are silently dropped from the JSON renderer.
+    error_records = [r for r in captured if r["log_level"] == "error"]
     assert error_records, "expected an ERROR-level log entry for PersistenceError"
-    # The structured fields are attached via the ``extra`` kwarg, surfacing on
-    # the LogRecord as attributes.
     rec = error_records[0]
-    assert getattr(rec, "operation", None) == "upsert_user"
-    assert getattr(rec, "detail", None) == "constraint violation: 1062"
+    assert rec["operation"] == "upsert_user"
+    assert rec["detail"] == "constraint violation: 1062"
 
     interaction.response.send_message.assert_awaited_once()
     kwargs = interaction.response.send_message.await_args.kwargs
@@ -154,23 +155,30 @@ async def test_persistence_error_logs_with_structured_context_and_generic_reply(
 # AC1 — Unknown Exception → log CRITICAL + generic ephemeral reply
 
 
-async def test_unknown_exception_logs_critical_with_exc_info_and_generic_reply(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+async def test_unknown_exception_logs_critical_with_exc_info_and_generic_reply() -> (
+    None
+):
     _bot, handler = _install_handler()
     interaction = _make_interaction()
     error = RuntimeError("boom")
 
-    logger_name = "friendex.adapters.discord_bot.error_handler"
-    with caplog.at_level("CRITICAL", logger=logger_name):
+    with structlog.testing.capture_logs() as captured:
         await handler(interaction, error)
 
-    critical_records = [r for r in caplog.records if r.levelname == "CRITICAL"]
+    critical_records = [r for r in captured if r["log_level"] == "critical"]
     assert critical_records, "expected a CRITICAL log entry for unknown Exception"
     rec = critical_records[0]
-    # ``exc_info=True`` populates ``LogRecord.exc_info`` with a tuple.
-    assert rec.exc_info is not None
-    assert rec.exc_info[0] is RuntimeError
+    # structlog forwards ``exc_info=(type, value, tb)`` as ``exc_info`` in the
+    # captured dict so downstream renderers (``ExceptionRenderer``) can pick it
+    # up. The shape mirrors the stdlib ``LogRecord.exc_info`` tuple so the
+    # traceback is preserved even when the handler is invoked after the
+    # original frame has unwound.
+    assert rec.get("exc_info") is not None
+    exc_info = rec["exc_info"]
+    if isinstance(exc_info, tuple):
+        assert exc_info[0] is RuntimeError
+    else:
+        assert isinstance(exc_info, RuntimeError)
 
     interaction.response.send_message.assert_awaited_once()
     kwargs = interaction.response.send_message.await_args.kwargs

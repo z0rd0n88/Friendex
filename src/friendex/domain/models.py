@@ -96,6 +96,39 @@ class ShortPosition:
 
 @dataclass
 class UserAccount:
+    """Per-guild user account: cash, positions, activity buckets, and daily streak.
+
+    **Invariants.** ``cash_balance`` MUST be non-negative — a negative cash
+    balance is always a bug (the trading service holds the actor's cash at the
+    open of every short and refunds at cover, so the ledger never sinks
+    below zero for legitimate game state).
+
+    ``net_worth`` and ``month_start_net_worth`` are **measurements**, not
+    balances: ``net_worth = cash_balance + sum(long_value) + sum(short_pnl)
+    + fund_stake`` per :func:`friendex.domain.fund_math.compute_net_worth`.
+    The short-position term is ``shares * (entry_price - current_price)``
+    — legitimately negative when the position is underwater, since
+    ``current_price`` has no ceiling. The 1.5x liquidation threshold caps
+    the exposure window, but liquidation runs on a periodic sweep
+    (:class:`~friendex.adapters.tasks.liquidation_task.LiquidationTask`),
+    so a sharp price tick between sweeps can drive ``net_worth`` deeply
+    negative until the next liquidation closes the position. **That is
+    real game state — measuring a deeply-underwater holder as bankrupt is
+    the correct behaviour for the leaderboard signal, not a constraint
+    violation.** The previous strict ``>= 0`` invariant crashed
+    :meth:`PortfolioService.capture_month_start_net_worth` mid-rollover
+    when a holder happened to be underwater at the month boundary;
+    relaxing the invariant lets the measurement round-trip through
+    ``replace()`` cleanly while still rejecting impossible cash balances
+    at the boundary.
+
+    The PR #94 review (M2) flagged this — see the review body for the
+    full derivation. Off-by-one bugs in net-worth math now surface via
+    the structured ``leaderboard_ghost`` / ``stay_boost_no_stock`` log
+    family instead of via a raise that the operator only sees once
+    monthly.
+    """
+
     user_id: str
     cash_balance: Decimal
     net_worth: Decimal
@@ -112,6 +145,11 @@ class UserAccount:
     def __post_init__(self) -> None:
         if self.cash_balance < 0:
             raise ValueError("cash_balance must be non-negative")
+        # ``net_worth`` and ``month_start_net_worth`` are measurements, not
+        # balances — they CAN go negative when a holder's shorts are
+        # underwater between liquidation ticks. Cash, by contrast, never
+        # legitimately goes negative; that invariant stays strict. See the
+        # class docstring for the full rationale (PR #94 review M2).
 
 
 @dataclass

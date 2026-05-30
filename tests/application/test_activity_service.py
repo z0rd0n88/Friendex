@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import structlog
+
 from friendex.application.activity_service import ActivityService
 from friendex.application.lock_manager import LockManager
 from friendex.application.voice_session_store import VoiceSessionStore
@@ -230,6 +232,44 @@ async def test_voice_leave_long_stay_applies_50pct_boost(
     assert stock is not None
     # 100.00 * 1.50 = 150.00, well above the $70 floor.
     assert stock.current == Decimal("150.00")
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 M (silent-failures branch): _apply_stay_boost missing-stock warning
+#
+# When a user earns the long-stay voice boost but has no Stock row, the
+# pre-fix code silently dropped the boost. Now we log a structured warning
+# so the operator sees the drift in production.
+
+
+async def test_voice_leave_long_stay_logs_warning_when_stock_missing(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """A long voice stay with no Stock row emits ``stay_boost_no_stock``."""
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    # NOTE: no price row upserted — the user has earned the boost but their
+    # stock has not been materialised.
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings)
+
+    with structlog.testing.capture_logs() as captured:
+        await service.handle_voice_leave(
+            user_id=USER,
+            channel_id=PLAIN_CHANNEL,
+            stay_minutes=75.0,
+            joined_from_ping=False,
+        )
+
+    warn_records = [
+        r
+        for r in captured
+        if r.get("log_level") == "warning" and r.get("event") == "stay_boost_no_stock"
+    ]
+    assert warn_records, "expected a structured warning for missing-stock stay boost"
+    rec = warn_records[0]
+    assert rec["user_id"] == USER
+    assert rec["guild_id"] == GUILD
 
 
 async def test_voice_leave_short_stay_no_boost(

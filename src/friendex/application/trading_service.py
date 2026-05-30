@@ -216,14 +216,33 @@ class TradingService:
 
         Mirrors the original ``ensure_user`` — a never-seen user starts with
         the configured initial cash, flat net worth, empty positions, fresh
-        zeroed buckets, and ``opt_in=True``.
+        zeroed buckets, and ``opt_in=True``. Wraps
+        :meth:`_resolve_user` and discards the ``created`` flag for callers
+        that just need the account; the target side uses
+        :meth:`_resolve_user` directly so a created stub can be persisted
+        without a second redundant ``get`` call (issue #84 M).
+        """
+        account, _created = await self._resolve_user(user_id)
+        return account
+
+    async def _resolve_user(self, user_id: str) -> tuple[UserAccount, bool]:
+        """Return ``(account, created)`` for ``user_id``.
+
+        ``created`` is :data:`True` iff the account was not yet persisted and
+        a fresh default stub was built. Pre-fix the trade methods called
+        ``get(target)`` once via :meth:`_get_or_create_user` and again at the
+        stub-persist site (``if get(target) is None: upsert``) — the per-target
+        lock made the race benign but the second read was wasted work. The
+        ``created`` flag lets the caller persist the stub once if needed and
+        skip the redundant second ``get`` entirely (issue #84 M, silent-
+        failures branch).
         """
         existing = await self._user_repo.get(self._guild_id, user_id)
         if existing is not None:
-            return existing
+            return existing, False
         now = datetime.now(tz=UTC)
         initial_cash = _quantise(Decimal(str(self._settings.initial_cash)))
-        return UserAccount(
+        stub = UserAccount(
             user_id=user_id,
             cash_balance=initial_cash,
             net_worth=initial_cash,
@@ -235,6 +254,7 @@ class TradingService:
             daily=DailyProgress(last_claim=None, streak=0),
             last_activity=now,
         )
+        return stub, True
 
     async def _get_or_create_stock(self, target_id: str) -> Stock:
         """Return the stored stock for ``target_id`` (creating defaults if absent).
@@ -366,7 +386,7 @@ class TradingService:
             # UoW envelope rolls every write back if any one fails
             # mid-sequence, matching the short/cover discipline (#82 C2
             # follow-up — review M1).
-            target = await self._get_or_create_user(target_id)
+            target, target_created = await self._resolve_user(target_id)
             self._check_opt_in(target)
             buyer = await self._get_or_create_user(buyer_id)
             stock = await self._get_or_create_stock(target_id)
@@ -400,9 +420,11 @@ class TradingService:
             updated_buyer = replace(
                 buyer, cash_balance=new_cash, long_positions=new_longs
             )
-            # Persist the target stub first if it did not exist before, so
-            # the opt-in check above is sticky for the next call.
-            if await self._user_repo.get(self._guild_id, target_id) is None:
+            # Persist the target stub first if it did not exist before, so the
+            # opt-in check above is sticky for the next call. Using the
+            # ``_resolve_user`` ``created`` flag avoids the redundant second
+            # ``get(target_id)`` call from the pre-fix code (issue #84 M).
+            if target_created:
                 await self._user_repo.upsert(self._guild_id, target)
             await self._user_repo.upsert(self._guild_id, updated_buyer)
             # Make sure the stock row exists for `_apply_price_impact_unlocked`
@@ -449,7 +471,7 @@ class TradingService:
             # target stub on first sight, the stock row + history. The
             # UoW envelope rolls every write back if any one fails
             # mid-sequence (#82 C2 follow-up — review M1).
-            target = await self._get_or_create_user(target_id)
+            target, target_created = await self._resolve_user(target_id)
             self._check_opt_in(target)
             seller = await self._get_or_create_user(seller_id)
             existing = seller.long_positions.get(target_id)
@@ -478,7 +500,9 @@ class TradingService:
             updated_seller = replace(
                 seller, cash_balance=new_cash, long_positions=new_longs
             )
-            if await self._user_repo.get(self._guild_id, target_id) is None:
+            # Issue #84 M: persist the target stub via the ``created`` flag
+            # instead of a redundant second ``get(target_id)`` call.
+            if target_created:
                 await self._user_repo.upsert(self._guild_id, target)
             await self._user_repo.upsert(self._guild_id, updated_seller)
             if await self._price_repo.get(self._guild_id, target_id) is None:
@@ -537,7 +561,7 @@ class TradingService:
                 # been flushed but not yet committed, and a failure
                 # between recheck and write is rolled back atomically.
                 await self._check_cooldown(shorter_id, now)
-                target = await self._get_or_create_user(target_id)
+                target, target_created = await self._resolve_user(target_id)
                 self._check_opt_in(target)
                 shorter = await self._get_or_create_user(shorter_id)
                 stock = await self._get_or_create_stock(target_id)
@@ -594,7 +618,9 @@ class TradingService:
                 updated_shorter = replace(
                     shorter, cash_balance=new_cash, short_positions=new_shorts
                 )
-                if await self._user_repo.get(self._guild_id, target_id) is None:
+                # Issue #84 M: persist the target stub via the ``created``
+                # flag instead of a redundant second ``get(target_id)`` call.
+                if target_created:
                     await self._user_repo.upsert(self._guild_id, target)
                 await self._user_repo.upsert(self._guild_id, updated_shorter)
                 await self._write_fund_cash(shorter_id, new_fund_cash)
@@ -708,8 +734,25 @@ class TradingService:
         cooldown after the lock release on success; liquidation does not
         set a cooldown at all (a force-cover is a system action, not a
         user-initiated short/cover).
+
+        **UoW envelope responsibility (PR #94 review L2 — pre-existing
+        gap, tracked in issue #95).** ``cover()`` wraps its call to
+        this helper in ``async with self._uow.transaction()`` so the
+        writes (user upsert, fund cash, price upsert, cooldown set)
+        commit atomically. :class:`LiquidationService` does NOT — it
+        relies on the underlying persistence adapter's autocommit
+        behaviour, so a mid-sequence failure inside this helper invoked
+        from liquidation produces a narrow inconsistency window where
+        the target stub (persisted via ``target_created``) could land
+        without the accompanying money writes. The gap is intentionally
+        narrow — the target stub is a fresh zero-state row that any
+        subsequent trade would resurrect, and no money is misstated —
+        but it is real, and wrapping the liquidation call site in a UoW
+        envelope is the canonical fix. Crosses Wave 1 #88's territory
+        (atomicity of money flows), so it is deferred to issue #95
+        rather than bundled into this Wave 2 silent-failures PR.
         """
-        target = await self._get_or_create_user(target_id)
+        target, target_created = await self._resolve_user(target_id)
         self._check_opt_in(target)
         coverer = await self._get_or_create_user(coverer_id)
         existing = coverer.short_positions.get(target_id)
@@ -766,7 +809,9 @@ class TradingService:
         updated_coverer = replace(
             coverer, cash_balance=cash_after_pay, short_positions=new_shorts
         )
-        if await self._user_repo.get(self._guild_id, target_id) is None:
+        # Issue #84 M: persist the target stub via the ``created`` flag
+        # instead of a redundant second ``get(target_id)`` call.
+        if target_created:
             await self._user_repo.upsert(self._guild_id, target)
         await self._user_repo.upsert(self._guild_id, updated_coverer)
         await self._write_fund_cash(coverer_id, new_fund_cash)

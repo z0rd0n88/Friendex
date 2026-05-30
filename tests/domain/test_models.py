@@ -252,6 +252,78 @@ def test_user_account_rejects_negative_cash() -> None:
         _account(cash_balance=Decimal("-0.01"))
 
 
+# PR #94 review (M2): the original Wave 2 fix added strict ``>= 0``
+# invariants on ``net_worth`` and ``month_start_net_worth``. The reviewer
+# proved the invariant was reachable from legitimate game state — a holder
+# whose shorts are deeply underwater between liquidation sweeps measures
+# negative on ``compute_net_worth``, and ``capture_month_start_net_worth``
+# then crashes mid-rollover when ``replace(account, net_worth=...)`` runs
+# the dataclass invariant. Net worth is a measurement (not a balance), and
+# the upper price ceiling is open, so deeply-underwater shorts make negative
+# values a real game state — not a constraint violation. Cash, by contrast,
+# never legitimately goes negative; that invariant stays strict.
+
+
+def test_user_account_allows_negative_net_worth() -> None:
+    """Deeply-underwater shorts between liquidation ticks legitimately drive
+    ``compute_net_worth`` negative — the measurement must round-trip through
+    the dataclass without raising. (PR #94 review M2.)
+    """
+    account = _account(net_worth=Decimal("-1000.00"))
+    assert account.net_worth == Decimal("-1000.00")
+
+
+def test_user_account_allows_negative_month_start_net_worth() -> None:
+    """``capture_month_start_net_worth`` snapshots the live ``net_worth``
+    into the month-start baseline. If a holder is underwater at the month
+    boundary the snapshot is negative — and a future month's comparison
+    against that baseline IS the operator signal that the rollover saw a
+    drawdown, not an invariant violation. (PR #94 review M2.)
+    """
+    account = _account(month_start_net_worth=Decimal("-1000.00"))
+    assert account.month_start_net_worth == Decimal("-1000.00")
+
+
+def test_user_account_still_rejects_negative_cash_balance() -> None:
+    """Belt-and-braces pin: the cash-balance invariant stays strict even
+    after the net-worth relaxation. A negative cash balance is always a bug
+    — every trading path tops up or refunds at lock-time so the ledger never
+    legitimately sinks below zero. (PR #94 review M2.)
+    """
+    with pytest.raises(ValueError, match="cash_balance must be non-negative"):
+        _account(cash_balance=Decimal("-1"))
+
+
+def test_user_account_zero_net_worth_allowed() -> None:
+    account = _account(net_worth=Decimal("0.00"))
+    assert account.net_worth == Decimal("0.00")
+
+
+def test_user_account_zero_month_start_net_worth_allowed() -> None:
+    account = _account(month_start_net_worth=Decimal("0.00"))
+    assert account.month_start_net_worth == Decimal("0.00")
+
+
+def test_user_account_replace_with_negative_net_worth_does_not_raise() -> None:
+    """``capture_month_start_net_worth`` uses :func:`dataclasses.replace` to
+    rebuild the account with the freshly-computed ``net_worth``. A
+    deeply-underwater holder produces a negative net worth; ``replace`` runs
+    ``__post_init__`` on the rebuilt instance, so this is the exact code
+    path that previously crashed mid-rollover. Pin the dataclass-level fix
+    here without depending on the application layer. (PR #94 review M2.)
+    """
+    from dataclasses import replace
+
+    account = _account()
+    snapshot = replace(
+        account,
+        net_worth=Decimal("-1234.56"),
+        month_start_net_worth=Decimal("-1234.56"),
+    )
+    assert snapshot.net_worth == Decimal("-1234.56")
+    assert snapshot.month_start_net_worth == Decimal("-1234.56")
+
+
 def test_user_account_equality() -> None:
     bucket_today = ActivityBucket(bucket_start=NOW)
     bucket_week = ActivityBucket(bucket_start=NOW)
@@ -495,6 +567,22 @@ def test_vc_extra_boost_equality() -> None:
             manager_id="u1",
             cash_balance=Decimal("-1.00"),
             investors={},
+        ),
+        # PR #94 review (M2): a negative ``cash_balance`` is the only
+        # ``UserAccount`` invariant left after relaxing ``net_worth`` /
+        # ``month_start_net_worth`` — those are measurements that can
+        # legitimately be negative when a holder's shorts are underwater.
+        lambda: UserAccount(
+            user_id="u1",
+            cash_balance=Decimal("-1.00"),
+            net_worth=Decimal("0.00"),
+            month_start_net_worth=Decimal("0.00"),
+            long_positions={},
+            short_positions={},
+            today=ActivityBucket(),
+            week=ActivityBucket(),
+            daily=DailyProgress(last_claim=None, streak=0),
+            last_activity=NOW,
         ),
     ],
 )

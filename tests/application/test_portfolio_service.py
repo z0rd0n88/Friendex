@@ -403,6 +403,73 @@ async def test_capture_month_start_writes_snapshot_for_each_user(
 
 
 # ---------------------------------------------------------------------------
+# PR #94 review M2 — capture_month_start does not crash on an underwater holder
+# ---------------------------------------------------------------------------
+
+
+async def test_capture_month_start_handles_deeply_underwater_short(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """A holder whose shorts are underwater MUST roll over cleanly.
+
+    Pre-fix (Wave 2 silent-failures branch) the dataclass invariant
+    ``net_worth >= 0`` raised inside ``replace()`` mid-rollover when the
+    holder's short term ``shares * (entry - current)`` drove the measurement
+    negative — exactly the silent-failure class the PR is fighting. The fix
+    (PR #94 review M2) relaxes the invariant on ``net_worth`` and
+    ``month_start_net_worth`` while keeping ``cash_balance`` strict; this
+    test pins that the rollover now writes the negative snapshot through
+    without raising.
+
+    Scenario: ACTOR shorts 10 shares of TARGET at entry $100 (collateral
+    $1000), but TARGET rallies to $250 between liquidation sweeps. The
+    buyback cost is $2500, so the short contributes $1000 - $2500 = -$1500
+    to net worth. ACTOR's cash is $0, no longs — net_worth = -1500.
+    """
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(
+            ACTOR,
+            cash=Decimal("0.00"),
+            short_positions={
+                TARGET_A: _short(
+                    TARGET_A,
+                    shares=10,
+                    entry_price=Decimal("100.00"),
+                    locked_cash=Decimal("750.00"),
+                    locked_fund=Decimal("250.00"),
+                ),
+            },
+            month_start_net_worth=Decimal("10000.00"),
+        ),
+    )
+    # TARGET_A's price rallied to $250 — short is deeply underwater.
+    await fake_price_repo.upsert(GUILD, _stock(TARGET_A, current=Decimal("250.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    # MUST NOT raise: pre-fix this crashed inside replace() because the
+    # dataclass __post_init__ rejected the negative net_worth.
+    await service.capture_month_start_net_worth()
+
+    after = await fake_user_repo.get(GUILD, ACTOR)
+    assert after is not None
+    # cash 0 + collateral 1000 - 10*250 = -1500
+    assert after.net_worth == Decimal("-1500.00")
+    assert after.month_start_net_worth == Decimal("-1500.00")
+
+
+# ---------------------------------------------------------------------------
 # Portfolio snapshot bonus — sanity that the read-model wires together.
 # ---------------------------------------------------------------------------
 
