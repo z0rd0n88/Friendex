@@ -461,7 +461,6 @@ def _logger_name() -> str:
 
 async def test_on_member_update_emits_audit_log_entry(
     fake_member: Callable[..., MagicMock],
-    discipline_service: AsyncMock,
     discipline_service_factory: Callable[[str], object],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -503,7 +502,6 @@ async def test_on_member_update_emits_audit_log_entry(
 
 async def test_on_member_ban_emits_audit_log_entry(
     fake_member: Callable[..., MagicMock],
-    discipline_service: AsyncMock,
     discipline_service_factory: Callable[[str], object],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -718,7 +716,6 @@ async def test_cooldown_expires_after_window(
 
 async def test_cooldown_dict_is_garbage_collected_on_next_penalty(
     fake_member: Callable[..., MagicMock],
-    discipline_service: AsyncMock,
     discipline_service_factory: Callable[[str], object],
 ) -> None:
     """PR #93 M1 — expired cooldown entries are dropped on the next penalty fire.
@@ -783,7 +780,6 @@ async def test_cooldown_dict_is_garbage_collected_on_next_penalty(
 
 async def test_audit_log_filters_by_target_id_on_busy_guild(
     fake_member: Callable[..., MagicMock],
-    discipline_service: AsyncMock,
     discipline_service_factory: Callable[[str], object],
     caplog: pytest.LogCaptureFixture,
 ) -> None:

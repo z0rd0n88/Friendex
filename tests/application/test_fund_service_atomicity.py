@@ -235,10 +235,7 @@ async def test_accrue_apy_quantises_total_not_per_investor(
 # ---------------------------------------------------------------------------
 
 
-def _override_recipient(
-    base: Settings,
-    recipient: str,
-) -> Settings:
+def _override_recipient(recipient: str) -> Settings:
     """Build a fresh ``Settings`` with the residual-recipient overridden."""
     return Settings(
         discord_token="test-token",  # type: ignore[call-arg]
@@ -252,7 +249,6 @@ async def test_accrue_apy_residual_recipient_treasury_routes_to_events_wallet(
     fake_fund_repo: FakeFundRepo,
     fake_penalty_repo: FakePenaltyRepo,
     lock_manager: LockManager,
-    default_settings: Settings,
 ) -> None:
     """H3 residual: treasury setting credits the residual to ``events_wallet``.
 
@@ -274,7 +270,7 @@ async def test_accrue_apy_residual_recipient_treasury_routes_to_events_wallet(
         },
     )
     await fake_fund_repo.upsert(GUILD, seeded)
-    treasury_settings = _override_recipient(default_settings, "treasury")
+    treasury_settings = _override_recipient("treasury")
     service = _make_service(
         user_repo=fake_user_repo,
         fund_repo=fake_fund_repo,
@@ -306,7 +302,6 @@ async def test_accrue_apy_residual_recipient_drop_discards_residual(
     fake_fund_repo: FakeFundRepo,
     fake_penalty_repo: FakePenaltyRepo,
     lock_manager: LockManager,
-    default_settings: Settings,
 ) -> None:
     """H3 residual: drop setting discards the residual entirely.
 
@@ -327,7 +322,7 @@ async def test_accrue_apy_residual_recipient_drop_discards_residual(
         },
     )
     await fake_fund_repo.upsert(GUILD, seeded)
-    drop_settings = _override_recipient(default_settings, "drop")
+    drop_settings = _override_recipient("drop")
     service = _make_service(
         user_repo=fake_user_repo,
         fund_repo=fake_fund_repo,

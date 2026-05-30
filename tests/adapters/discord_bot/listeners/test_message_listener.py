@@ -404,7 +404,6 @@ async def test_on_message_does_not_register_ping_with_empty_config(
 
 
 async def test_on_message_skips_dm_messages(
-    fake_message: Callable[..., MagicMock],
     activity_service: AsyncMock,
     activity_service_factory: Callable[[str], object],
     voice_ping_service: AsyncMock,

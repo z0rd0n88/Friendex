@@ -44,8 +44,8 @@ def patched_settings(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return settings
 
 
+@pytest.mark.usefixtures("patched_settings")
 async def test_amain_uses_build_engine_not_raw_create_async_engine(
-    patched_settings: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Engine is built via ``build_engine`` so the SQLite FK pragma fires.
@@ -80,8 +80,8 @@ async def test_amain_uses_build_engine_not_raw_create_async_engine(
     # ``create_async_engine`` (which would skip the FK pragma listener).
 
 
+@pytest.mark.usefixtures("patched_settings")
 async def test_amain_calls_bot_close_when_start_raises(
-    patched_settings: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``bot.start`` raising must still run ``bot.close()`` and ``engine.dispose()``.
@@ -116,8 +116,8 @@ async def test_amain_calls_bot_close_when_start_raises(
     engine.dispose.assert_awaited_once()
 
 
+@pytest.mark.usefixtures("patched_settings")
 async def test_amain_calls_bot_close_on_clean_exit(
-    patched_settings: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Even on a clean ``bot.start`` return, ``bot.close()`` still runs."""
@@ -146,8 +146,8 @@ async def test_amain_calls_bot_close_on_clean_exit(
     engine.dispose.assert_awaited_once()
 
 
+@pytest.mark.usefixtures("patched_settings")
 async def test_amain_close_failure_still_disposes_engine(
-    patched_settings: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``bot.close()`` raising must not skip ``engine.dispose()``.

@@ -312,7 +312,6 @@ async def test_fund_withdraw_calls_service_with_decimal_and_utc_now(
 
 async def test_fund_withdraw_reply_is_public_with_allowed_mentions_none(
     fake_interaction,  # type: ignore[no-untyped-def]
-    fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
     group = _build_group(fund_service_factory)
@@ -357,7 +356,6 @@ async def test_fund_send_events_calls_service_with_decimal(
 
 async def test_fund_send_events_reply_is_public_with_allowed_mentions_none(
     fake_interaction,  # type: ignore[no-untyped-def]
-    fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
     group = _build_group(fund_service_factory)
@@ -406,7 +404,6 @@ async def test_fund_invest_calls_service_with_decimal(
 
 async def test_fund_invest_reply_is_public_with_allowed_mentions_none(
     fake_interaction,  # type: ignore[no-untyped-def]
-    fund_service: AsyncMock,
     fund_service_factory,  # type: ignore[no-untyped-def]
 ) -> None:
     """C6: happy-path ``/fund invest`` acks with a public embed reply
