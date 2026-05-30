@@ -192,12 +192,22 @@ class PriceTickService:
 
             # Pre-compute the return delta now — it depends only on the account's
             # *today* bucket (which the tick does not mutate), not on the stock
-            # snapshot. The compute closure then needs no loop-variable capture.
+            # snapshot. ``ret_pct`` is a per-iteration loop-local, so the closure
+            # captures it via a default argument to avoid the late-binding trap
+            # (ruff B023). ``min_price`` is a loop-invariant defined before the
+            # for-loop, so the same defensive capture is applied below for
+            # consistency with :meth:`inactivity_decay_tick` (#82 L2 dead-code
+            # sweep: both ticks now use default-arg capture for every closed-over
+            # constant, removing the implicit asymmetry the original code had).
             ret_pct = compute_activity_return(account.today, activity_k)
 
-            def compute(stock_now: Stock, _ret_pct: Decimal = ret_pct) -> Decimal:
+            def compute(
+                stock_now: Stock,
+                _ret_pct: Decimal = ret_pct,
+                _min_price: Decimal = min_price,
+            ) -> Decimal:
                 proposed = stock_now.current * (_ONE + _ret_pct / _PERCENT)
-                return apply_floor_stall(stock_now.current, proposed, min_price)
+                return apply_floor_stall(stock_now.current, proposed, _min_price)
 
             await self._rmw_price(account.user_id, compute)
 
@@ -232,8 +242,17 @@ class PriceTickService:
             if stock is None:
                 continue  # cheap pre-filter — RMW re-checks under lock
 
-            def compute(stock_now: Stock) -> Decimal:
-                return apply_inactivity_decay(stock_now.current, decay, min_price)
+            # Default-arg capture for ``decay`` and ``min_price`` mirrors the
+            # activity tick's ``compute`` above so both closures use the same
+            # defensive style (#82 L2). Neither value is a loop-local here, so
+            # the capture is purely stylistic, but pinning the symmetry makes
+            # the two tick functions read as obviously analogous.
+            def compute(
+                stock_now: Stock,
+                _decay: float = decay,
+                _min_price: Decimal = min_price,
+            ) -> Decimal:
+                return apply_inactivity_decay(stock_now.current, _decay, _min_price)
 
             await self._rmw_price(account.user_id, compute)
 
