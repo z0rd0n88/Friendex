@@ -848,6 +848,105 @@ class _GetBarrierPingSessionStore(VoicePingSessionStore):
         return result
 
 
+async def test_alt_account_guard_survives_cross_instance_factory_boundary(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """PR #93 C1 — alt-account snapshot must outlive a single service instance.
+
+    Production wiring (``Container._make_voice_ping_factory``) returns a
+    **fresh** :class:`VoicePingService` every time the factory is invoked.
+    ``MessageListener.on_message`` calls the factory once (instance A) to
+    register a ping; ``VoiceListener._do_join`` calls the same factory a
+    second time (instance B) to reward responders. The two instances share
+    the per-guild :class:`VoicePingSessionStore` (so the session itself
+    survives), but if the role-member snapshot lives on
+    ``VoicePingService`` itself, instance B's snapshot dict is empty —
+    the guard short-circuits on ``None``, the alt is rewarded, and the
+    iter-1 H1 fix is a no-op in real Discord traffic.
+
+    The architecturally-correct fix moves the snapshot off the service
+    instance and onto the shared per-guild
+    :class:`VoicePingSessionStore`, lockstep with the session itself.
+
+    Load-bearing: this test FAILS against the pre-fix code where
+    ``_host_role_member_ids`` is a per-instance dict on
+    ``VoicePingService`` — instance B has an empty dict, the alt is
+    rewarded, and the assertion that ``role_ping_join_minutes == 0.0``
+    fails. It PASSES once the snapshot lives on the shared store.
+    """
+    # The shared per-guild ping-session store. Both service instances will
+    # receive the same store object — mirroring
+    # ``Container._ping_session_store_for(guild_id)``.
+    shared_store = VoicePingSessionStore()
+
+    def voice_ping_service_factory(_guild_id: str) -> VoicePingService:
+        # Mirror ``Container._make_voice_ping_factory``: a fresh service
+        # per call, sharing the per-guild store. The factory closes over
+        # the same ``shared_store`` so register/reward route through it.
+        return VoicePingService(
+            guild_id=GUILD,
+            user_repo=fake_user_repo,
+            price_repo=fake_price_repo,
+            lock_manager=LockManager(),
+            settings=default_settings,
+            ping_sessions=shared_store,
+        )
+
+    alt_id = "alt-of-host"
+    for uid in (HOST, alt_id):
+        await fake_user_repo.upsert(GUILD, _account(uid))
+        await fake_price_repo.upsert(GUILD, _stock(uid, current=Decimal("100.00")))
+
+    ping_time = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+
+    # --- Path 1: MessageListener → factory → instance A → register ---
+    service_a = voice_ping_service_factory(GUILD)
+    await service_a.register_ping_message(
+        message_id=88888,
+        host_id=HOST,
+        channel_id=CHANNEL,
+        timestamp=ping_time,
+        host_role_member_ids=frozenset({HOST, alt_id}),
+    )
+    # Instance A is now eligible for GC; production drops it immediately.
+    del service_a
+
+    # --- Path 2: VoiceListener → factory → instance B → reward ---
+    # Instance B is a brand-new service that has never seen the snapshot
+    # on its own ``_host_role_member_ids`` dict — but the shared store
+    # MUST carry it across.
+    service_b = voice_ping_service_factory(GUILD)
+    await service_b.reward_voice_ping_response(
+        responder_id=alt_id,
+        channel_id=CHANNEL,
+        now=ping_time + timedelta(seconds=30),
+    )
+
+    # The alt MUST have earned no engagement credit and MUST NOT have been
+    # placed in ``first_10_joiners`` or ``extra_joiners``. Pre-fix code
+    # fails here: instance B's empty dict yields ``None``, the guard
+    # falls through, and the alt collects the boost + engagement credit.
+    alt_account = await fake_user_repo.get(GUILD, alt_id)
+    assert alt_account is not None
+    assert alt_account.today.role_ping_join_minutes == 0.0, (
+        "PR #93 C1: alt-account snapshot must survive the listener→factory→"
+        "reward boundary — instance B saw an empty dict and let the alt "
+        "through."
+    )
+    alt_stock = await fake_price_repo.get(GUILD, alt_id)
+    assert alt_stock is not None
+    assert alt_stock.current == Decimal("100.00"), (
+        "PR #93 C1: alt earned the first-N price boost despite the snapshot — "
+        "snapshot died with instance A."
+    )
+    session = await shared_store.get(88888)
+    assert session is not None
+    assert alt_id not in session.first_10_joiners
+    assert alt_id not in session.extra_joiners
+
+
 async def test_per_ping_lockmanager_guard_is_loadbearing_for_cf2(
     fake_user_repo: FakeUserRepo,
     fake_price_repo: FakePriceRepo,
