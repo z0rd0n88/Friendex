@@ -102,16 +102,30 @@ class SqlFundRepository:
         UoW owns the commit so a sibling write failure can roll the row back);
         otherwise it falls back to the per-call session that every legacy
         caller relies on.
+
+        M-1 (PR #92 review carry-forward of #82 H10) — ``session.flush()`` is
+        called explicitly after ``merge`` so the parent row is materialised
+        before the child DELETE / INSERT chain runs. Today's
+        ``autoflush=True`` default would do this implicitly, but a future
+        flip to ``autoflush=False`` (a hardening sweep, or any session-config
+        drift) would silently break the merge → delete → insert ordering and
+        trip the FK constraint on the investor re-inserts (``FundInvestorORM``
+        has a composite FK back to ``hedge_funds``). The explicit flush keeps
+        the contract independent of the default — applied identically on both
+        the shared-session and per-call paths, byte-equivalent to the
+        ``SqlUserRepository.upsert`` pattern.
         """
         shared = current_session()
         if shared is not None:
             await shared.merge(HedgeFundORM.from_domain(guild_id, fund))
+            await shared.flush()
             await self._delete_investors(shared, guild_id, fund.fund_id)
             self._insert_investors(shared, guild_id, fund)
             await shared.flush()
             return
         async with self._sessionmaker() as session:
             await session.merge(HedgeFundORM.from_domain(guild_id, fund))
+            await session.flush()
             await self._delete_investors(session, guild_id, fund.fund_id)
             self._insert_investors(session, guild_id, fund)
             await session.commit()
