@@ -710,11 +710,11 @@ class TradingService:
 
         Public adapter over the inside-lock body shared with the user-facing
         :meth:`cover`. **Locking + UoW contract:** the caller MUST already
-        hold ``self._locks.locked(coverer_id, target_id)`` and MUST envelope
-        the call in any required UoW transaction —
-        :class:`LiquidationService` does both at the call site (the lock
-        wraps the in-lock re-read; the UoW gap is tracked in issue #95 per
-        the comment on the body).
+        hold ``self._locks.locked(coverer_id, target_id)`` AND wrap the
+        call in a ``_uow.transaction()`` envelope. Both ``cover()`` and the
+        :class:`LiquidationService` call site honour this contract — every
+        write inside ``_cover_internal`` commits as a single logical
+        transaction (issue #95).
 
         Pre-#82 M1 the liquidation sweep reached directly into
         :meth:`_cover_internal` (a private helper), making the cross-service
@@ -766,22 +766,14 @@ class TradingService:
         directions (``buy``/``sell``/``short``) still enforce the opt-in
         gate at the public-method boundary.
 
-        **UoW envelope responsibility (PR #94 review L2 — pre-existing
-        gap, tracked in issue #95).** ``cover()`` wraps its call to
-        this helper in ``async with self._uow.transaction()`` so the
-        writes (user upsert, fund cash, price upsert, cooldown set)
-        commit atomically. :class:`LiquidationService` does NOT — it
-        relies on the underlying persistence adapter's autocommit
-        behaviour, so a mid-sequence failure inside this helper invoked
-        from liquidation produces a narrow inconsistency window where
-        the target stub (persisted via ``target_created``) could land
-        without the accompanying money writes. The gap is intentionally
-        narrow — the target stub is a fresh zero-state row that any
-        subsequent trade would resurrect, and no money is misstated —
-        but it is real, and wrapping the liquidation call site in a UoW
-        envelope is the canonical fix. Crosses Wave 1 #88's territory
-        (atomicity of money flows), so it is deferred to issue #95
-        rather than bundled into this Wave 2 silent-failures PR.
+        **UoW envelope responsibility (issue #95).** Both :meth:`cover` and
+        the :class:`LiquidationService` call site wrap this body in a
+        ``self._uow.transaction()`` envelope so every write (target stub,
+        user upsert, fund cash, price upsert, cooldown set) commits as a
+        single logical transaction. A mid-helper persistence failure
+        rolls every prior write back atomically — no zero-state target
+        stub can land without the matching money writes from either call
+        site.
         """
         target, target_created = await self._resolve_user(target_id)
         coverer = await self._get_or_create_user(coverer_id)

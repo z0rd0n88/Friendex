@@ -464,6 +464,7 @@ class Container:
                 lock_manager=self._lock_manager,
                 settings=self._settings,
                 trading_service=trading_factory(guild_id),
+                unit_of_work=self._unit_of_work,
             )
 
         return factory
