@@ -253,19 +253,24 @@ async def test_build_runners_iter_guild_ids_reflects_live_bot_guilds(
 async def test_build_runners_replaces_liquidation_notifier(
     settings: Settings, fake_sessionmaker: MagicMock
 ) -> None:
-    """``LiquidationTask._notifier`` is no longer the no-op after ``build_runners``."""
-    from friendex.adapters.container import _noop_notifier
+    """``LiquidationTask._notifier`` is rebound by ``build_runners``.
 
+    Wave 3 dead-code sweep (#83): the construction-time placeholder used to
+    be the module-level ``_noop_notifier`` so the pre-condition could pin
+    notifier identity. Inlining the placeholder into ``Container.__init__``
+    removed the named symbol, so the assertion now compares notifier
+    identity before/after ``build_runners`` directly.
+    """
     container = Container(settings, fake_sessionmaker)
     liquidation_task = next(
         t for t in container.raw_tasks if isinstance(t, LiquidationTask)
     )
-    assert liquidation_task._notifier is _noop_notifier  # pre-condition
+    pre_notifier = liquidation_task._notifier
 
     bot = _stub_bot_with_guilds([42])
     container.build_runners(bot)
 
-    assert liquidation_task._notifier is not _noop_notifier
+    assert liquidation_task._notifier is not pre_notifier
 
 
 async def test_build_runners_liquidation_notifier_dispatches_to_system_channel(

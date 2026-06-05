@@ -113,9 +113,17 @@ def _user_mention(user_id: str) -> str:
 def _relative_timestamp(when: datetime) -> str:
     """Discord ``<t:UNIX:R>`` relative-time tag (``2 hours ago`` / ``in 5 m``).
 
-    UTC-aware datetimes are required (Phase 3.1 invariant); we trust the caller
-    rather than re-validating at every render site.
+    UTC-aware datetimes are required (Phase 3.1 invariant). #82 L5 (dead-code
+    sweep): an ``assert when.tzinfo is not None`` makes the precondition
+    explicit — a naive datetime would otherwise silently emit a wall-clock
+    UNIX timestamp interpreted as local time, which is the kind of drift
+    Phase 3.1 forbids. ``int(when.timestamp())`` on a naive datetime is
+    interpreted in the host's local timezone, not UTC, so the assert catches
+    the bug at render time instead of leaking a wrong embed.
     """
+    assert when.tzinfo is not None, (
+        "embed relative timestamp requires a tz-aware datetime (Phase 3.1)"
+    )
     return f"<t:{int(when.timestamp())}:R>"
 
 
