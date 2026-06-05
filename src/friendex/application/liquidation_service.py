@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING
 
 from friendex.application.liquidation_events import LiquidationEvent
 from friendex.application.lock_manager import guild_lock_key
+from friendex.application.unit_of_work import NullUnitOfWork
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
     )
     from friendex.application.lock_manager import LockManager
     from friendex.application.trading_service import TradingService
+    from friendex.application.unit_of_work import IUnitOfWork
 
 
 class LiquidationService:
@@ -73,6 +75,7 @@ class LiquidationService:
         lock_manager: LockManager,
         settings: Settings,
         trading_service: TradingService,
+        unit_of_work: IUnitOfWork | None = None,
     ) -> None:
         self._guild_id = guild_id
         self._user_repo = user_repo
@@ -82,6 +85,16 @@ class LiquidationService:
         self._locks = lock_manager
         self._settings = settings
         self._trading = trading_service
+        # ``unit_of_work`` is the atomicity envelope wrapping the
+        # ``cover_forced`` call site. Mirrors :class:`TradingService`'s
+        # constructor seam: defaulting to :class:`NullUnitOfWork` keeps the
+        # existing DI container wiring valid (callers that have not yet
+        # threaded a real UoW still construct successfully); production
+        # wiring passes the same :class:`SqlUnitOfWork` the trading service
+        # is constructed with so both call sites' writes commit atomically.
+        self._uow: IUnitOfWork = (
+            unit_of_work if unit_of_work is not None else NullUnitOfWork()
+        )
 
     def _lock_key(self, user_id: str) -> str:
         """Return the composite ``"<guild>:<user>"`` lock key (ADR-0001).
@@ -143,18 +156,12 @@ class LiquidationService:
         :class:`PositionFrozen` guard so a freshly-opened short still
         inside its freeze window can still be liquidated.
 
-        **Atomicity gap (PR #94 review L2 — pre-existing, tracked in
-        issue #95).** Unlike the user-facing ``cover()`` entry point on
-        :class:`TradingService`, this call site does NOT wrap
-        ``cover_forced`` in a ``_uow.transaction()`` envelope. The
-        sweep relies on the underlying persistence adapter's autocommit
-        behaviour. A mid-helper failure can persist a fresh target stub
-        (via the cover body's ``target_created`` write) without the
-        accompanying money writes; the inconsistency window is narrow
-        and money-safe (the stub is zero-state and any subsequent trade
-        would resurrect it), but the gap is real. Wrapping this call in
-        a UoW envelope is the canonical fix; it crosses Wave 1 #88's
-        atomicity territory and is deferred to issue #95.
+        **Atomicity envelope (issue #95).** Both :meth:`TradingService.cover`
+        and this call site wrap the ``_cover_internal`` body in a UoW
+        transaction, so a mid-helper persistence failure rolls every prior
+        write (target stub, user upsert, fund cash, price upsert, history
+        append) back atomically rather than leaving a zero-state target
+        stub behind without the matching money writes.
         """
         async with self._locks.locked(
             self._lock_key(holder_id), self._lock_key(target_id)
@@ -176,7 +183,15 @@ class LiquidationService:
             entry_price = short.entry_price
             shares = short.shares
 
-            result = await self._trading.cover_forced(holder_id, target_id, shares)
+            async with self._uow.transaction():
+                # Mirrors :meth:`TradingService.cover`'s envelope. The
+                # underlying :meth:`_cover_internal` body writes the
+                # target stub (if first sight), the holder's cash + short
+                # dict, the personal fund cash, and the stock row +
+                # history. Wrapping the call in this UoW commits them as
+                # a single logical transaction; any exception inside
+                # ``cover_forced`` rolls every prior write back.
+                result = await self._trading.cover_forced(holder_id, target_id, shares)
 
         return LiquidationEvent(
             guild_id=self._guild_id,

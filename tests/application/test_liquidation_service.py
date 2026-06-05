@@ -26,6 +26,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import pytest
+
 from friendex.application.liquidation_events import LiquidationEvent
 from friendex.application.liquidation_service import LiquidationService
 from friendex.application.trading_service import TradingService
@@ -36,6 +38,7 @@ from friendex.domain.models import (
     Stock,
     UserAccount,
 )
+from tests.application.fakes.fake_unit_of_work import FakeUnitOfWork
 
 if TYPE_CHECKING:
     from friendex.adapters.config import Settings
@@ -121,8 +124,20 @@ def _make_services(
     cooldown_repo: FakeTradeCooldownRepo,
     lock_manager: LockManager,
     settings: Settings,
+    unit_of_work: object | None = None,
 ) -> tuple[TradingService, LiquidationService]:
-    """Build :class:`TradingService` + :class:`LiquidationService` wired together."""
+    """Build :class:`TradingService` + :class:`LiquidationService` wired together.
+
+    ``unit_of_work`` is threaded into BOTH services when provided so the
+    savepoint spans every write in the cover path: the
+    :class:`LiquidationService` opens the envelope around its
+    ``cover_forced`` call, and the inner ``_cover_internal`` body lands its
+    user / fund / price / history writes through the same fakes the
+    :class:`FakeUnitOfWork` snapshots. Defaults to ``None`` so the
+    existing F1-F4 tests (which exercise the happy-path semantics, not
+    rollback) continue to use the services' built-in :class:`NullUnitOfWork`
+    fallback.
+    """
     trading = TradingService(
         guild_id=GUILD,
         user_repo=user_repo,
@@ -131,6 +146,7 @@ def _make_services(
         cooldown_repo=cooldown_repo,
         lock_manager=lock_manager,
         settings=settings,
+        unit_of_work=unit_of_work,  # type: ignore[arg-type]
     )
     liquidation = LiquidationService(
         guild_id=GUILD,
@@ -141,6 +157,7 @@ def _make_services(
         lock_manager=lock_manager,
         settings=settings,
         trading_service=trading,
+        unit_of_work=unit_of_work,  # type: ignore[arg-type]
     )
     return trading, liquidation
 
@@ -375,3 +392,135 @@ async def test_account_with_no_shorts_is_skipped(
     events = await liquidation.check_and_liquidate_shorts(NOW)
 
     assert events == []
+
+
+# ---------------------------------------------------------------------------
+# Issue #95 — mid-helper persistence failure during liquidation rolls back
+# ---------------------------------------------------------------------------
+
+
+class _ExplodingPriceRepo:
+    """Decorator price repo that delegates to the inner fake then explodes.
+
+    Mirrors the ``_ExplodingPriceRepo`` pattern at
+    ``tests/application/test_trading_service_atomicity.py:300`` — used to
+    simulate a mid-helper persistence failure inside the
+    ``_cover_internal`` body invoked from
+    :meth:`LiquidationService._maybe_liquidate`. With the issue #95 fix
+    in place the :class:`LiquidationService` wraps the ``cover_forced``
+    call in ``self._uow.transaction()`` so the :class:`FakeUnitOfWork`
+    rolls every fake repo back to its pre-transaction snapshot:
+    the holder's cash is restored, the short position stays in full,
+    no target stub is upserted, and no :class:`LiquidationEvent` is
+    returned.
+    """
+
+    def __init__(self, inner: FakePriceRepo, fail_after: int = 1) -> None:
+        self._inner = inner
+        self._writes = 0
+        self._fail_after = fail_after
+
+    async def get(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return await self._inner.get(*args, **kwargs)
+
+    async def list_all(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return await self._inner.list_all(*args, **kwargs)
+
+    async def upsert(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        self._writes += 1
+        if self._writes > self._fail_after:
+            raise RuntimeError("simulated persistence failure")
+        return await self._inner.upsert(*args, **kwargs)
+
+    async def append_history(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        self._writes += 1
+        if self._writes > self._fail_after:
+            raise RuntimeError("simulated persistence failure")
+        return await self._inner.append_history(*args, **kwargs)
+
+    async def get_history(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return await self._inner.get_history(*args, **kwargs)
+
+    async def prune_history_older_than(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return await self._inner.prune_history_older_than(*args, **kwargs)
+
+    async def delete(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return await self._inner.delete(*args, **kwargs)
+
+
+async def test_liquidation_rolls_back_on_mid_helper_failure(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Issue #95: an injected mid-helper persistence failure during a
+    liquidation cover MUST leave NO partial writes.
+
+    Holder owns a 10-share short on the target with $1000 cash collateral
+    locked. The target's price has rallied to $150 (1.5x entry) so the
+    short is exactly at the liquidation threshold. A :class:`_ExplodingPriceRepo`
+    is wrapped around the underlying fake price repo with ``fail_after=1`` —
+    the first ``upsert`` (the stock-row priming inside ``_cover_internal``)
+    succeeds, the second persistence call (the price-impact ``upsert`` /
+    ``append_history``) raises ``RuntimeError``. A :class:`FakeUnitOfWork`
+    is threaded into BOTH services so the savepoint snapshots every fake
+    repo before the cover body opens its critical section.
+
+    After the failure propagates out of
+    :meth:`LiquidationService.check_and_liquidate_shorts`, the rollback
+    contract demands:
+
+    * Holder's cash balance is unchanged (cover cost was NOT debited).
+    * Holder's short position is still present in full (10 shares).
+    * No :class:`LiquidationEvent` is returned (the function raised).
+    * The :class:`FakeUnitOfWork` recorded exactly one rollback.
+    """
+    starting_cash = Decimal("5000.00")
+    short = _short(
+        TARGET,
+        shares=10,
+        entry_price=Decimal("100.00"),
+        locked_cash=Decimal("1000.00"),
+        locked_fund=Decimal("0.00"),
+    )
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(
+            HOLDER,
+            cash=starting_cash,
+            short_positions={TARGET: short},
+        ),
+    )
+    await fake_user_repo.upsert(GUILD, _account(TARGET))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("150.00")))
+
+    exploding_price_repo = _ExplodingPriceRepo(fake_price_repo, fail_after=1)
+    uow = FakeUnitOfWork(
+        fake_user_repo, fake_fund_repo, fake_price_repo, fake_cooldown_repo
+    )
+    _, liquidation = _make_services(
+        user_repo=fake_user_repo,
+        price_repo=exploding_price_repo,  # type: ignore[arg-type]
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+        unit_of_work=uow,
+    )
+
+    with pytest.raises(RuntimeError):
+        await liquidation.check_and_liquidate_shorts(NOW)
+
+    after_holder = await fake_user_repo.get(GUILD, HOLDER)
+    assert after_holder is not None
+    # Holder's cash unchanged — the cover cost ($1500) was rolled back.
+    assert after_holder.cash_balance == starting_cash
+    # Short position still present in full (10 shares, unchanged).
+    assert TARGET in after_holder.short_positions
+    assert after_holder.short_positions[TARGET].shares == 10
+    # The :class:`FakeUnitOfWork` captured exactly one rollback — proves
+    # the cover_forced call site opened the transaction envelope.
+    assert uow.rollbacks == 1
