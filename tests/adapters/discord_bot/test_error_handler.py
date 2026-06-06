@@ -449,3 +449,97 @@ async def test_nested_wrapped_check_failure_unwraps_recursively_to_friendly_repl
     assert critical == [], (
         f"Nested wrapped CheckFailure must not log at CRITICAL; got {messages!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# MissingPermissions (CheckFailure subclass, issue #84 C) — discord.py raises
+# this concrete subtype when an ``@app_commands.checks.has_permissions``
+# check fails.  It must route to the friendly ephemeral reply via the
+# CheckFailure branch, not the CRITICAL fallthrough.
+
+
+async def test_missing_permissions_routes_to_friendly_ephemeral_reply(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``app_commands.MissingPermissions`` (e.g. ``manage_guild`` deny for
+    ``/game_intro``) gets the same friendly ephemeral reply as the base
+    ``CheckFailure`` and MUST NOT reach the CRITICAL fallthrough.
+
+    Mutation-hardening: the CheckFailure branch uses ``isinstance(error,
+    app_commands.CheckFailure)`` — a regression that narrows the check to the
+    *base class only* (e.g. ``type(error) is app_commands.CheckFailure``) would
+    silently route ``MissingPermissions`` to the CRITICAL "Unexpected error"
+    path.  This test pins the subclass routing invariant.
+    """
+    _bot, handler = _install_handler()
+    interaction = _make_interaction()
+    # discord.py raises this concrete subtype for ``has_permissions`` denials.
+    error = app_commands.errors.MissingPermissions(["manage_guild"])
+
+    logger_name = "friendex.adapters.discord_bot.error_handler"
+    with caplog.at_level("DEBUG", logger=logger_name):
+        await handler(interaction, error)
+
+    # Must have replied ephemerally with a user-facing permission message.
+    interaction.response.send_message.assert_awaited_once()
+    kwargs = _await_kwargs(interaction.response.send_message)
+    assert kwargs.get("ephemeral") is True
+    assert isinstance(kwargs.get("allowed_mentions"), discord.AllowedMentions)
+    content = kwargs.get("content", "")
+    assert "permission" in content.lower()
+
+    # Must NOT have escalated to the CRITICAL fallthrough.
+    critical = [
+        r for r in caplog.records if r.name == logger_name and r.levelname == "CRITICAL"
+    ]
+    messages = [r.message for r in critical]
+    assert critical == [], (
+        f"MissingPermissions must not log at CRITICAL; got {messages!r}"
+    )
+
+
+async def test_missing_permissions_is_check_failure_subclass() -> None:
+    """Invariant: ``MissingPermissions`` is a ``CheckFailure`` subclass.
+
+    This test documents the structural relationship the error handler relies on.
+    If a future discord.py release ever breaks this subtyping contract, this
+    test fails loudly instead of silently routing to the CRITICAL fallthrough.
+    """
+    assert issubclass(
+        app_commands.errors.MissingPermissions,
+        app_commands.errors.CheckFailure,
+    )
+
+
+async def test_wrapped_missing_permissions_routes_to_friendly_reply(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``CommandInvokeError(MissingPermissions(...))`` still routes friendly.
+
+    Defence-in-depth: a custom decorator (or an unusual discord.py dispatch
+    path) may wrap ``MissingPermissions`` in ``CommandInvokeError``. The
+    post-unwrap ``CheckFailure`` check in the handler must cover this case too.
+    """
+    _bot, handler = _install_handler()
+    interaction = _make_interaction()
+    inner = app_commands.errors.MissingPermissions(["administrator"])
+    cmd = MagicMock(name="Command")
+    wrapped = app_commands.errors.CommandInvokeError(cmd, inner)
+
+    logger_name = "friendex.adapters.discord_bot.error_handler"
+    with caplog.at_level("DEBUG", logger=logger_name):
+        await handler(interaction, wrapped)
+
+    interaction.response.send_message.assert_awaited_once()
+    kwargs = _await_kwargs(interaction.response.send_message)
+    assert kwargs.get("ephemeral") is True
+    content = kwargs.get("content", "")
+    assert "permission" in content.lower()
+
+    critical = [
+        r for r in caplog.records if r.name == logger_name and r.levelname == "CRITICAL"
+    ]
+    messages = [r.message for r in critical]
+    assert critical == [], (
+        f"Wrapped MissingPermissions must not log at CRITICAL; got {messages!r}"
+    )

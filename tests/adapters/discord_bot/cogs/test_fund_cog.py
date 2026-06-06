@@ -518,3 +518,73 @@ def test_fund_group_is_guild_only(
     """
     instance = FundGroup(fund_service_factory=fund_service_factory)
     assert getattr(instance, "guild_only", None) is True
+
+
+# ---------------------------------------------------------------------------
+# Fund-name length validation (issue #84 M — fund_cog.py:100 + embeds.py:509)
+#
+# The ``/fund create [name]`` parameter must carry ``Range[str, 1, 32]`` so
+# Discord enforces minimum (1 char) and maximum (32 chars) at the gateway
+# before the callback runs.  The embed builder must also clamp the name so
+# a value stored before this fix was deployed never explodes a Discord embed
+# field (which has a 256-char title limit and a 4096-char description limit).
+
+
+def test_fund_create_name_parameter_has_str_range_annotation() -> None:
+    """``/fund create name`` carries ``Range[str, 1, 32]`` at the Discord layer.
+
+    discord.py 2.0+ supports ``app_commands.Range[str, min_len, max_len]``
+    which Discord enforces at the interaction level — the callback never runs
+    with an out-of-range string.  This test pins the annotation so a refactor
+    that widens the parameter to a bare ``str`` is caught immediately.
+
+    discord.py stores per-parameter bounds in ``CommandParameter.min_value``
+    and ``CommandParameter.max_value`` — the same attributes used for integer
+    ranges.  For ``Range[str, 1, 32]`` these hold the length bounds (1 and 32).
+    """
+    # discord.py stores parameter metadata in ``_params`` on the Command object.
+    create_cmd = FundGroup.create
+    param = create_cmd._params.get("name")
+    assert param is not None, "/fund create must have a 'name' parameter"
+
+    # discord.py exposes ``min_value`` / ``max_value`` directly on the
+    # ``CommandParameter`` dataclass for both numeric and string Range annotations.
+    assert param.min_value == 1, "fund name min_value must be 1 (disallow empty string)"
+    assert param.max_value == 32, (
+        "fund name max_value must be 32 (cap Discord embed title length)"
+    )
+
+
+def test_build_fund_info_embed_truncates_overlong_name() -> None:
+    """``build_fund_info_embed`` must clamp a fund name longer than 32 chars.
+
+    The embed ``title`` field in Discord has a hard cap of 256 characters;
+    the description and field values are even longer.  A stored name that
+    predates the ``Range[str, 1, 32]`` cog guard (e.g. written by an older
+    build) could embed cleanly today only because the embed builder applies
+    its own safety guard.  This test pins that guard.
+
+    Mutation-hardening: removing the truncation in the embed builder would
+    silently pass valid-length names (the common case) but blow up the embed
+    for any pre-existing overlong name.
+    """
+    from friendex.adapters.discord_bot.embeds import build_fund_info_embed
+
+    overlong_name = "A" * 64  # well past the 32-char cog guard
+    fund = _hedge_fund(name=overlong_name)
+
+    embed = build_fund_info_embed(
+        fund=fund,
+        base_apy=0.15,
+        effective_apy=0.15,
+        has_penalty=False,
+    )
+
+    # The rendered name in the title and description must not exceed 32 chars.
+    assert len(fund.name) > 32, "pre-condition: the fixture name is genuinely overlong"
+    # Title is ``"Hedge Fund — <name>"``; name portion must be at most 32 chars.
+    assert embed.title is not None
+    title_name_part = embed.title.removeprefix("Hedge Fund — ")
+    assert len(title_name_part) <= 32, (
+        f"embed title carries {len(title_name_part)}-char name — must be ≤ 32"
+    )
