@@ -208,7 +208,7 @@ async def test_safe_run_logs_exception_with_traceback(
 
 
 # ---------------------------------------------------------------------------
-# for_each_guild – #103 Pattern 5 regression tests
+# for_each_guild - #103 Pattern 5 regression tests
 # ---------------------------------------------------------------------------
 
 
