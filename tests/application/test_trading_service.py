@@ -1934,3 +1934,64 @@ async def test_cover_does_not_re_get_target_after_initial_resolution(
         await service.cover(COVERER, TARGET, 1)
 
     assert counting.get_counts.get(TARGET, 0) == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #84 H — ghost-fund guard: _get_fund_cash absent-fund regression
+# ---------------------------------------------------------------------------
+#
+# Pre-fix (pre #102): ``_get_fund_cash`` caught ANY ``Exception`` from the repo
+# and returned ``Decimal("0")``, masking a persistence fault as zero collateral.
+# A shorter with no fund row and enough cash to cover the notional must succeed;
+# a persistence fault must propagate, not collapse to zero.
+#
+# The fix removed the try/except entirely — ``None`` (genuinely absent fund)
+# still short-circuits to zero, but any repo exception now propagates. These
+# tests pin:
+#   A. A shorter with enough cash but NO fund row can open a short (zero fund
+#      contribution is the correct semantic — an absent fund is not an error).
+#   B. The position records zero locked_fund (not a partial fund slice).
+
+
+async def test_short_succeeds_with_all_cash_collateral_when_no_fund_row(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """Issue #84 H (ghost-fund guard): shorter with no fund row → all-cash collateral.
+
+    When ``_get_fund_cash`` returns ``Decimal("0")`` for an absent fund row (the
+    None short-circuit path), the short must succeed entirely from cash. The
+    locked_fund on the resulting position must be zero — not a fragment from a
+    phantom fund.
+    """
+    # Shorter has $500 cash, no fund row, target @ $100 → notional for 5 shares = $500.
+    await fake_user_repo.upsert(GUILD, _account(SHORTER, cash=Decimal("500.00")))
+    # fund row intentionally absent — fake_fund_repo starts empty.
+    await fake_user_repo.upsert(GUILD, _account(TARGET))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with freeze_time(WEEKDAY_OPEN):
+        result = await service.short(SHORTER, TARGET, 5)
+
+    # All collateral drawn from cash; no fund contribution.
+    assert result.notional == Decimal("500.00")
+    assert result.locked_cash == Decimal("500.00")
+    assert result.locked_fund == Decimal("0.00")
+    assert result.new_cash_balance == Decimal("0.00")
+    # new_fund_balance reflects the (absent) fund cash minus zero locked_fund.
+    # fund_cash was Decimal("0") (the None short-circuit in _get_fund_cash), so
+    # new_fund_balance == 0 - 0 == 0.  Not None — always a Decimal.
+    assert result.new_fund_balance == Decimal("0.00")

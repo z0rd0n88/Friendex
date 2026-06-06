@@ -602,6 +602,79 @@ async def test_switch_leave_failure_log_carries_structured_fields_via_structlog(
 
 
 # ---------------------------------------------------------------------------
+# Issue #84 H — SWITCH: join failure must NOT be swallowed
+#
+# The Wave 1 (#84 H) fix wraps ``_do_leave`` in try/except so a leave failure
+# does not skip ``_do_join``. The fix contract is asymmetric:
+#   * Leave exception: caught, logged, join MUST still run.
+#   * Join exception: NOT caught — propagates to the caller.
+#
+# This test pins that asymmetry. A regression that extends the try/except to
+# also swallow join failures would make this test pass incorrectly by never
+# raising — so the test asserts that the join exception propagates.
+
+
+async def test_switch_join_failure_propagates_when_leave_succeeds(
+    fake_member: Callable[..., MagicMock],
+    fake_voice_state: Callable[..., MagicMock],
+    activity_service: AsyncMock,
+    activity_service_factory: Callable[[str], object],
+    voice_ping_service: AsyncMock,
+    voice_ping_service_factory: Callable[[str], object],
+) -> None:
+    """SWITCH: a ``_do_join`` failure propagates — it is NOT swallowed.
+
+    The Wave 1 fix isolates only the leave failure; join failures must still
+    surface so the caller (the Discord event loop) knows the join did not
+    complete. Swallowing a join failure would desync the bot's volatile state
+    from reality just as silently as the original leave-skip bug.
+
+    Mutation-hardening: a regression that wraps ``_do_join`` in the same
+    try/except will cause this test to fail because the exception is no
+    longer raised.
+    """
+    start = datetime(2026, 5, 25, 11, 30, 0, tzinfo=UTC)
+    when = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+    store = VoiceSessionStore()
+    await store.set(
+        VoiceSession(
+            user_id="42",
+            channel_id=5555,
+            start=start,
+            from_ping_message_ids=set(),
+        )
+    )
+    # Leave succeeds; join raises a transient error.
+    activity_service.handle_voice_leave.return_value = None
+    activity_service.handle_voice_join.side_effect = RuntimeError(
+        "transient DB error on join"
+    )
+    voice_ping_service.collect_extra_boosts.return_value = []
+
+    task = _vc_boost_task()
+    listener = _build_listener(
+        activity_service_factory=activity_service_factory,
+        voice_ping_service_factory=voice_ping_service_factory,
+        voice_session_store=store,
+        vc_boost_task=task,
+        clock=_fixed_clock(when),
+    )
+
+    member = fake_member(user_id=42, guild_id=999)
+    before = fake_voice_state(channel_id=5555)
+    after = fake_voice_state(channel_id=6666)
+
+    # The join error MUST propagate — not be swallowed.
+    with pytest.raises(RuntimeError, match="transient DB error on join"):
+        await listener.on_voice_state_update(member, before, after)
+
+    # Leave was called and succeeded (confirming SWITCH code path reached it).
+    activity_service.handle_voice_leave.assert_awaited_once()
+    # Join was called (the leave-swallow did not prevent the attempt).
+    activity_service.handle_voice_join.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
 # Per-guild factory routing
 
 
