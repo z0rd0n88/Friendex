@@ -788,3 +788,141 @@ async def test_short_propagates_fund_repo_failure_instead_of_ghost_fund(
 
     with freeze_time(WEEKDAY_OPEN), pytest.raises(RuntimeError):
         await service.short(SHORTER, TARGET, 1)
+
+
+# ---------------------------------------------------------------------------
+# #82 C1 — cover TOCTOU: concurrent covers cannot both bypass cooldown
+# ---------------------------------------------------------------------------
+
+
+async def test_concurrent_covers_serialize_so_second_call_sees_cooldown(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """C1 cover path: two concurrent ``cover`` calls MUST NOT both succeed.
+
+    The same TOCTOU guard that protects ``short`` (cooldown set inside
+    the critical section) also applies to ``cover``.  If two coroutines
+    race on ``cover`` the LockManager serialises them; the second must
+    observe the first's cooldown row and raise :class:`OnCooldown`.
+    """
+    initial_short = ShortPosition(
+        target_user_id=TARGET,
+        shares=4,
+        entry_price=Decimal("100.00"),
+        locked_cash=Decimal("400.00"),
+        locked_fund=Decimal("0.00"),
+        created_at=WEEKDAY_OPEN - timedelta(minutes=5),
+        frozen=False,
+    )
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(
+            COVERER,
+            cash=Decimal("10000.00"),
+            short_positions={TARGET: initial_short},
+        ),
+    )
+    await fake_fund_repo.upsert(GUILD, _fund(COVERER, cash=Decimal("0.00")))
+    await fake_user_repo.upsert(GUILD, _account(TARGET))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=Decimal("100.00")))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    from friendex.domain.errors import OnCooldown
+
+    with freeze_time(WEEKDAY_OPEN):
+        results = await asyncio.gather(
+            service.cover(COVERER, TARGET, 1),
+            service.cover(COVERER, TARGET, 1),
+            return_exceptions=True,
+        )
+
+    successes = [r for r in results if not isinstance(r, Exception)]
+    cooldowns = [r for r in results if isinstance(r, OnCooldown)]
+    assert len(successes) == 1
+    assert len(cooldowns) == 1
+
+
+# ---------------------------------------------------------------------------
+# #82 H2 — full cover of a position built via multiple partial adds
+# ---------------------------------------------------------------------------
+
+
+async def test_full_cover_of_multi_add_position_releases_exact_collateral(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_cooldown_repo: FakeTradeCooldownRepo,
+    lock_manager: LockManager,
+    default_settings: Settings,
+) -> None:
+    """H2 multi-add: a position built via consecutive ``short`` adds must still
+    release exact collateral on a final full cover.
+
+    Two ``short`` calls build a position at the same price (5 shares, then
+    3 shares). Because each add merges the locked collateral additively the
+    stored locked values may not equal ``8 * entry_price`` exactly (due to
+    per-add quantisation). The H2 fix guarantees the **full cover** path
+    releases whatever is actually stored (``existing.locked_cash`` and
+    ``existing.locked_fund``) rather than recomputing a proportion, so
+    the released sum equals the position's stored notional bit-for-bit.
+    """
+    entry_price = Decimal("33.33")
+    # Simulate a position built by two consecutive ``short`` calls at the
+    # same price (5 shares then 3 shares).  The locked values are additive
+    # accumulations of the per-add collateral split and may not equal
+    # ``8 * entry_price`` exactly after cent-level quantisation.
+    extended_short = ShortPosition(
+        target_user_id=TARGET,
+        shares=8,
+        entry_price=entry_price,
+        # Simulate the merged locked values after adding 3 shares at the same
+        # price. The add quantises locked_cash / locked_fund per the short
+        # path: 3 * 33.33 = 99.99; cash portion = 60.00, fund = 39.99.
+        locked_cash=Decimal("160.00"),
+        locked_fund=Decimal("106.64"),
+        created_at=WEEKDAY_OPEN - timedelta(minutes=5),
+        frozen=False,
+    )
+    stored_notional = extended_short.locked_cash + extended_short.locked_fund  # 266.64
+
+    await fake_user_repo.upsert(
+        GUILD,
+        _account(
+            COVERER,
+            cash=Decimal("10000.00"),
+            short_positions={TARGET: extended_short},
+        ),
+    )
+    await fake_fund_repo.upsert(GUILD, _fund(COVERER, cash=Decimal("200.00")))
+    await fake_user_repo.upsert(GUILD, _account(TARGET))
+    await fake_price_repo.upsert(GUILD, _stock(TARGET, current=entry_price))
+
+    service = _make_service(
+        user_repo=fake_user_repo,
+        price_repo=fake_price_repo,
+        fund_repo=fake_fund_repo,
+        cooldown_repo=fake_cooldown_repo,
+        lock_manager=lock_manager,
+        settings=default_settings,
+    )
+
+    with freeze_time(WEEKDAY_OPEN):
+        result = await service.cover(COVERER, TARGET, 8)
+
+    assert result.position_after is None
+    assert result.released_cash == extended_short.locked_cash
+    assert result.released_fund == extended_short.locked_fund
+    assert result.released_cash + result.released_fund == stored_notional
