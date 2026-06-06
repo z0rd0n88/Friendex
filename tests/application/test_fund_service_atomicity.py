@@ -470,3 +470,89 @@ async def test_invest_personal_fund_self_block_still_works(
 
     with pytest.raises(NotFundManager):
         await service.invest(USER, USER, Decimal("100.00"))
+
+
+# ---------------------------------------------------------------------------
+# #82 H3 — many investors + high APY: no over-credit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "n_investors,stake_per_investor,apy",
+    [
+        # Many small stakes; individual accruals sub-cent at 15% monthly.
+        (50, Decimal("0.40"), 0.15),
+        # Larger stake count; higher APY forces many fractional accruals.
+        (100, Decimal("0.10"), 0.50),
+        # Extreme: 200 investors at $0.03 stake each, high APY.
+        (200, Decimal("0.03"), 1.00),
+        # Standard deployment scenario: 20 investors with meaningful stakes.
+        (20, Decimal("100.00"), 0.15),
+    ],
+)
+async def test_accrue_apy_no_over_credit_with_many_investors(
+    n_investors: int,
+    stake_per_investor: Decimal,
+    apy: float,
+    fake_user_repo: FakeUserRepo,
+    fake_fund_repo: FakeFundRepo,
+    fake_penalty_repo: FakePenaltyRepo,
+    lock_manager: LockManager,
+) -> None:
+    """H3 no-over-credit invariant: the total accrued across all investors and
+    the manager must not exceed the quantised monthly interest on the fund's
+    total cash balance.
+
+    For each parametrised scenario:
+    * Build a fund with ``n_investors`` investors at ``stake_per_investor``.
+    * Manager cash is $0 (fund_cash == n_investors * stake_per_investor) so all
+      accrual flows through investor stakes.
+    * After ``accrue_apy`` the new fund cash must be
+      ``<= old_cash + quantise(old_cash * apy / 12)`` — i.e. no more than the
+      expected full-interest accrual was credited.
+
+    This pins the property that the single-quantise-at-end approach never
+    credits MORE than the correctly-rounded total interest. The pre-fix
+    per-stake quantisation could credit LESS (silently losing money) for
+    sub-cent stakes, but the new approach must not flip to over-crediting.
+    """
+    total_stake = stake_per_investor * Decimal(n_investors)
+    investors = {f"investor-{i}": stake_per_investor for i in range(n_investors)}
+    seeded = HedgeFund(
+        fund_id=USER,
+        name=f"Fund {USER}",
+        manager_id=USER,
+        cash_balance=total_stake,
+        investors=investors,
+    )
+    await fake_fund_repo.upsert(GUILD, seeded)
+
+    high_apy_settings = Settings(
+        discord_token="test-token",  # type: ignore[call-arg]
+        hedge_fund_base_apy=apy,
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    service = _make_service(
+        user_repo=fake_user_repo,
+        fund_repo=fake_fund_repo,
+        penalty_repo=fake_penalty_repo,
+        lock_manager=lock_manager,
+        settings=high_apy_settings,
+    )
+
+    await service.accrue_apy(now=_NOW_DAY_1)
+
+    fund_after = await fake_fund_repo.get(GUILD, USER)
+    assert fund_after is not None
+
+    # Upper-bound: the total credit must not exceed the correctly-rounded
+    # monthly interest on the original total balance.
+    from friendex.domain.fund_math import compute_apy_accrual
+
+    max_accrual = compute_apy_accrual(total_stake, apy, period="monthly")
+    actual_gain = fund_after.cash_balance - total_stake
+    assert actual_gain >= Decimal("0.00"), "accrual must not be negative"
+    assert actual_gain <= max_accrual, (
+        f"credited {actual_gain} exceeds the max allowed {max_accrual} "
+        f"for {n_investors} investors at APY={apy}"
+    )
