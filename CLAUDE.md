@@ -22,7 +22,7 @@ This is a [`uv`](https://docs.astral.sh/uv/)-managed Python ≥3.11 package. The
 uv sync                                          # install deps + dev group
 uv run pytest                                     # run tests (coverage-gated)
 uv run ruff check . && uv run ruff format --check .
-uv run mypy src/friendex
+uv run mypy --strict src/ tests/
 uv run alembic upgrade head                      # create/migrate the database
 uv run friendex                                   # run the bot
 ```
