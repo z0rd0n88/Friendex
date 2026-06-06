@@ -835,3 +835,41 @@ def test_money_decimal_view_tracks_overrides(tmp_path: Path) -> None:
 
     assert settings.initial_cash_d == Decimal("25000.0")
     assert settings.min_price_d == Decimal("42.0")
+
+
+def test_task_startup_stagger_seconds_default() -> None:
+    """``task_startup_stagger_seconds`` defaults to 2.0.
+
+    Wave 1 #82 M4: stagger range exposed as a ``Settings`` field so tests can
+    seed it to 0.0 (deterministic) and operators can tune it without a code
+    change. Default of 2.0 matches the original module-level constant.
+    """
+    settings = Settings(discord_token="tmp")
+    assert settings.task_startup_stagger_seconds == 2.0
+
+
+def test_task_startup_stagger_seconds_env_override(tmp_path: Path) -> None:
+    """``TASK_STARTUP_STAGGER_SECONDS`` env var overrides the default."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nTASK_STARTUP_STAGGER_SECONDS=30\n",
+        encoding="utf-8",
+    )
+    settings = _load_from_env_file(env_path)
+    assert settings.task_startup_stagger_seconds == 30.0
+
+
+def test_task_startup_stagger_seconds_zero_disables_stagger(
+    tmp_path: Path,
+) -> None:
+    """Setting ``TASK_STARTUP_STAGGER_SECONDS=0`` is valid (disables stagger).
+
+    Tests use this to make stagger deterministic (uniform(0, 0) == 0).
+    """
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DISCORD_TOKEN=tmp-token\nTASK_STARTUP_STAGGER_SECONDS=0\n",
+        encoding="utf-8",
+    )
+    settings = _load_from_env_file(env_path)
+    assert settings.task_startup_stagger_seconds == 0.0

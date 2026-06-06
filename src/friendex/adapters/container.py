@@ -525,7 +525,10 @@ class Container:
             task.bind_guild_id_provider(iter_guild_ids)
         self._liquidation_task.bind_notifier(_make_liquidation_notifier(bot))
 
-        return tuple(TaskRunner(task) for task in self.raw_tasks)
+        stagger = self._settings.task_startup_stagger_seconds
+        return tuple(
+            TaskRunner(task, stagger_seconds=stagger) for task in self.raw_tasks
+        )
 
     async def register_with(self, bot: commands.Bot) -> None:
         """Attach every cog + listener to ``bot`` and install the error handler.
