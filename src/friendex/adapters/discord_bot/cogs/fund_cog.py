@@ -68,6 +68,13 @@ if TYPE_CHECKING:
     from friendex.application.fund_service import FundService
     from friendex.application.snapshot_models import FundInfoResult
 
+# Maximum fund-name length enforced at the Discord interaction layer via
+# ``app_commands.Range[str, 1, _MAX_FUND_NAME_LEN]``.  Discord embed titles
+# have a 256-char hard cap; the ``build_fund_info_embed`` builder also applies
+# this constant as a safety clamp for names stored before this guard was
+# deployed.
+_MAX_FUND_NAME_LEN: int = 32
+
 
 @app_commands.guild_only()
 class FundGroup(app_commands.Group):
@@ -109,7 +116,7 @@ class FundGroup(app_commands.Group):
     async def create(
         self,
         interaction: discord.Interaction,
-        name: str | None = None,
+        name: app_commands.Range[str, 1, _MAX_FUND_NAME_LEN] | None = None,
     ) -> None:
         """Create or rename the invoker's personal fund and confirm publicly.
 

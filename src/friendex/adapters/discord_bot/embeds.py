@@ -512,11 +512,20 @@ def build_fund_info_embed(
     ``has_penalty`` is supplied explicitly (rather than inferred from
     ``base_apy != effective_apy``) so a zero-penalty edge case still renders
     a clean "no penalty" line.
+
+    **Name-length guard (issue #84 M).** The ``/fund create`` cog parameter
+    now carries ``Range[str, 1, 32]`` so Discord enforces the limit at the
+    gateway for new writes.  Older records stored before that guard was
+    deployed may still carry a longer name.  Clamp here so a stale long name
+    never produces a malformed embed title.  32 chars mirrors the cog cap and
+    keeps every Discord embed field well inside the 256-char title limit.
     """
+    _MAX_NAME = 32
+    safe_name = fund.name[:_MAX_NAME] if len(fund.name) > _MAX_NAME else fund.name
     embed = discord.Embed(
-        title=f"Hedge Fund — {fund.name}",
+        title=f"Hedge Fund — {safe_name}",
         color=COLOR_NEUTRAL,
-        description=(f"**{fund.name}**\nManager: {_user_mention(fund.manager_id)}"),
+        description=(f"**{safe_name}**\nManager: {_user_mention(fund.manager_id)}"),
     )
     embed.add_field(
         name="Balance",
