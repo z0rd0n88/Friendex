@@ -67,6 +67,10 @@ application services, Discord cogs/listeners, background tasks, and the bot entr
 **Money fields are `Decimal` and datetimes are UTC-aware** (Phase 3.1 invariant; preserve
 it in all new code).
 
+### Background tasks
+
+New tasks that fan out one service call per guild MUST use `BaseTask.for_each_guild(coro_factory)` instead of hand-rolling the `for guild_id in …` loop — it is the canonical per-guild isolation primitive in `adapters/tasks/base_task.py`.
+
 ### Persistence
 
 Domain state is stored in **SQLite via async SQLAlchemy 2.0 + Alembic** (`adapters/persistence/`, behind repository interfaces; `database_url` defaults to `sqlite+aiosqlite:///data/friendex.db`). All tables carry a `guild_id` column with composite primary keys for per-guild isolation. A one-time JSON→SQLite migrator (`src/friendex/adapters/persistence/migrate_json_to_sqlite.py`) handles migration from the original bot's JSON files — see [docs/deployment-guide.md](./docs/deployment-guide.md) for flags and usage.

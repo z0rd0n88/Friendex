@@ -71,17 +71,16 @@ class WeeklyResetTask(BackgroundTask):
     async def _run(self) -> None:
         """Per-tick body — act per stale guild; service-then-state ordering.
 
-        Each guild's full processing block (stale-check + reset + state
-        advance) is wrapped in :meth:`BackgroundTask._safe_run` so a
-        per-guild exception in ANY phase — service call OR state repo IO —
-        does not silence the rest of the sweep (Wave 1 #82 H8 / #84 H). The
-        state is advanced ONLY on a successful service call, so failed
-        guilds retry on the next tick (preserves the service-then-state
-        ordering invariant).
+        Uses :meth:`BackgroundTask.for_each_guild` so per-guild isolation is
+        enforced by the base class. The factory closes over ``now`` so that
+        every guild in the sweep uses the same tick timestamp. A per-guild
+        exception in ANY phase — service call OR state repo IO — does not
+        abort the rest of the sweep (Wave 1 #82 H8 / #84 H). The state is
+        advanced ONLY on a successful service call so failed guilds retry on
+        the next tick (service-then-state ordering invariant preserved).
         """
         now = self._clock()
-        for guild_id in await self._iter_guild_ids():
-            await self._safe_run(self._process_guild(guild_id, now))
+        await self.for_each_guild(lambda gid: self._process_guild(gid, now))
 
     async def _process_guild(self, guild_id: str, now: datetime) -> None:
         """Process one guild's weekly reset: stale-check, reset, advance state."""

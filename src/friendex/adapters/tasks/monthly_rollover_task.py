@@ -98,20 +98,22 @@ class MonthlyRolloverTask(BackgroundTask):
     async def _run(self) -> None:
         """Per-tick body — replay every guild whose stored marker is stale.
 
-        Each guild's full processing block (stale-check + portfolio + fund +
-        state advance) is wrapped in :meth:`BackgroundTask._safe_run` so a
-        per-guild exception in ANY phase — service call OR state repo IO —
-        does not abort the sweep over the other guilds (Wave 1 #82 H7 /
-        #84 H). Inside one guild's block, a portfolio exception short-
-        circuits before fund accrual runs (load-bearing: ``accrue_apy``
-        requires the freshly-captured baseline) and a fund exception
-        prevents the state advance — both behaviours fall out naturally
-        from straight-line exception propagation inside ``_process_guild``.
+        Uses :meth:`BackgroundTask.for_each_guild` so per-guild isolation is
+        enforced by the base class. The factory closes over ``now`` and
+        ``month_marker`` so both are stable for the full sweep. A per-guild
+        exception in ANY phase — service call OR state repo IO — does not
+        abort the sweep over the other guilds (Wave 1 #82 H7 / #84 H).
+        Inside one guild's block, a portfolio exception short-circuits before
+        fund accrual runs (load-bearing: ``accrue_apy`` requires the freshly-
+        captured baseline) and a fund exception prevents the state advance —
+        both behaviours fall out naturally from straight-line exception
+        propagation inside ``_process_guild``.
         """
         now = self._clock()
         month_marker = _month_start(now)
-        for guild_id in await self._iter_guild_ids():
-            await self._safe_run(self._process_guild(guild_id, now, month_marker))
+        await self.for_each_guild(
+            lambda gid: self._process_guild(gid, now, month_marker)
+        )
 
     async def _process_guild(
         self, guild_id: str, now: datetime, month_marker: date
