@@ -48,10 +48,10 @@ class FreezeCheckTask(BackgroundTask):
     async def _run(self) -> None:
         """Per-tick body — fan out one service call per guild.
 
-        Each per-guild call is wrapped in :meth:`BackgroundTask._safe_run` so
-        a transient exception on one guild does not abort the sweep over the
-        others (Wave 1 #82 H6 / #84 H).
+        Uses :meth:`BackgroundTask.for_each_guild` so per-guild isolation is
+        enforced by the base class: a transient exception on one guild never
+        aborts the sweep over the others (Wave 1 #82 H6 / #84 H).
         """
-        for guild_id in await self._iter_guild_ids():
-            service = self._service_factory(guild_id)
-            await self._safe_run(service.update_frozen_shorts())
+        await self.for_each_guild(
+            lambda gid: self._service_factory(gid).update_frozen_shorts()
+        )
