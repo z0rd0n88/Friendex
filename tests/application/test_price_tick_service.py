@@ -44,6 +44,8 @@ from friendex.domain.models import (
 from tests.application.fakes.fake_repos import FakePriceRepo
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from friendex.adapters.config import Settings
     from tests.application.fakes.fake_repos import FakeUserRepo
 
@@ -613,7 +615,7 @@ class _BarrierPriceRepo:
     async def delete(self, guild_id: str, user_id: str) -> None:
         await self._inner.delete(guild_id, user_id)
 
-    async def list_all(self, guild_id: str) -> list[Stock]:
+    async def list_all(self, guild_id: str) -> Sequence[Stock]:
         return await self._inner.list_all(guild_id)
 
     async def append_history(
@@ -627,7 +629,7 @@ class _BarrierPriceRepo:
         user_id: str,
         *,
         since: datetime | None = None,
-    ) -> list[PricePoint]:
+    ) -> Sequence[PricePoint]:
         return await self._inner.get_history(guild_id, user_id, since=since)
 
     async def prune_history_older_than(self, cutoff: datetime) -> int:
