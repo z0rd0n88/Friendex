@@ -69,6 +69,8 @@ from friendex.domain.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from friendex.adapters.config import Settings
     from friendex.application.lock_manager import LockManager
     from tests.application.fakes.fake_repos import (
@@ -1750,12 +1752,12 @@ class _CountingUserRepo:
     async def delete(self, guild_id: str, user_id: str) -> None:
         await self._inner.delete(guild_id, user_id)
 
-    async def list_all(self, guild_id: str) -> list[UserAccount]:
+    async def list_all(self, guild_id: str) -> Sequence[UserAccount]:
         return await self._inner.list_all(guild_id)
 
     async def list_active_in_last(
         self, guild_id: str, seconds: float
-    ) -> list[UserAccount]:
+    ) -> Sequence[UserAccount]:
         return await self._inner.list_active_in_last(guild_id, seconds)
 
 
