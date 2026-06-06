@@ -549,9 +549,7 @@ def test_fund_create_name_parameter_has_str_range_annotation() -> None:
 
     # discord.py exposes ``min_value`` / ``max_value`` directly on the
     # ``CommandParameter`` dataclass for both numeric and string Range annotations.
-    assert param.min_value == 1, (
-        "fund name min_value must be 1 (disallow empty string)"
-    )
+    assert param.min_value == 1, "fund name min_value must be 1 (disallow empty string)"
     assert param.max_value == 32, (
         "fund name max_value must be 32 (cap Discord embed title length)"
     )

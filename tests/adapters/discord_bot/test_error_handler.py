@@ -492,8 +492,9 @@ async def test_missing_permissions_routes_to_friendly_ephemeral_reply(
     critical = [
         r for r in caplog.records if r.name == logger_name and r.levelname == "CRITICAL"
     ]
+    messages = [r.message for r in critical]
     assert critical == [], (
-        f"MissingPermissions must not log at CRITICAL; got {[r.message for r in critical]!r}"
+        f"MissingPermissions must not log at CRITICAL; got {messages!r}"
     )
 
 
@@ -538,6 +539,7 @@ async def test_wrapped_missing_permissions_routes_to_friendly_reply(
     critical = [
         r for r in caplog.records if r.name == logger_name and r.levelname == "CRITICAL"
     ]
+    messages = [r.message for r in critical]
     assert critical == [], (
-        f"Wrapped MissingPermissions must not log at CRITICAL; got {[r.message for r in critical]!r}"
+        f"Wrapped MissingPermissions must not log at CRITICAL; got {messages!r}"
     )
