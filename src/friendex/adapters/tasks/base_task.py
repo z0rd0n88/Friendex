@@ -190,34 +190,3 @@ class BackgroundTask(ABC):
                 error_type=type(exc).__name__,
                 exc_info=True,
             )
-
-    async def for_each_guild(
-        self,
-        coro_factory: Callable[[str], Coroutine[Any, Any, None]],
-    ) -> None:
-        """Fan out ``coro_factory`` over every guild, isolating each call.
-
-        Encapsulates the canonical per-guild fan-out pattern so task
-        ``_run`` bodies do not need to repeat the ``for guild_id … await
-        self._safe_run(...)`` boilerplate. Making the isolation wrapper the
-        easy default means the unsafe bare-iteration path requires deliberate
-        effort (Wave 1 #82 Item 7).
-
-        Each coroutine produced by ``coro_factory(guild_id)`` is awaited
-        inside :meth:`_safe_run`, so a failure on one guild is swallowed and
-        logged — it does not abort the sweep over the remaining guilds.
-
-        The guild IDs are obtained by calling the bound
-        ``_iter_guild_ids`` provider (installed via
-        :meth:`bind_guild_id_provider` by the container).
-
-        Args:
-            coro_factory: Async callable that accepts a ``guild_id`` string
-                and returns a coroutine representing the per-guild work unit.
-                The coroutine is constructed at the call site where the bound
-                arguments (service, state, etc.) are visible — this matches
-                the :meth:`_safe_run` convention of accepting a coroutine
-                rather than a callable.
-        """
-        for guild_id in await self._iter_guild_ids():
-            await self._safe_run(coro_factory(guild_id))
