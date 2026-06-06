@@ -583,6 +583,7 @@ def test_build_fund_info_embed_truncates_overlong_name() -> None:
     # The rendered name in the title and description must not exceed 32 chars.
     assert len(fund.name) > 32, "pre-condition: the fixture name is genuinely overlong"
     # Title is ``"Hedge Fund — <name>"``; name portion must be at most 32 chars.
+    assert embed.title is not None
     title_name_part = embed.title.removeprefix("Hedge Fund — ")
     assert len(title_name_part) <= 32, (
         f"embed title carries {len(title_name_part)}-char name — must be ≤ 32"
