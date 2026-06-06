@@ -214,6 +214,19 @@ class Settings(BaseSettings):
     early_withdraw_penalty: float = 0.05
     penalty_duration_days: int = 14
 
+    # Task startup stagger
+    #
+    # On bot startup all task runners call ``start()`` at almost the same
+    # instant — so without a stagger, the first tick of every loop hits
+    # SQLite simultaneously.  Each :class:`~friendex.adapters.tasks.TaskRunner`
+    # sleeps for a uniform random offset in ``[0, task_startup_stagger_seconds]``
+    # before its first iteration to spread the cohort.
+    #
+    # Default 2.0 s matches the original module-level constant in
+    # ``task_runner.py`` (Wave 1 #82 M4).  Set to 0.0 in tests for
+    # determinism; tune upward when many guilds hammer the DB on startup.
+    task_startup_stagger_seconds: float = 2.0
+
     # Logging
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "json"
