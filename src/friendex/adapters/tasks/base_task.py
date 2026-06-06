@@ -1,10 +1,29 @@
-"""Abstract base for background tasks (Phase 9).
+"""Abstract base for background tasks (Phase 9, extended #103 P5).
 
 :class:`BackgroundTask` is the thin abstraction every Phase 9 task wrapper
-inherits from. It captures **one** load-bearing contract that the application
-services never make: any exception raised by a tick is swallowed and logged,
-so a transient service-layer failure cannot cancel the loop that drives the
-cadence.
+inherits from. It captures **two** load-bearing contracts that the application
+services never make:
+
+1. Any exception raised by a tick is swallowed and logged, so a transient
+   service-layer failure cannot cancel the loop that drives the cadence.
+2. Per-guild fan-out is safe by construction: :meth:`for_each_guild` iterates
+   every guild, applies ``_safe_run`` per guild, and guarantees that a
+   failure on guild N never aborts guilds N+1…end.
+
+**:meth:`for_each_guild` — canonical entry point for new tasks.**
+New tasks that perform one service call per guild MUST use::
+
+    await self.for_each_guild(lambda gid: service_factory(gid).some_method())
+
+instead of hand-rolling the ``for guild_id in await self._iter_guild_ids():``
+loop. The helper encodes the isolation contract in one place. Passing a single
+shared awaitable is a usage error — the factory must return a **fresh**
+coroutine per guild_id.
+
+*Legacy pattern* (existing tasks only, do not copy)::
+
+    for guild_id in await self._iter_guild_ids():
+        await self._safe_run(service.method())
 
 **Where ``_safe_run`` lives.** The error boundary is enforced by
 :class:`~friendex.adapters.tasks.task_runner.TaskRunner`, which calls
@@ -40,6 +59,17 @@ methods — it is always a pure-logic object, valid from construction.
 * Logging uses :mod:`structlog`: the task class name and exception type are
   bound on the log record so a single sink can correlate the failure with
   its source loop.
+* :meth:`for_each_guild` is intentionally NOT catchable at the
+  ``BaseException`` level — ``KeyboardInterrupt``, ``SystemExit``, and
+  ``asyncio.CancelledError`` raised by the factory propagate immediately,
+  matching the semantics documented on :meth:`_safe_run`.
+
+**Exceptions to the for_each_guild rule**
+
+* :class:`~friendex.adapters.tasks.vc_boost_task.VcBoostTask` — the per-guild
+  tick returns a survivor list that replaces task-owned mutable state; the
+  return-value channel cannot be expressed through ``for_each_guild``. The
+  task uses :meth:`_safe_run` directly via ``_invoke``.
 """
 
 from __future__ import annotations
@@ -89,6 +119,39 @@ class BackgroundTask(ABC):
         warmup) before the first tick.
         """
         self._iter_guild_ids = provider
+
+    async def for_each_guild(
+        self,
+        coro_factory: Callable[[str], Coroutine[Any, Any, None]],
+    ) -> None:
+        """Fan out ``coro_factory`` over every guild id, with per-guild isolation.
+
+        Contract:
+
+        * Iterates ``self._iter_guild_ids()`` (the late-bound provider) exactly
+          once per call.
+        * Awaits ``self._safe_run(coro_factory(guild_id))`` for each guild id.
+        * A failure on guild N **never** aborts guilds N+1…end — ``_safe_run``
+          swallows the :class:`Exception` and logs it with ``exc_info=True``.
+        * :class:`BaseException` subclasses (``asyncio.CancelledError``,
+          ``KeyboardInterrupt``, ``SystemExit``) propagate immediately —
+          delegated to :meth:`_safe_run`, which intentionally does not catch
+          them.
+        * The factory must be a callable taking ``guild_id: str`` and returning
+          a **fresh** coroutine per guild. Passing a single shared awaitable is
+          a usage error (it would be awaited once and then be exhausted).
+
+        This is the canonical entry point for new tasks that perform one
+        service call per guild. See the module docstring for the legacy
+        hand-rolled pattern preserved in existing tasks.
+
+        Args:
+            coro_factory: A callable ``(guild_id: str) -> Coroutine[Any, Any, None]``
+                that produces a fresh coroutine for each guild. Typically a
+                lambda or bound method returning ``service.some_method()``.
+        """
+        for guild_id in await self._iter_guild_ids():
+            await self._safe_run(coro_factory(guild_id))
 
     @abstractmethod
     async def _run(self) -> None:
