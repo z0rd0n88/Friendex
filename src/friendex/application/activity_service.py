@@ -125,6 +125,7 @@ class ActivityService:
     @staticmethod
     def _bump_both(
         account: UserAccount,
+        now: datetime,
         **deltas: int | float,
     ) -> UserAccount:
         """Return ``account`` with the given counter deltas added to both buckets.
@@ -132,6 +133,13 @@ class ActivityService:
         Each keyword is an :class:`ActivityBucket` field; the same delta is added
         to the matching field in both ``today`` and ``week`` via fresh replaced
         buckets, so neither stored bucket is mutated in place.
+
+        ``now`` is accepted from the caller (#82 M11) rather than sampled
+        internally via ``datetime.now(tz=UTC)``.  Sampling inside a pure helper
+        makes deterministic testing impossible — two calls within the same test
+        may disagree on the instant, and mocking ``datetime.now`` globally
+        causes unintended side-effects.  The caller captures ``now`` once before
+        acquiring the lock so the timestamp is consistent with the write.
         """
         today = replace(
             account.today,
@@ -151,7 +159,7 @@ class ActivityService:
             account,
             today=today,
             week=week,
-            last_activity=datetime.now(tz=UTC),
+            last_activity=now,
         )
 
     # -- message / reaction recording --------------------------------------
@@ -180,11 +188,16 @@ class ActivityService:
         if is_reply:
             deltas["reply_count"] = 1
 
-        await self._mutate(author_id, lambda acc: self._bump_both(acc, **deltas))
+        now = datetime.now(tz=UTC)
+        await self._mutate(author_id, lambda acc: self._bump_both(acc, now, **deltas))
 
     async def record_reaction(self, user_id: str) -> None:
         """Record that ``user_id`` added a reaction (today + week)."""
-        await self._mutate(user_id, lambda acc: self._bump_both(acc, reaction_count=1))
+        now = datetime.now(tz=UTC)
+        await self._mutate(
+            user_id,
+            lambda acc: self._bump_both(acc, now, reaction_count=1),
+        )
 
     # -- voice session lifecycle -------------------------------------------
 

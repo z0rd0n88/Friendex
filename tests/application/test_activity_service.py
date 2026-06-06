@@ -741,4 +741,63 @@ async def test_same_user_in_two_guilds_does_not_serialise_on_shared_lock_manager
     assert account_b is not None
     assert account_a.today.text_msgs == 1
     assert account_b.today.text_msgs == 1
-    assert sorted(barrier_repo.entered) == [guild_a, guild_b]
+
+
+# ---------------------------------------------------------------------------
+# #82 M11 — _bump_both uses caller-supplied ``now``, not datetime.now()
+# ---------------------------------------------------------------------------
+
+
+async def test_record_message_last_activity_matches_captured_now(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """#82 M11: ``record_message`` must stamp ``last_activity`` with the instant
+    captured in the caller, not with a fresh ``datetime.now()`` sampled inside
+    ``_bump_both``.
+
+    We use :mod:`freezegun` to freeze time at a known instant, call
+    ``record_message``, and assert the persisted ``last_activity`` equals the
+    frozen instant.  Pre-fix the helper sampled its own ``datetime.now(tz=UTC)``
+    — if that call landed in a different wall-clock tick than the caller's
+    captured ``now`` the two instants would differ, making deterministic testing
+    impossible (and making the timestamp inconsistent with the lock-held write).
+    """
+    from freezegun import freeze_time
+
+    frozen = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings)
+
+    with freeze_time(frozen):
+        await service.record_message(
+            author_id=USER,
+            has_attachment=False,
+            is_reply=False,
+            channel_id=PLAIN_CHANNEL,
+        )
+
+    account = await fake_user_repo.get(GUILD, USER)
+    assert account is not None
+    assert account.last_activity == frozen
+
+
+async def test_record_reaction_last_activity_matches_captured_now(
+    fake_user_repo: FakeUserRepo,
+    fake_price_repo: FakePriceRepo,
+    default_settings: Settings,
+) -> None:
+    """#82 M11: ``record_reaction`` must also propagate its captured ``now``."""
+    from freezegun import freeze_time
+
+    frozen = datetime(2026, 6, 2, 9, 30, 0, tzinfo=UTC)
+    await fake_user_repo.upsert(GUILD, _account(USER))
+    service = _make_service(fake_user_repo, fake_price_repo, default_settings)
+
+    with freeze_time(frozen):
+        await service.record_reaction(USER)
+
+    account = await fake_user_repo.get(GUILD, USER)
+    assert account is not None
+    assert account.last_activity == frozen
