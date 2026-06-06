@@ -57,19 +57,34 @@ class TaskRunner:
     / :attr:`~BackgroundTask.interval_hours` at construction time. Calling
     :meth:`start` or :meth:`stop` is safe immediately — there is no dead zone.
 
+    Args:
+        task: The :class:`BackgroundTask` whose ``_run`` is delegated to on
+            every tick.
+        stagger_seconds: Upper bound (in seconds) of the uniform random
+            startup stagger applied by the ``before_loop`` hook. Defaults to
+            :data:`_STARTUP_STAGGER_MAX_SECONDS` (2.0 s). Pass
+            ``Settings.task_startup_stagger_seconds`` here so operators can
+            tune the window without a code change (Wave 1 #82 M4). Set to
+            ``0.0`` in tests for determinism.
+
     Raises
     ------
     ValueError
         If both ``task.interval_minutes`` and ``task.interval_hours`` are zero.
     """
 
-    def __init__(self, task: BackgroundTask) -> None:
+    def __init__(
+        self,
+        task: BackgroundTask,
+        stagger_seconds: float = _STARTUP_STAGGER_MAX_SECONDS,
+    ) -> None:
         if task.interval_minutes == 0 and task.interval_hours == 0:
             raise ValueError(
                 f"{type(task).__name__}: at least one of interval_minutes or"
                 " interval_hours must be non-zero"
             )
         self._task = task
+        self._stagger_seconds = stagger_seconds
         self._consecutive_failures: int = 0
         loop_decorator = discord_tasks.loop(
             minutes=task.interval_minutes,
@@ -112,8 +127,13 @@ class TaskRunner:
 
         Spreads concurrent task cohorts across a couple of seconds so they
         don't all hit SQLite simultaneously on bot startup (Wave 1 #82 M4).
+
+        The stagger window is ``self._stagger_seconds`` (set at construction
+        from :attr:`Settings.task_startup_stagger_seconds` by the container,
+        or from the ``stagger_seconds`` constructor kwarg for tests). Set it
+        to ``0.0`` to disable startup jitter deterministically.
         """
-        delay = random.uniform(0.0, _STARTUP_STAGGER_MAX_SECONDS)
+        delay = random.uniform(0.0, self._stagger_seconds)
         await asyncio.sleep(delay)
 
     async def _on_loop_error(self, exc: BaseException) -> None:

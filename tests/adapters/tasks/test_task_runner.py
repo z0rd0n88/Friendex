@@ -313,3 +313,57 @@ async def test_runner_before_loop_offset_is_bounded(
     await runner._before_first_tick()
 
     assert observed_bounds == [(0.0, 2.0)]
+
+
+async def test_runner_respects_custom_stagger_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``TaskRunner(task, stagger_seconds=X)`` uses ``X`` as the uniform upper bound.
+
+    Wave 1 #82 M4: tests seed ``stagger_seconds=0`` to make the stagger
+    deterministic (``uniform(0, 0) == 0`` so ``asyncio.sleep(0)`` is called
+    and the test never races). Operators can set it to 30 s via
+    ``TASK_STARTUP_STAGGER_SECONDS`` without a code change.
+    """
+    runner = TaskRunner(_MinuteTask(), stagger_seconds=5.0)
+
+    observed_bounds: list[tuple[float, float]] = []
+
+    def capture_bounds(lo: float, hi: float) -> float:
+        observed_bounds.append((lo, hi))
+        return lo
+
+    monkeypatch.setattr("random.uniform", capture_bounds)
+
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr("asyncio.sleep", fake_sleep)
+
+    await runner._before_first_tick()
+
+    assert observed_bounds == [(0.0, 5.0)]
+
+
+async def test_runner_stagger_seconds_zero_skips_sleep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stagger_seconds=0`` means ``uniform(0, 0) == 0``; sleep(0) still called.
+
+    Tests use this path for determinism — ``asyncio.sleep(0)`` yields once to
+    the event loop but introduces no wall-clock delay.
+    """
+    runner = TaskRunner(_MinuteTask(), stagger_seconds=0.0)
+
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr("asyncio.sleep", fake_sleep)
+
+    await runner._before_first_tick()
+
+    assert sleeps == [0.0]
