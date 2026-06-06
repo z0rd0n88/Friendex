@@ -5,7 +5,7 @@
 ## Verification
 
 - [ ] `ruff check .` and `ruff format --check .` pass
-- [ ] `mypy src/friendex` passes
+- [ ] `mypy --strict src/ tests/` passes
 - [ ] `pytest` passes (coverage gate met)
 
 ## Tracking
