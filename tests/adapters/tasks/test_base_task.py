@@ -96,6 +96,74 @@ async def test_bind_guild_id_provider_installs_provider() -> None:
     assert guilds == ["g1", "g2"]
 
 
+async def test_for_each_guild_calls_factory_for_every_guild() -> None:
+    """``for_each_guild`` invokes the coro-factory for each guild in order.
+
+    Wave 1 #82 (Item 7): the helper encapsulates the per-guild fan-out +
+    ``_safe_run`` pattern so task ``_run`` bodies stay free of the boilerplate
+    loop. This test confirms that a factory returning a normally-completing
+    coroutine is called exactly once per guild in iteration order.
+    """
+    task = _NoOpTask()
+    visited: list[str] = []
+
+    async def provider() -> list[str]:
+        return ["g1", "g2", "g3"]
+
+    task.bind_guild_id_provider(provider)
+
+    async def process(guild_id: str) -> None:
+        visited.append(guild_id)
+
+    await task.for_each_guild(process)
+
+    assert visited == ["g1", "g2", "g3"]
+
+
+async def test_for_each_guild_isolates_failing_guild() -> None:
+    """``for_each_guild`` wraps each call in ``_safe_run`` so one failure cannot
+    abort the remaining guilds.
+
+    Wave 1 #82 (Item 7): the unsafe pattern — iterating guilds without
+    ``_safe_run`` — is the historical default and must require deliberate
+    effort. The helper makes isolation the default.
+    """
+    task = _NoOpTask()
+    visited: list[str] = []
+
+    async def provider() -> list[str]:
+        return ["good1", "bad", "good2"]
+
+    task.bind_guild_id_provider(provider)
+
+    async def process(guild_id: str) -> None:
+        if guild_id == "bad":
+            raise RuntimeError("guild failure")
+        visited.append(guild_id)
+
+    # Must NOT raise even though "bad" raises.
+    await task.for_each_guild(process)
+
+    # Both good guilds must have been processed despite the middle failure.
+    assert visited == ["good1", "good2"]
+
+
+async def test_for_each_guild_returns_none_on_all_success() -> None:
+    """``for_each_guild`` returns ``None`` when all guilds succeed."""
+    task = _NoOpTask()
+
+    async def provider() -> list[str]:
+        return ["g1"]
+
+    task.bind_guild_id_provider(provider)
+
+    async def noop(_: str) -> None:
+        return None
+
+    result = await task.for_each_guild(noop)
+    assert result is None
+
+
 async def test_safe_run_logs_exception_with_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
