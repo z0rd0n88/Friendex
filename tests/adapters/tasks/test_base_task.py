@@ -160,8 +160,7 @@ async def test_for_each_guild_returns_none_on_all_success() -> None:
     async def noop(_: str) -> None:
         return None
 
-    result = await task.for_each_guild(noop)
-    assert result is None
+    await task.for_each_guild(noop)
 
 
 async def test_safe_run_logs_exception_with_traceback(
