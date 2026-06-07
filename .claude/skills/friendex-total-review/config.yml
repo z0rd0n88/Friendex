@@ -1,0 +1,67 @@
+# friendex-total-review configuration. Consumed by
+# ~/.claude/skills/total-review/REFERENCE.md at every invocation.
+
+project:
+  slug: friendex
+  stack: python
+  repo: z0rd0n88/Friendex
+  invariants:
+    - "Money = Decimal, quantised $0.01, ROUND_HALF_EVEN. Floats in money paths are bugs."
+    - "Datetimes = tz-aware UTC. UtcDateTime rejects naive on bind. datetime.utcnow() is banned."
+    - "Per-guild composite keys '<guild_id>:<user_id>' via application/lock_manager.py. Composite-key violations are the canonical atomicity smell."
+    - "Domain dataclasses are mutable on purpose; mutation via dataclasses.replace (enforced by convention, not frozen=True)."
+    - "Services depend on Protocols in application/interfaces.py — NO adapter imports inside application/."
+
+# Layer slices. Each declared `lenses` list is the per-slice allowlist —
+# only agents in `mode.agents ∩ slice.lenses` actually run on this slice.
+slices:
+  domain:
+    path: src/friendex/domain
+    lenses: [code-reviewer, python-reviewer, python-pro]
+  application:
+    path: src/friendex/application
+    lenses:
+      - code-reviewer
+      - python-reviewer
+      - python-pro
+      - silent-failure-hunter
+      - security-reviewer
+  persistence:
+    path: src/friendex/adapters/persistence
+    lenses: [code-reviewer, python-reviewer, sql-pro, security-reviewer]
+  discord:
+    path: src/friendex/adapters/discord_bot
+    lenses: [code-reviewer, python-reviewer, security-reviewer]
+  tasks:
+    path: src/friendex/adapters/tasks
+    lenses: [code-reviewer, python-reviewer, performance-optimizer, silent-failure-hunter]
+  wiring:
+    # Multi-path slice — entry point + DI root + settings live here. Reviewers
+    # given this slice should read all three files together.
+    path: src/friendex
+    paths:
+      - src/friendex/main.py
+      - src/friendex/container.py
+      - src/friendex/adapters/config.py
+    lenses: [code-reviewer, python-pro, critical-thinking]
+  tests:
+    path: tests
+    # Narrow lens set — python-reviewer and python-pro idioms don't fit test code.
+    lenses: [code-reviewer, tdd-guide]
+
+# Mode overrides — only declare to override canonical defaults from REFERENCE.md.
+# Friendex's defaults match canon; nothing to override yet.
+modes: {}
+
+tracker:
+  exclusion_query: |
+    gh issue list --repo z0rd0n88/Friendex --state open --limit 30 \
+      --label review,tech-debt,security,performance,architecture \
+      --json number,title,body
+  file_issue: |
+    gh issue create --repo z0rd0n88/Friendex --title "{title}" --body-file - \
+      --label review
+  title_template: "{mode} review: {crit} CRITICAL · {high} HIGH · {med} MEDIUM · {low} LOW"
+  # Friendex has no meta-tracker issue (#2 is the phase tracker, not for review).
+  # Cross-ref individual issues by hand in the body when reviewers find related items.
+  cross_ref_phrase: ""
