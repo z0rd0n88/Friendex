@@ -1,0 +1,96 @@
+# Discipline penalties (timeout/ban, 17% drop, min-price floor, 24h dedup
+# cooldown), admin commands (/help, permission-gated /game_intro), the
+# DM-blocked optin fallback, guild-remove cleanup, and the two error-handler
+# branches no organic action reaches (unexpected + persistence).
+name: discipline-edge
+description: Moderation penalties, admin commands, and handler edge branches.
+start_at: "2026-05-25 12:00:00"
+guild: {id: 900700, name: Edge Server}
+users:
+  alice: {id: 1111, manage_guild: true}
+  bob: {id: 2222, price: "100.00"}
+  carol: {id: 3333, price: "100.00"}
+  dave: {id: 4444, dms_blocked: true}
+  eve: {id: 5555, price: "75.00"}
+timeline:
+  - label: anyone can read /help
+    command: help
+    actor: bob
+    expect:
+      reply: {ephemeral: true}
+
+  - label: game_intro without Manage Server -> permission denied
+    at: "+1m"
+    command: game_intro
+    actor: bob
+    expect:
+      error: CheckFailure
+      reply: {ephemeral: true, contains: ["permission"]}
+
+  - label: game_intro with Manage Server posts publicly
+    at: "+1m"
+    command: game_intro
+    actor: alice
+    expect:
+      reply: {ephemeral: false}
+
+  - label: timing out bob drops his stock 17%
+    at: "+1m"
+    event: member_timeout
+    args: {target: bob}
+    expect:
+      price: {bob: {approx: "83.00", tol: "0.01"}}
+
+  - label: a second timeout inside the 24h window is deduped
+    at: "+5m"
+    event: member_timeout
+    args: {target: bob}
+    expect:
+      price: {bob: {approx: "83.00", tol: "0.01"}}
+
+  - label: banning carol drops her stock 17%
+    at: "+1m"
+    event: member_ban
+    args: {target: carol}
+    expect:
+      price: {carol: {approx: "83.00", tol: "0.01"}}
+
+  - label: penalties respect the min-price floor
+    at: "+1m"
+    event: member_timeout
+    args: {target: eve}
+    expect:
+      price: {eve: {ge: "70", lt: "75"}}
+
+  - label: optin with DMs blocked falls back to the ephemeral reply
+    at: "+1m"
+    command: optin
+    actor: dave
+    expect:
+      reply: {ephemeral: true, contains: ["Opted in"]}
+      state: {dave: {opt_in: true}}
+
+  - label: someone is in VC when the bot leaves the guild
+    at: "+1m"
+    event: voice_join
+    args: {user: dave, channel: 400}
+
+  - label: guild removal evicts the volatile per-guild stores
+    at: "+1m"
+    event: guild_remove
+
+  - label: an unexpected exception renders the generic reply
+    at: "+1m"
+    event: raise_unexpected
+    actor: bob
+    expect:
+      error: ValueError
+      reply: {ephemeral: true, contains: ["Unexpected error"]}
+
+  - label: a persistence failure renders the internal-error reply
+    at: "+1m"
+    event: raise_persistence
+    actor: bob
+    expect:
+      error: PersistenceError
+      reply: {ephemeral: true, contains: ["Internal error, please try again"]}

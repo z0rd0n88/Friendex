@@ -1,0 +1,117 @@
+# Every reachable trading error path, rendered through the central error
+# handler: SelfTrade, OptedOut, InsufficientFunds, InvalidAmount,
+# InsufficientShares, NoPosition, OnCooldown, PositionFrozen, MarketClosed
+# (out-of-hours AND Sunday) — plus the Sunday-buy-allowed carve-out.
+name: trading-errors
+description: Exhaustive trading error paths and market-hours edges.
+start_at: "2026-05-25 12:00:00"
+guild: {id: 900200, name: Error Server}
+users:
+  alice: {id: 1111}
+  bob: {id: 2222}
+  carol: {id: 3333}
+timeline:
+  - label: bob opts out of being traded
+    command: optout
+    actor: bob
+    expect:
+      reply: {ephemeral: true}
+      state: {bob: {opt_in: false}}
+
+  - label: alice tries to buy herself -> SelfTrade
+    at: "+1m"
+    command: buy
+    actor: alice
+    args: {user: alice, shares: 1}
+    expect: {error: SelfTrade}
+
+  - label: alice tries to buy opted-out bob -> OptedOut
+    at: "+1m"
+    command: buy
+    actor: alice
+    args: {user: bob, shares: 1}
+    expect: {error: OptedOut}
+
+  - label: alice tries to buy far beyond her cash -> InsufficientFunds
+    at: "+1m"
+    command: buy
+    actor: alice
+    args: {user: carol, shares: 999999}
+    expect: {error: InsufficientFunds}
+
+  # Discord's Range[int, 1, 1_000_000] blocks shares=0 at the gateway in
+  # production; invoking the service anyway proves the defence-in-depth
+  # validation still holds behind the UI layer.
+  - label: zero shares bypassing the UI range -> InvalidAmount
+    at: "+1m"
+    command: buy
+    actor: alice
+    args: {user: carol, shares: 0}
+    expect: {error: InvalidAmount}
+
+  - label: alice sells shares she never bought -> InsufficientShares
+    at: "+1m"
+    command: sell
+    actor: alice
+    args: {user: carol, shares: 5}
+    expect: {error: InsufficientShares}
+
+  - label: alice covers a short she never opened -> NoPosition
+    at: "+1m"
+    command: cover
+    actor: alice
+    args: {user: carol, shares: 1}
+    expect: {error: NoPosition}
+
+  - label: alice opens a short on carol (starts the cooldown)
+    at: "+1m"
+    command: short
+    actor: alice
+    args: {user: carol, shares: 2}
+    expect:
+      state: {alice: {short: {carol: 2}}}
+
+  - label: alice shorts again inside the 15-min cooldown -> OnCooldown
+    at: "+1m"
+    command: short
+    actor: alice
+    args: {user: carol, shares: 1}
+    expect: {error: OnCooldown}
+
+  - label: freeze sweep marks the 30-minute-old short frozen
+    at: "+31m"
+    task: freeze_check
+    expect:
+      state: {alice: {short_frozen: {carol: true}}}
+
+  - label: covering a frozen short -> PositionFrozen
+    at: "+1m"
+    command: cover
+    actor: alice
+    args: {user: carol, shares: 2}
+    expect: {error: PositionFrozen}
+
+  # 05:00 UTC Tuesday sits between market close (04:30) and open (06:30).
+  - label: buying outside market hours -> MarketClosed
+    at: "2026-05-26 05:00:00"
+    command: buy
+    actor: alice
+    args: {user: carol, shares: 1}
+    expect: {error: MarketClosed}
+
+  # 2026-05-31 is a Sunday: sells are blocked...
+  - label: selling on Sunday -> MarketClosed
+    at: "2026-05-31 12:00:00"
+    command: sell
+    actor: alice
+    args: {user: carol, shares: 1}
+    expect: {error: MarketClosed}
+
+  # ...but buys are allowed by the sunday_buy_allowed default.
+  - label: buying on Sunday succeeds (sunday_buy_allowed)
+    at: "+1m"
+    command: buy
+    actor: alice
+    args: {user: carol, shares: 1}
+    expect:
+      state: {alice: {long: {carol: 1}}}
