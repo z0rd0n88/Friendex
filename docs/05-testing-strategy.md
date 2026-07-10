@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Friendex's test suite is organized around the three-layer architecture defined in `docs/02-target-architecture.md`: a large base of synchronous unit tests covers every pure function in the domain layer with no mocking required; a mid-tier of async service tests exercises application use-cases against in-memory fake repositories; and a thin top layer of Discord integration and end-to-end smoke tests validates the adapter boundary using `dpytest`. The smallest testable unit — a single pure function operating on typed domain objects — is the primary test vehicle. All external dependencies (Discord API, database, clock) are isolated from every test that does not explicitly declare itself an integration or end-to-end test. The coverage targets are 95%+ on `domain/`, 90%+ on `application/`, and 80% overall; the CI gate fails the build on any regression below 80%.
+Friendex's test suite is organized around the three-layer architecture defined in `docs/02-target-architecture.md`: a large base of synchronous unit tests covers every pure function in the domain layer with no mocking required; a mid-tier of async service tests exercises application use-cases against in-memory fake repositories; and a thin top layer of Discord integration and end-to-end smoke tests validates the adapter boundary using `dpytest`. The smallest testable unit — a single pure function operating on typed domain objects — is the primary test vehicle. All external dependencies (Discord API, database, clock) are isolated from every test that does not explicitly declare itself an integration or end-to-end test. The coverage targets are 95%+ on `domain/`, 90%+ on `application/`, and 80% overall as the project-rule floor; the CI gate is currently set to 95% (rounded down from the 95.62% baseline measured 2026-05-30 — see `.github/workflows/ci.yml`), stricter than the 80% floor it enforces at minimum.
 
 ---
 
@@ -135,7 +135,7 @@ directory = "htmlcov"
 | `adapters/persistence/` | 80%+ | Integration tests cover round-trips; migration script excluded |
 | `adapters/discord_bot/` | 75%+ | Cog/listener logic is thin; embed builders are fully covered |
 | `adapters/tasks/` | 75%+ | Task bodies are thin wrappers; service logic is covered elsewhere |
-| Overall | 80%+ | CI gate |
+| Overall | 80%+ | Project-rule floor; CI gate currently enforces 95% (see `.github/workflows/ci.yml`) |
 
 ---
 
@@ -1209,7 +1209,7 @@ jobs:
 
 **Key CI rules:**
 
-- The `test` job runs on every push and every PR. It excludes `@pytest.mark.e2e` tests. The build fails if coverage drops below 80% or any test fails.
+- The `test` job runs on every push and every PR. It excludes `@pytest.mark.e2e` tests. The build fails if coverage drops below the CI gate (currently 95%, see `.github/workflows/ci.yml`) or any test fails.
 - The `e2e` job runs only on PRs (not on every push to feature branches). It depends on `test` — E2E does not run if unit tests are already failing.
 - The `.venv/` is cached via `uv`'s built-in cache mechanism, keyed on `uv.lock`. Cache invalidation is automatic on lockfile changes.
 - Coverage reports are uploaded as artifacts on every run, including failing runs, so regressions can be diagnosed from CI without a local checkout.
