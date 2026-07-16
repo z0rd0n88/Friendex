@@ -8,7 +8,7 @@ and starting the bot. The bot is a single Python process; the only runtime depen
 a writable filesystem for SQLite.
 
 Two hosting options are documented:
-- **Railway** (§9) — recommended for quick cloud deployment; handles builds, restarts, and persistent storage automatically.
+- **Railway** (§8) — recommended for quick cloud deployment; handles builds, restarts, and persistent storage automatically.
 - **Self-hosted via systemd** (§7) — for VPS or bare-metal installs.
 
 ---
@@ -275,7 +275,7 @@ sudo journalctl -u friendex -f | jq 'select(.event | startswith("trade."))'
 
 ---
 
-## 9. Deploying to Railway
+## 8. Deploying to Railway
 
 [Railway](https://railway.app) runs Friendex as a persistent worker process with
 automatic deploys on every push to `main`. No Dockerfile is needed — Railway's Nixpacks
@@ -358,7 +358,7 @@ redeploys and rollbacks — it is never reset automatically.
 
 ---
 
-## 8. Smoke-testing after deploy
+## 9. Smoke-testing after deploy
 
 After the bot is running, verify each command works as expected by following the
 manual checklist in [docs/runbook-smoke-test.md](./runbook-smoke-test.md).

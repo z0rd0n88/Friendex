@@ -33,6 +33,8 @@ For full deployment instructions see [docs/deployment-guide.md](./docs/deploymen
 
 ## Repo workflow & PRs
 
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full worktree/branch/commit/PR workflow.
+
 - **`.claude/` is git-tracked here** (skills in `.claude/skills/`, agents in `.claude/agents/`) — edits to them go through a worktree + PR like any code; the global `~/.claude/` commit-to-`main` carve-out does NOT apply. Create worktrees under `.claude/worktrees/<name>` (repo convention; not gitignored — relies on git auto-excluding registered worktrees).
 - **Phase status lives in GitHub issue #2, never in-repo.** PRs follow `.github/pull_request_template.md` and reference it (`Refs #2`). For docs/tooling PRs with no Python change, mark the Verification gates **N/A** and note "not a phase PR" in Tracking.
 - **Merges auto-delete the head branch** (`deleteBranchOnMerge`), so `git push origin --delete <branch>` errors harmlessly — clean up with `git worktree remove` → `git branch -D` → `git fetch --prune`.
@@ -93,6 +95,8 @@ Events are handled by listeners in `adapters/discord_bot/listeners/`: `on_messag
 
 Commands are Discord **slash commands** (`discord.app_commands`), registered with Discord and synced **globally** (available in every server the bot is in; `DEV_GUILD_ID` adds an instant sync to one guild for development). Slash commands have no aliases, so the original `$mb` / `$pf` / `$mp` / `$ticker` aliases are dropped in favour of canonical names plus Discord's built-in autocomplete. Reply visibility replaces the old `delete_after=15` cleanup: personal/read commands reply **ephemerally** (only the invoker sees them); action commands reply **publicly** so trades stay visible in-channel.
 
+Summary table below; full parameter reference (incl. `/fund` subcommands) lives in [docs/command-reference.md](./docs/command-reference.md) — **add new/renamed commands there first**, then mirror the summary here and in README.md.
+
 | Command | Visibility | Purpose |
 |---------|------------|---------|
 | `/balance` | ephemeral | Cash + portfolio summary |
@@ -104,10 +108,12 @@ Commands are Discord **slash commands** (`discord.app_commands`), registered wit
 | `/short <user> <shares>` | public | Open short (15-min cooldown, 30-min freeze) |
 | `/cover <user> <shares>` | public | Close short |
 | `/portfolio [user]` | ephemeral | Full portfolio view |
-| `/fund <subcommand>` | info ephemeral, mutations public | Hedge fund management (create/invest/withdraw/info) |
+| `/fund <subcommand>` | info ephemeral, mutations public | Hedge fund management (create/rename/invest/withdraw/send_events/info) |
 | `/trending` | public | Top movers leaderboard |
 | `/mystats` | ephemeral | Personal activity stats |
 | `/optin` · `/optout` | ephemeral | Consent to be a tradeable stock |
+| `/help` | ephemeral | List every slash command |
+| `/game_intro` | public, `manage_guild`-gated | Post the intro embed (moderator onboarding) |
 
 ## Project Architecture
 
