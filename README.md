@@ -25,9 +25,12 @@ for production setup instructions.
 | `/mystats` | ephemeral | Personal activity stats |
 | `/optin` | ephemeral | Consent to be a tradeable stock |
 | `/optout` | ephemeral | Remove yourself from active trading |
+| `/help` | ephemeral | List every slash command |
+| `/game_intro` | public, `manage_guild`-gated | Post the intro embed (moderator onboarding) |
 
 Slash commands sync globally — the bot works in every server it joins. Set `DEV_GUILD_ID`
-for instant command sync to one guild during development.
+for instant command sync to one guild during development. Full parameter reference:
+[docs/command-reference.md](./docs/command-reference.md).
 
 ## Quick start — development
 
@@ -68,6 +71,7 @@ isolated economy keyed by `(guild_id, user_id)`.
 ## Docs
 
 - [docs/deployment-guide.md](./docs/deployment-guide.md) — production deployment
+- [docs/command-reference.md](./docs/command-reference.md) — full slash command parameter reference
 - [docs/runbook-smoke-test.md](./docs/runbook-smoke-test.md) — post-deploy smoke test checklist
 - [docs/02-target-architecture.md](./docs/02-target-architecture.md) — architecture detail
 - [docs/05-testing-strategy.md](./docs/05-testing-strategy.md) — test pyramid and toolchain

@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Friendex's test suite is organized around the three-layer architecture defined in `docs/02-target-architecture.md`: a large base of synchronous unit tests covers every pure function in the domain layer with no mocking required; a mid-tier of async service tests exercises application use-cases against in-memory fake repositories; and a thin top layer of Discord integration and end-to-end smoke tests validates the adapter boundary using `dpytest`. The smallest testable unit — a single pure function operating on typed domain objects — is the primary test vehicle. All external dependencies (Discord API, database, clock) are isolated from every test that does not explicitly declare itself an integration or end-to-end test. The coverage targets are 95%+ on `domain/`, 90%+ on `application/`, and 80% overall as the project-rule floor; the CI gate is currently set to 95% (rounded down from the 95.62% baseline measured 2026-05-30 — see `.github/workflows/ci.yml`), stricter than the 80% floor it enforces at minimum.
+Friendex's test suite is organized around the three-layer architecture defined in `docs/02-target-architecture.md`: a large base of synchronous unit tests covers every pure function in the domain layer with no mocking required; a mid-tier of async service tests exercises application use-cases against in-memory fake repositories; and a thin top layer of end-to-end simulation tests (`tests/e2e/`, see [`tests/e2e/README.md`](../tests/e2e/README.md)) validates the adapter boundary by dispatching real cog/listener/task code against an in-memory SQLite `Container` under a config-driven scenario harness. Cog and listener tests invoke slash-command callbacks and event handlers directly with mocked `discord.Interaction`/bot objects rather than via `dpytest` (see [Discord Layer Tests](#discord-layer-tests) below). The smallest testable unit — a single pure function operating on typed domain objects — is the primary test vehicle. All external dependencies (Discord API, database, clock) are isolated from every test that does not explicitly declare itself an integration or end-to-end test. The coverage targets are 95%+ on `domain/`, 90%+ on `application/`, and 80% overall as the project-rule floor; the CI gate is currently set to 95% (rounded down from the 95.62% baseline measured 2026-05-30 — see `.github/workflows/ci.yml`), stricter than the 80% floor it enforces at minimum.
 
 ---
 
@@ -34,7 +34,7 @@ Friendex's test suite is organized around the three-layer architecture defined i
    - [Cog tests](#cog-tests)
    - [Listener tests](#listener-tests)
 9. [Background Task Tests](#background-task-tests)
-10. [End-to-End / Smoke Tests](#end-to-end--smoke-tests)
+10. [End-to-End / Simulation Tests](#end-to-end--simulation-tests)
 11. [Test Data and Fixtures](#test-data-and-fixtures)
 12. [TDD Workflow Per Feature](#tdd-workflow-per-feature)
 13. [CI Integration](#ci-integration)
@@ -50,8 +50,8 @@ Friendex's test suite is organized around the three-layer architecture defined i
 
 ```
           /\
-         /  \   E2E / smoke tests (few, slow)
-        /    \  — dpytest + real aiosqlite DB
+         /  \   E2E / simulation tests (few, slow)
+        /    \  — scenario harness + real aiosqlite in-memory DB
        /------\
       /        \ Integration tests (moderate)
      /          \ — async services + real aiosqlite in-memory DB
@@ -196,8 +196,18 @@ tests/
 │       └── test_weekly_reset_task.py   # WeeklyResetTask fires on Monday only (freezegun)
 │
 └── e2e/
-    └── test_smoke.py                    # Bot starts, /balance and /buy against real DB via callbacks
+    ├── conftest.py                       # Fixtures shared by the harness
+    ├── harness/                          # schema/stubs/world/actions/expect/runner
+    ├── scenarios/*.yml                   # Config-driven timelines (one file = one pytest case)
+    ├── test_simulation.py                # Parametrizes over scenarios/*.yml
+    ├── test_harness_unit.py              # Unit tests for the harness modules themselves
+    └── test_coverage_matrix.py           # Guards that every command/event/task/error is scenario-covered
 ```
+
+**Current e2e detail lives in [`tests/e2e/README.md`](../tests/e2e/README.md)** — the
+config-driven simulation harness (PR #112) superseded the single `test_smoke.py` file
+described in earlier drafts of this document; treat that README as authoritative for
+scenario format, harness layout, and coverage-matrix semantics.
 
 ---
 
@@ -923,48 +933,35 @@ async def test_daily_reset_fires_after_midnight():
 
 ---
 
-## End-to-End / Smoke Tests
+## End-to-End / Simulation Tests
 
-E2E tests are in `tests/e2e/test_smoke.py` and are marked `@pytest.mark.e2e`. They are not run on every commit — only on PRs (see CI section).
+**Authoritative reference: [`tests/e2e/README.md`](../tests/e2e/README.md).** The
+config-driven simulation harness (introduced by PR #112) superseded the earlier
+single-file `test_smoke.py` approach. Each `scenarios/*.yml` file defines a fake
+guild, its members, and a timestamped timeline of actions; `test_simulation.py`
+parametrizes one pytest case per scenario file and runs it against a real `Container`
+over in-memory SQLite under a `freezegun` master clock. `test_coverage_matrix.py`
+guards that every command, event, task, and reachable error path is exercised by at
+least one scenario. These tests run in the same CI job as everything else (see
+[CI Integration](#ci-integration)) — no separate e2e job, no `pytest.mark.e2e`.
 
-The smoke test builds the real bot and container against a real `aiosqlite` in-memory database, then invokes slash-command callbacks with a mocked `discord.Interaction` (slash interactions can't be dispatched via `dpytest.message`). It verifies that a sequence of commands mutates the database state correctly end-to-end.
+A scenario action looks like:
 
-```python
-@pytest.mark.e2e
-async def test_balance_command_returns_initial_cash_for_new_user(e2e_bot):
-    # Arrange: real container + in-memory DB from the e2e fixture
-    cog = e2e_bot.get_cog("AccountCog")
-    interaction = make_interaction(user=make_member(id=1))
-
-    # Act
-    await cog.balance.callback(cog, interaction)
-
-    # Assert
-    embed = interaction.response.send_message.call_args.kwargs["embed"]
-    assert "$10,000" in embed.description
-
-
-@pytest.mark.e2e
-async def test_buy_deducts_cash_in_database(e2e_bot, user_repo):
-    # Arrange
-    buyer = make_member(id=1)
-    target = make_member(id=2)
-    account_cog = e2e_bot.get_cog("AccountCog")
-    trading_cog = e2e_bot.get_cog("TradingCog")
-    await account_cog.optin.callback(account_cog, make_interaction(user=target))
-    initial_price = 100.0
-
-    # Act
-    await trading_cog.buy.callback(
-        trading_cog, make_interaction(user=buyer), user=target, shares=5
-    )
-
-    # Assert — database state
-    async with test_session() as session:
-        account = await user_repo.fetch(session, str(buyer.id))
-    expected_cash = 10_000.0 - (initial_price * 5)
-    assert account.cash_balance == pytest.approx(expected_cash)
+```yaml
+timeline:
+  - label: buy while opted out raises OptedOut
+    at: "+5m"
+    command: buy
+    actor: alice
+    args: {user: bob, shares: 2}
+    expect:
+      error: OptedOut
+      reply: {ephemeral: true, contains: ["opted out"]}
 ```
+
+See `tests/e2e/README.md` for the full scenario format, the harness module layout
+(`schema.py`, `stubs.py`, `world.py`, `actions.py`, `expect.py`, `runner.py`), and the
+list of deliberately-unreachable error paths the coverage matrix excludes.
 
 ---
 
@@ -1160,59 +1157,51 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  quality:
+    name: "lint / type / test (Python ${{ matrix.python-version }})"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v5
         with:
-          version: "latest"
           enable-cache: true
-          cache-dependency-glob: "uv.lock"
 
-      - name: Install dependencies
-        run: uv sync --all-extras
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
 
-      - name: Run unit and integration tests
-        run: |
-          uv run pytest \
-            -m "not e2e" \
-            --cov=src/friendex \
-            --cov-report=term-missing \
-            --cov-fail-under=80 \
-            -x
+      - name: Sync dependencies
+        run: uv sync --all-extras --python ${{ matrix.python-version }}
 
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-html
-          path: htmlcov/
+      - name: Ruff format check
+        run: uv run ruff format --check src/ tests/
 
-  e2e:
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
-        with:
-          version: "latest"
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Install dependencies
-        run: uv sync --all-extras
-      - name: Run E2E smoke tests
-        run: uv run pytest -m e2e -v
+      - name: Ruff lint
+        run: uv run ruff check src/ tests/
+
+      - name: Mypy (strict, src/ and tests/)
+        run: uv run mypy --strict src/ tests/
+
+      - name: Pytest (with coverage)
+        run: uv run pytest --cov=friendex --cov-fail-under=95
 ```
+
+(See `.github/workflows/ci.yml` for the current, authoritative version of this file.)
 
 **Key CI rules:**
 
-- The `test` job runs on every push and every PR. It excludes `@pytest.mark.e2e` tests. The build fails if coverage drops below the CI gate (currently 95%, see `.github/workflows/ci.yml`) or any test fails.
-- The `e2e` job runs only on PRs (not on every push to feature branches). It depends on `test` — E2E does not run if unit tests are already failing.
-- The `.venv/` is cached via `uv`'s built-in cache mechanism, keyed on `uv.lock`. Cache invalidation is automatic on lockfile changes.
-- Coverage reports are uploaded as artifacts on every run, including failing runs, so regressions can be diagnosed from CI without a local checkout.
+- A single `quality` job (matrixed over Python 3.11 and 3.12) runs lint, format check,
+  strict mypy, and the **entire** test suite — including `tests/e2e/` — on every push
+  to `main` and every PR. There is no separate e2e job and no `-m "not e2e"` deselect;
+  the e2e harness runs in-process against an in-memory SQLite engine, so it's fast
+  enough to run on every commit rather than being gated to PRs only.
+- The build fails if coverage drops below the CI gate (currently 95%, see
+  `.github/workflows/ci.yml`) or any test/lint/type check fails.
+- `uv`'s built-in cache (keyed on `uv.lock`) speeds up repeated installs across runs.
 
 ---
 
@@ -1222,7 +1211,7 @@ jobs:
 
 **Do not write tests that pass before the implementation exists.** Every new test must be run against the repository in the state before the feature is implemented, and it must produce a red failure. If a test passes before the implementation is written, it is not testing anything.
 
-**Do not write E2E tests when a service-level test would catch the same bug.** If a business rule can be verified by calling a service method with a fake repo, do not write a `dpytest` test for it. E2E tests are for verifying the wiring between layers, not for re-testing domain rules.
+**Do not write E2E tests when a service-level test would catch the same bug.** If a business rule can be verified by calling a service method with a fake repo, do not add a scenario for it in `tests/e2e/scenarios/`. E2E tests are for verifying the wiring between layers, not for re-testing domain rules.
 
 **Do not share state between tests.** Every test function must start from a clean state. `FakeRepo` instances are created fresh per test via fixtures. No module-level singleton repos. No class-level `setUp` that mutates shared state.
 

@@ -1,5 +1,14 @@
 # Friendex — Python Code Review: Phase 2 Target Architecture
 
+> **Historical document.** This is a pre-implementation review of the Phase 2 design
+> (`docs/02-target-architecture.md`), written before construction began. The build is
+> complete as of 2026-05-28, and the three risks flagged below were addressed during
+> implementation: `LockManager` no longer exposes the TOCTOU-prone `locked()` pattern
+> (see `application/lock_manager.py`), no `datetime.utcnow()` calls remain in
+> production code, and `domain/models.py` uses explicit `raise ValueError(...)` guards
+> instead of bare `assert`. Preserved for historical context; does not describe current
+> code.
+
 ## Executive Summary
 
 The Phase 2 architecture is fundamentally sound. The layered dependency model, typed domain dataclasses, SQLite persistence with Alembic, and per-user `asyncio.Lock` serialization are all correct choices for a single-process Discord bot at this scale. Three things the implementation team must get right to avoid subtle production failures: (1) the `LockManager.locked()` method contains a time-of-check/time-of-use gap between `acquire()` and `lock.acquire()` that must be closed before any concurrency-sensitive code ships; (2) every `datetime` construction in the codebase must use `datetime.now(tz=timezone.utc)` — `datetime.utcnow()` is deprecated in Python 3.12 and the Phase 2 dataclass examples use it; (3) all `assert` statements in `__post_init__` are silently stripped under `python -O` and must be replaced with explicit `raise ValueError(...)` guards before the domain layer can be considered correct.
