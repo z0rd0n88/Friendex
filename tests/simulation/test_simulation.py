@@ -1,4 +1,4 @@
-"""Run every YAML scenario end-to-end over a real container + in-memory DB.
+"""Run every YAML scenario over the real container + an in-memory DB.
 
 Each scenario file under ``scenarios/`` is one parametrized test case: the
 runner seeds the fake server, freezes time at ``start_at``, then executes
@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.e2e.conftest import scenario_paths
-from tests.e2e.harness.runner import run_scenario
-from tests.e2e.harness.schema import load_scenario
+from tests.simulation.conftest import scenario_paths
+from tests.simulation.harness.runner import run_scenario
+from tests.simulation.harness.schema import load_scenario
 
 if TYPE_CHECKING:
     from pathlib import Path
