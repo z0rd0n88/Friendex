@@ -1,0 +1,95 @@
+# Happy-path trading lifecycle: optin, daily, buy, sell, short, cover,
+# plus the read commands (balance, portfolio, price, mystock).
+# Monday 2026-05-25 12:00 UTC — a weekday inside market hours.
+name: trading-happy
+description: Full happy-path trade lifecycle with read commands.
+start_at: "2026-05-25 12:00:00"
+guild: {id: 900100, name: Sim Server}
+users:
+  alice: {id: 1111}
+  bob: {id: 2222}
+timeline:
+  - label: alice opts in (first time triggers DM intro)
+    command: optin
+    actor: alice
+    expect:
+      reply: {ephemeral: true, contains: ["Opted in"]}
+      state: {alice: {opt_in: true}}
+
+  - label: alice claims her daily reward
+    at: "+1m"
+    command: daily
+    actor: alice
+    expect:
+      reply: {ephemeral: false, contains: ["$500.00"]}
+      state: {alice: {cash: "10500.00", streak: 1}}
+
+  - label: alice checks her balance
+    at: "+1m"
+    command: balance
+    actor: alice
+    expect:
+      reply: {ephemeral: true}
+
+  - label: alice buys 2 shares of bob at $100
+    at: "+1m"
+    command: buy
+    actor: alice
+    args: {user: bob, shares: 2}
+    expect:
+      reply: {ephemeral: false}
+      state: {alice: {cash: "10300.00", long: {bob: 2}}}
+      price: {bob: {gt: "100"}}
+
+  - label: alice looks up bob's price
+    at: "+1m"
+    command: price
+    actor: alice
+    args: {user: bob}
+    expect:
+      reply: {ephemeral: true}
+
+  - label: bob views his own stock
+    at: "+1m"
+    command: mystock
+    actor: bob
+    expect:
+      reply: {ephemeral: true}
+
+  - label: alice sells 1 share back
+    at: "+1m"
+    command: sell
+    actor: alice
+    args: {user: bob, shares: 1}
+    expect:
+      reply: {ephemeral: false}
+      state:
+        alice:
+          cash: {approx: "10400", tol: "0.001"}
+          long: {bob: 1}
+
+  - label: alice opens a 2-share short on bob
+    at: "+1m"
+    command: short
+    actor: alice
+    args: {user: bob, shares: 2}
+    expect:
+      reply: {ephemeral: false}
+      state: {alice: {short: {bob: 2}}}
+
+  - label: alice covers after the 15-minute cooldown
+    at: "+16m"
+    command: cover
+    actor: alice
+    args: {user: bob, shares: 2}
+    expect:
+      reply: {ephemeral: false}
+      state: {alice: {short: {bob: 0}}}
+
+  - label: alice reviews her portfolio
+    at: "+1m"
+    command: portfolio
+    actor: alice
+    expect:
+      reply: {ephemeral: true, contains: ["Longs"]}
+      state: {alice: {long: {bob: 1}}}

@@ -203,3 +203,86 @@ async def test_delete_missing_penalty_is_noop(repo: SqlPenaltyRepository) -> Non
     """AC1 — deleting an absent penalty does not raise."""
     await repo.delete(GUILD_ID, "ghost")
     assert await repo.get(GUILD_ID, "ghost") is None
+
+
+# ---------------------------------------------------------------------------
+# UoW participation — regression for the silent-withdrawal bug (e2e find)
+# ---------------------------------------------------------------------------
+#
+# ``FundService.withdraw`` calls ``penalty_repo.get`` + ``upsert`` INSIDE its
+# ``SqlUnitOfWork`` transaction. Before the fix, every penalty-repo method
+# unconditionally opened its own session; on the StaticPool in-memory engine
+# that second session's BEGIN/COMMIT on the shared connection silently rolled
+# back the outer UoW's pending fund + account writes — so an early withdrawal
+# confirmed success while persisting nothing. The repo must join the shared
+# ``current_session()`` exactly like the fund/user/price/cooldown repos.
+
+
+async def test_upsert_joins_active_uow_and_commits_with_it(
+    engine: AsyncEngine,
+) -> None:
+    """A penalty write inside a UoW must not clobber sibling writes."""
+    from friendex.adapters.persistence.unit_of_work import SqlUnitOfWork
+    from friendex.adapters.persistence.user_repo import SqlUserRepository
+    from friendex.domain.models import (
+        ActivityBucket,
+        DailyProgress,
+        UserAccount,
+    )
+
+    maker = build_sessionmaker(engine)
+    repo = SqlPenaltyRepository(maker)
+    user_repo = SqlUserRepository(maker)
+    uow = SqlUnitOfWork(maker)
+    now = datetime(2026, 5, 25, 12, 0, tzinfo=UTC)
+
+    account = UserAccount(
+        user_id="111",
+        cash_balance=Decimal("10100.00"),
+        net_worth=Decimal("10100.00"),
+        month_start_net_worth=Decimal("10100.00"),
+        long_positions={},
+        short_positions={},
+        today=ActivityBucket(bucket_start=now),
+        week=ActivityBucket(bucket_start=now),
+        daily=DailyProgress(last_claim=None, streak=0),
+        last_activity=now,
+        opt_in=True,
+        intro_shown=False,
+    )
+
+    async with uow.transaction():
+        # Mirror the withdraw flow: a sibling write, a penalty read, then a
+        # penalty write — all inside one transaction.
+        await user_repo.upsert(GUILD_ID, account)
+        assert await repo.get(GUILD_ID, "111") is None
+        await repo.upsert(GUILD_ID, _penalty("111"))
+
+    # Both the sibling write and the penalty must have committed together.
+    persisted_account = await user_repo.get(GUILD_ID, "111")
+    assert persisted_account is not None
+    assert persisted_account.cash_balance == Decimal("10100.00")
+    persisted_penalty = await repo.get(GUILD_ID, "111")
+    assert persisted_penalty is not None
+    assert persisted_penalty.penalty_apr == Decimal("0.0500")
+
+
+async def test_upsert_rolls_back_with_failed_uow(engine: AsyncEngine) -> None:
+    """A penalty written inside a failing UoW must not survive the rollback."""
+    from friendex.adapters.persistence.unit_of_work import SqlUnitOfWork
+
+    maker = build_sessionmaker(engine)
+    repo = SqlPenaltyRepository(maker)
+    uow = SqlUnitOfWork(maker)
+
+    class _Boom(Exception):
+        pass
+
+    try:
+        async with uow.transaction():
+            await repo.upsert(GUILD_ID, _penalty("111"))
+            raise _Boom
+    except _Boom:
+        pass
+
+    assert await repo.get(GUILD_ID, "111") is None

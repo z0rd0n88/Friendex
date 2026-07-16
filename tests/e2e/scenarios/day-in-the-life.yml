@@ -1,0 +1,142 @@
+# One realistic server day crossing every feature area: morning opt-ins and
+# dailies, daytime chatter and reactions, trades, a lunch voice hangout,
+# activity ticks moving prices, an afternoon short + cover, evening fund
+# activity, and end-of-day reads. Assertions here are cross-feature sanity
+# checks — the exhaustive per-feature cases live in the themed scenarios.
+name: day-in-the-life
+description: A realistic multi-user day across all feature areas.
+start_at: "2026-05-26 09:00:00"
+guild: {id: 900800, name: Friendex HQ}
+users:
+  alice: {id: 1111, price: "100.00"}
+  bob: {id: 2222, price: "100.00"}
+  carol: {id: 3333, price: "100.00"}
+timeline:
+  - label: morning - everyone opts in
+    command: optin
+    actor: alice
+  - at: "+1m"
+    command: optin
+    actor: bob
+  - at: "+1m"
+    command: optin
+    actor: carol
+
+  - label: morning dailies
+    at: "+5m"
+    command: daily
+    actor: alice
+    expect:
+      state: {alice: {cash: "10500.00", streak: 1}}
+  - at: "+1m"
+    command: daily
+    actor: bob
+  - at: "+1m"
+    command: daily
+    actor: carol
+
+  - label: morning chatter
+    at: "+10m"
+    event: message
+    args: {author: alice}
+    repeat: 5
+  - at: "+1m"
+    event: message
+    args: {author: bob, reply: true}
+    repeat: 3
+  - at: "+1m"
+    event: message
+    args: {author: carol, attachment: true}
+  - at: "+1m"
+    event: reaction
+    args: {reactor: carol, message_author: alice}
+    repeat: 2
+
+  - label: bob buys into alice
+    at: "+5m"
+    command: buy
+    actor: bob
+    args: {user: alice, shares: 10}
+    expect:
+      state: {bob: {cash: "9500.00", long: {alice: 10}}}
+
+  - label: lunch voice hangout
+    at: "2026-05-26 12:00:00"
+    event: voice_join
+    args: {user: alice, channel: 500}
+  - at: "+1m"
+    event: voice_join
+    args: {user: bob, channel: 500}
+  - at: "+45m"
+    event: voice_leave
+    args: {user: alice, channel: 500}
+  - at: "+1m"
+    event: voice_leave
+    args: {user: bob, channel: 500}
+
+  - label: midday activity tick lifts the active stocks
+    at: "2026-05-26 13:00:00"
+    task: activity_tick
+    expect:
+      price:
+        alice: {gt: "100"}
+        bob: {gt: "100"}
+
+  - label: afternoon - carol shorts bob
+    at: "2026-05-26 15:00:00"
+    command: short
+    actor: carol
+    args: {user: bob, shares: 3}
+    expect:
+      state: {carol: {short: {bob: 3}}}
+
+  - label: routine sweeps find nothing to liquidate or freeze
+    at: "+5m"
+    task: liquidation
+    expect:
+      liquidations: 0
+  - at: "+1m"
+    task: freeze_check
+    expect:
+      state: {carol: {short_frozen: {bob: false}}}
+
+  - label: carol covers after the cooldown
+    at: "+11m"
+    command: cover
+    actor: carol
+    args: {user: bob, shares: 3}
+    expect:
+      state: {carol: {short: {bob: 0}}}
+
+  - label: evening - bob opens a fund and alice invests
+    at: "2026-05-26 19:00:00"
+    command: fund_create
+    actor: bob
+    args: {name: Bobs Big Fund}
+    expect:
+      fund: {bob: {exists: true, name: Bobs Big Fund}}
+  - at: "+2m"
+    command: fund_invest
+    actor: alice
+    args: {user: bob, amount: 250}
+    expect:
+      state: {alice: {cash: "10250.00"}}
+      fund: {bob: {balance: "250.00", investors: {alice: "250.00"}}}
+
+  - label: night reads - portfolio, balance, trending
+    at: "2026-05-26 22:00:00"
+    command: portfolio
+    actor: bob
+    expect:
+      reply: {ephemeral: true}
+      state: {bob: {long: {alice: 10}}}
+  - at: "+1m"
+    command: balance
+    actor: carol
+    expect:
+      reply: {ephemeral: true}
+  - at: "+1m"
+    command: trending
+    actor: alice
+    expect:
+      reply: {ephemeral: false}

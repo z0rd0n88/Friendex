@@ -1,0 +1,42 @@
+# Short liquidation: a short position auto-covers when the price crosses
+# liquidation_threshold (1.5x) of entry. price_impact_k is raised so buys
+# move the price materially (default trade impact is k * shares/100).
+name: liquidation
+description: Underwater short is auto-liquidated at 1.5x entry.
+start_at: "2026-05-25 12:00:00"
+guild: {id: 900600, name: Liquidation Server}
+settings:
+  price_impact_k: 50.0
+users:
+  alice: {id: 1111}
+  bob: {id: 2222, price: "100.00"}
+  carol: {id: 3333, cash: "100000.00"}
+timeline:
+  - label: alice shorts 2 bob near $100
+    command: short
+    actor: alice
+    args: {user: bob, shares: 2}
+    expect:
+      state: {alice: {short: {bob: 2}}}
+
+  - label: liquidation sweep below threshold does nothing
+    at: "+1m"
+    task: liquidation
+    expect:
+      liquidations: 0
+      state: {alice: {short: {bob: 2}}}
+
+  - label: carol pumps bob with a 120-share buy (impact +60)
+    at: "+1m"
+    command: buy
+    actor: carol
+    args: {user: bob, shares: 120}
+    expect:
+      price: {bob: {ge: "150"}}
+
+  - label: liquidation sweep force-covers alice's short
+    at: "+1m"
+    task: liquidation
+    expect:
+      liquidations: 1
+      state: {alice: {short: {bob: 0}}}

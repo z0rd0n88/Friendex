@@ -1,0 +1,127 @@
+# Hedge-fund lifecycle: create/rename, info, invest, withdraw (manager-share
+# cap + early-withdrawal penalty), send_events — and every fund error:
+# FundNotFound, NotFundManager, InvalidAmount, FundInsufficientBalance.
+# Start date is NOT the 1st, so withdrawals stack the penalty APR.
+name: funds
+description: Fund lifecycle plus all fund error paths.
+start_at: "2026-05-25 12:00:00"
+guild: {id: 900300, name: Fund Server}
+users:
+  alice: {id: 1111, fund_balance: "500.00"}
+  bob: {id: 2222}
+  carol: {id: 3333}
+timeline:
+  - label: bob creates his fund with a custom name
+    command: fund_create
+    actor: bob
+    args: {name: Moon Capital}
+    expect:
+      reply: {ephemeral: false}
+      fund: {bob: {exists: true, name: Moon Capital}}
+
+  - label: bob renames his fund
+    at: "+1m"
+    command: fund_create
+    actor: bob
+    args: {name: Moon Capital II}
+    expect:
+      fund: {bob: {exists: true, name: Moon Capital II}}
+
+  - label: bob checks his fund info
+    at: "+1m"
+    command: fund_info
+    actor: bob
+    expect:
+      reply: {ephemeral: true}
+
+  - label: alice views bob's fund info
+    at: "+1m"
+    command: fund_info
+    actor: alice
+    args: {user: bob}
+    expect:
+      reply: {ephemeral: true}
+
+  - label: investing in a user with no fund -> FundNotFound
+    at: "+1m"
+    command: fund_invest
+    actor: alice
+    args: {user: carol, amount: 100}
+    expect: {error: FundNotFound}
+
+  - label: investing in your own fund -> NotFundManager
+    at: "+1m"
+    command: fund_invest
+    actor: bob
+    args: {user: bob, amount: 100}
+    expect: {error: NotFundManager}
+
+  - label: investing a negative amount -> InvalidAmount
+    at: "+1m"
+    command: fund_invest
+    actor: alice
+    args: {user: bob, amount: -50}
+    expect: {error: InvalidAmount}
+
+  - label: investing beyond your cash -> InsufficientFunds
+    at: "+1m"
+    command: fund_invest
+    actor: alice
+    args: {user: bob, amount: 99999}
+    expect: {error: InsufficientFunds}
+
+  - label: carol invests 500 in bob's fund
+    at: "+1m"
+    command: fund_invest
+    actor: carol
+    args: {user: bob, amount: 500}
+    expect:
+      reply: {ephemeral: false}
+      state: {carol: {cash: "9500.00"}}
+      fund: {bob: {balance: "500.00", investors: {carol: "500.00"}}}
+
+  # Bob's fund holds 500 — but ALL of it is carol's principal, which the
+  # manager cannot touch.
+  - label: bob withdraws against investor principal -> FundInsufficientBalance
+    at: "+1m"
+    command: fund_withdraw
+    actor: bob
+    args: {amount: 100}
+    expect: {error: FundInsufficientBalance}
+
+  - label: withdrawing a negative amount -> InvalidAmount
+    at: "+1m"
+    command: fund_withdraw
+    actor: alice
+    args: {amount: -5}
+    expect: {error: InvalidAmount}
+
+  # Alice's seeded fund is all manager share: full amount moves to cash
+  # (the "penalty" is a stacked APR reduction, not a cash haircut).
+  - label: alice withdraws 100 from her own fund (penalty day)
+    at: "+1m"
+    command: fund_withdraw
+    actor: alice
+    args: {amount: 100}
+    expect:
+      reply: {ephemeral: false}
+      state: {alice: {cash: "10100.00"}}
+      fund: {alice: {balance: "400.00"}}
+
+  - label: alice donates 50 to the events wallet (penalty-exempt)
+    at: "+1m"
+    command: fund_send_events
+    actor: alice
+    args: {amount: 50}
+    expect:
+      reply: {ephemeral: false}
+      fund:
+        alice: {balance: "350.00"}
+        events_wallet: {exists: true, balance: "50.00"}
+
+  - label: donating beyond the fund balance -> FundInsufficientBalance
+    at: "+1m"
+    command: fund_send_events
+    actor: alice
+    args: {amount: 99999}
+    expect: {error: FundInsufficientBalance}

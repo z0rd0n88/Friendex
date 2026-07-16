@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import delete, select
 
 from friendex.adapters.persistence.orm import FundPenaltyORM
+from friendex.adapters.persistence.unit_of_work import current_session
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -53,42 +54,70 @@ class SqlPenaltyRepository:
 
         An expired penalty (``penalty_until`` in the past) is still returned —
         the repo does not interpret expiry.
+
+        When a :class:`~friendex.adapters.persistence.unit_of_work.SqlUnitOfWork`
+        transaction is active the read joins the shared session so it observes
+        in-flight writes and does not provoke a StaticPool rollback of the
+        outer transaction (see the unit_of_work module docstring).
         """
+        shared = current_session()
+        if shared is not None:
+            row = await self._load_row(shared, guild_id, user_id)
+            return None if row is None else row.to_domain()
         async with self._sessionmaker() as session:
             row = await self._load_row(session, guild_id, user_id)
             return None if row is None else row.to_domain()
 
     async def upsert(self, guild_id: str, penalty: FundPenalty) -> None:
-        """Insert or replace ``penalty`` under ``guild_id``."""
+        """Insert or replace ``penalty`` under ``guild_id``.
+
+        Enrols into the active UoW session when one exists (the UoW owns the
+        commit); otherwise falls back to the per-call session. Without this,
+        ``FundService.withdraw``'s penalty write inside its UoW opened a
+        second session on the shared StaticPool connection and silently
+        rolled back the withdrawal's fund + account writes (found by the e2e
+        simulation: withdraw confirmed success but persisted nothing on any
+        day except the 1st).
+        """
+        shared = current_session()
+        if shared is not None:
+            await shared.merge(FundPenaltyORM.from_domain(guild_id, penalty))
+            return
         async with self._sessionmaker() as session:
             await session.merge(FundPenaltyORM.from_domain(guild_id, penalty))
             await session.commit()
 
     async def delete(self, guild_id: str, user_id: str) -> None:
-        """Delete the penalty for ``(guild_id, user_id)`` (no children to cascade)."""
+        """Delete the penalty for ``(guild_id, user_id)`` (no children to cascade).
+
+        Joins the active UoW session when one exists; per-call session with
+        its own commit otherwise.
+        """
+        statement = delete(FundPenaltyORM).where(
+            FundPenaltyORM.guild_id == guild_id,
+            FundPenaltyORM.user_id == user_id,
+        )
+        shared = current_session()
+        if shared is not None:
+            await shared.execute(statement)
+            return
         async with self._sessionmaker() as session:
-            await session.execute(
-                delete(FundPenaltyORM).where(
-                    FundPenaltyORM.guild_id == guild_id,
-                    FundPenaltyORM.user_id == user_id,
-                )
-            )
+            await session.execute(statement)
             await session.commit()
 
     async def list_all(self, guild_id: str) -> list[FundPenalty]:
-        """Return every penalty in ``guild_id`` (live and expired alike)."""
+        """Return every penalty in ``guild_id`` (live and expired alike).
+
+        Joins the active UoW session when one exists so in-flight writes are
+        visible; per-call session otherwise.
+        """
+        statement = select(FundPenaltyORM).where(FundPenaltyORM.guild_id == guild_id)
+        shared = current_session()
+        if shared is not None:
+            rows = (await shared.execute(statement)).scalars().all()
+            return [row.to_domain() for row in rows]
         async with self._sessionmaker() as session:
-            rows = (
-                (
-                    await session.execute(
-                        select(FundPenaltyORM).where(
-                            FundPenaltyORM.guild_id == guild_id
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            rows = (await session.execute(statement)).scalars().all()
             return [row.to_domain() for row in rows]
 
     # -- internal helpers ---------------------------------------------------

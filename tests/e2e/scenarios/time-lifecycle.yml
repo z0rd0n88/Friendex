@@ -1,0 +1,101 @@
+# Time-driven mechanics: the 7-day daily streak (with day-7 bonus),
+# AlreadyClaimedToday, the daily/weekly bucket resets, the monthly rollover
+# (APY accrual), and inactivity decay incl. the min-price floor.
+# 2026-05-25 is a Monday; +7d lands on Monday 2026-06-01 (new ISO week AND
+# new month), so one time jump exercises all three reset cadences.
+name: time-lifecycle
+description: Streaks, resets, APY accrual, and inactivity decay over a week.
+start_at: "2026-05-25 12:00:00"
+guild: {id: 900500, name: Lifecycle Server}
+users:
+  alice: {id: 1111}
+  bob: {id: 2222, price: "100.00"}
+  carol: {id: 3333, price: "71.00"}
+  dave: {id: 4444, fund_balance: "1000.00"}
+timeline:
+  - label: streak day 1
+    command: daily
+    actor: alice
+    expect:
+      state: {alice: {streak: 1, cash: "10500.00"}}
+
+  - label: claiming twice in one day -> AlreadyClaimedToday
+    at: "+1m"
+    command: daily
+    actor: alice
+    expect: {error: AlreadyClaimedToday}
+
+  - label: streak day 2
+    at: "2026-05-26 12:00:00"
+    command: daily
+    actor: alice
+    expect:
+      state: {alice: {streak: 2}}
+
+  - label: streak day 3
+    at: "2026-05-27 12:00:00"
+    command: daily
+    actor: alice
+
+  - label: streak day 4
+    at: "2026-05-28 12:00:00"
+    command: daily
+    actor: alice
+
+  - label: streak day 5
+    at: "2026-05-29 12:00:00"
+    command: daily
+    actor: alice
+
+  - label: streak day 6
+    at: "2026-05-30 12:00:00"
+    command: daily
+    actor: alice
+    expect:
+      state: {alice: {streak: 6, cash: "13000.00"}}
+
+  # Day 7 pays daily $500 + streak bonus $500, then the streak wraps to 0.
+  - label: streak day 7 pays the streak bonus
+    at: "2026-05-31 12:00:00"
+    command: daily
+    actor: alice
+    expect:
+      state: {alice: {streak: 0, cash: "14000.00"}}
+
+  - label: alice chats on day 7 (activity to be reset)
+    at: "+1m"
+    event: message
+    args: {author: alice}
+    repeat: 2
+    expect:
+      state: {alice: {today: {text_msgs: 2}, week: {text_msgs: 2}}}
+
+  # --- Monday 2026-06-01: new day, new ISO week, new month -----------------
+  - label: daily reset clears today's buckets (week untouched)
+    at: "2026-06-01 00:02:00"
+    task: daily_reset
+    expect:
+      state: {alice: {today: {text_msgs: 0}, week: {text_msgs: 2}}}
+
+  - label: weekly reset clears the week buckets
+    at: "+1m"
+    task: weekly_reset
+    expect:
+      state: {alice: {week: {text_msgs: 0}}}
+
+  # hedge_fund_base_apy 0.15 with period "monthly" = one month of a 15%
+  # annual rate: 1000 * (1 + 0.15/12) = 1012.50.
+  - label: monthly rollover accrues one month of APY on dave's fund
+    at: "+58m"
+    task: monthly_rollover
+    expect:
+      fund: {dave: {balance: {approx: "1012.50", tol: "0.01"}}}
+
+  # bob and carol have been idle since scenario start (>4h ago).
+  - label: inactivity decay drops idle bob 4%
+    at: "+1m"
+    task: inactivity_decay
+    expect:
+      price:
+        bob: {approx: "96.00", tol: "0.01"}
+        carol: {ge: "70", lt: "71"}
