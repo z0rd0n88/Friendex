@@ -68,7 +68,7 @@ Friendex's test suite is organized around the three-layer architecture defined i
 
 **Fixtures over setUp/tearDown.** Shared state is provided via `pytest` fixtures with explicit scope. No test class inherits from `TestCase`. No test function calls helper functions on a shared class attribute.
 
-**Deterministic tests: no real clock, no real Discord, no real database unless declared.** Any test not in `tests/adapters/persistence/` or `tests/e2e/` must not touch the filesystem, the network, the Discord API, or wall-clock time. Use `freezegun` for any code path that reads `datetime.utcnow()` or `datetime.now()`. Use fake repo implementations for any code path that touches a repository interface.
+**Deterministic tests: no real clock, no real Discord, no real database unless declared.** Any test not in `tests/adapters/persistence/` or `tests/simulation/` must not touch the filesystem, the network, the Discord API, or wall-clock time. Use `freezegun` for any code path that reads `datetime.utcnow()` or `datetime.now()`. Use fake repo implementations for any code path that touches a repository interface.
 
 ---
 

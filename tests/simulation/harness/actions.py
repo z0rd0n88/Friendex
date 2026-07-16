@@ -50,12 +50,12 @@ from friendex.adapters.tasks.monthly_rollover_task import MonthlyRolloverTask
 from friendex.adapters.tasks.vc_boost_task import VcBoostTask
 from friendex.adapters.tasks.weekly_reset_task import WeeklyResetTask
 from friendex.domain.errors import PersistenceError
-from tests.e2e.harness import stubs
+from tests.simulation.harness import stubs
 
 if TYPE_CHECKING:
     from friendex.adapters.tasks.base_task import BackgroundTask
-    from tests.e2e.harness.schema import Action
-    from tests.e2e.harness.world import SimWorld
+    from tests.simulation.harness.schema import Action
+    from tests.simulation.harness.world import SimWorld
 
 _C = TypeVar("_C")
 

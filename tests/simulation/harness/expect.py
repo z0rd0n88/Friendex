@@ -22,9 +22,9 @@ from discord import app_commands
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
-    from tests.e2e.harness.actions import ActionOutcome
-    from tests.e2e.harness.schema import Action, Expectation
-    from tests.e2e.harness.world import SimWorld
+    from tests.simulation.harness.actions import ActionOutcome
+    from tests.simulation.harness.schema import Action, Expectation
+    from tests.simulation.harness.world import SimWorld
 
 
 class SimulationAssertionFailure(AssertionError):
