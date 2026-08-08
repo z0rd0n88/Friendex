@@ -32,7 +32,7 @@ in order, then tick the relevant box on issue #2.
 A cloud session is no different from a local one *in protocol*, but you need to
 prepare its sandbox so the prerequisites resolve: a writable clone, `gh` auth,
 `uv`, the project's Skill tooling, and the four required skills the units
-invoke (`tdd`, `baton-pass`, `code-review`, `ecc-security-review`). The bulk of
+invoke (`tdd`, `baton-pass`, `code-review`, `security-review`). The bulk of
 this guide is that preparation, the first message you send the manager, the
 signoff handshake, and what to do when something pauses.
 
@@ -98,7 +98,7 @@ one of these is a fatal-pause trigger if missing once units start.
 | Python ≥ 3.11 available to `uv` | Project pins `python>=3.11` | `uv run python -V` |
 | `.claude/skills/baton-runner/` resolves | The manager invokes its own skill | `ls .claude/skills/baton-runner/SKILL.md` |
 | `.claude/skills/baton-runner/scripts/gate.sh` exists & executable | Review unit runs the gate | `test -x .claude/skills/baton-runner/scripts/gate.sh` |
-| `baton-pass`, `tdd`, `code-review`, `ecc-security-review` skills available | Every unit invokes them | They appear in the session's skill list |
+| `baton-pass`, `tdd`, `code-review`, `security-review` skills available | Every unit invokes them | They appear in the session's skill list |
 | `python-pro` agent available with the `Skill` tool | Default unit-agent for work/review/fix | The agent list includes `python-pro` |
 | `DISCORD_TOKEN` is *not* required | We never run the bot; tests cover everything | — |
 
@@ -320,7 +320,7 @@ of these less often because the dotfiles smooth them over):
   `--body-file`. If you ever hand-edit a commit message during failure
   handling, do the same.
 - **MCP server availability.** Some skills the units rely on may have MCP
-  dependencies (e.g. `code-review`, `ecc-security-review`). Verify in §2 that
+  dependencies (e.g. `code-review`, `security-review`). Verify in §2 that
   these resolve in your cloud session before invoking.
 - **`uv` cache cold-starts.** Pre-warm with `uv sync` before the first unit.
 - **Filesystem case-sensitivity.** Some cloud sandboxes are case-insensitive;
