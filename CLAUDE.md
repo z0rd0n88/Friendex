@@ -8,7 +8,7 @@ If you are joining an in-flight effort, **start by reading [`baton-pass/INDEX.md
 
 ## Python Code Style — Mandatory Skill
 
-**Always invoke the `ecc-python-patterns` skill before writing or modifying any Python code in this repository.** Run `/ecc-python-patterns` at the start of any task that touches `.py` files — including bug fixes, refactors, new features, and tests. The skill provides the canonical guidance for PEP 8 compliance, type hints, Pythonic idioms, and project-standard patterns. Do not skip this step even for "small" edits; consistency across the codebase depends on every contribution being checked against the same playbook.
+**Always invoke the `python-patterns` skill before writing or modifying any Python code in this repository.** Run `/python-patterns` at the start of any task that touches `.py` files — including bug fixes, refactors, new features, and tests. The skill provides the canonical guidance for PEP 8 compliance, type hints, Pythonic idioms, and project-standard patterns. Do not skip this step even for "small" edits; consistency across the codebase depends on every contribution being checked against the same playbook.
 
 ## Project
 

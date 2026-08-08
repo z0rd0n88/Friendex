@@ -84,7 +84,7 @@ the unit is not done.
 Every spawn: `model: opus` (forced — overrides the agent's own default). **All
 units (work, review, fix) spawn as the phase's unit-agent, `python-pro` by
 default** — it carries the `Skill` tool, so it can run the `tdd`, `baton-pass`,
-`code-review`, and `ecc-security-review` skills every contract needs. Fill the
+`code-review`, and `security-review` skills every contract needs. Fill the
 `<...>`.
 
 ### Containment contract (append to EVERY unit prompt)
@@ -125,7 +125,7 @@ Continuity (what already exists — honor it, don't duplicate or contradict):
 
 Use the `tdd` skill. For EACH acceptance criterion: write the test first, run it,
 and RECORD THE ACTUAL FAILING (RED) OUTPUT in your baton, then implement to green.
-Honor the repo CLAUDE.md (e.g. invoke ecc-python-patterns for Python). Implement
+Honor the repo CLAUDE.md (e.g. invoke python-patterns for Python). Implement
 exactly the criteria — no scope creep.
 <CONTAINMENT CONTRACT>
 <RETURN CONTRACT>
@@ -141,7 +141,7 @@ Acceptance criteria / intent to verify against: <criteria / spec ref>.
 1. Run: scripts/gate.sh baton-runner/<run-id>/gate-phase-<N>-iter-<k>/
    If it exits non-zero, VERDICT is ISSUES — record the failures as findings;
    no deep review needed on broken code.
-2. If green: run the `code-review` skill and the `ecc-security-review` skill over
+2. If green: run the `code-review` skill and the `security-review` skill over
    the diff (`git diff <base>...HEAD`).
 3. Verify each acceptance criterion is genuinely met AND its tests are real
    (would fail if the implementation were reverted/mutated — not tautological).
@@ -188,7 +188,7 @@ criteria**, (3) explicit scope/non-goals. Classify each phase:
 This project runs **every** unit — work, review, and fix — as the `python-pro`
 agent. python-pro carries `Read/Write/Edit/Bash/Glob/Grep` **and `Skill`**, so it
 can edit files, run Bash, and invoke the `tdd`, `baton-pass`, `code-review`, and
-`ecc-security-review` skills every contract requires. (The `Skill` tool was added
+`security-review` skills every contract requires. (The `Skill` tool was added
 to this project's `python-pro` specifically so it can serve as a baton-runner
 unit — without it the agent could not run `/tdd` or `/baton-pass`.)
 
@@ -242,7 +242,7 @@ When a phase exhausts the 3-iteration cap (or a unit returns `FATAL`):
 
 ## Fatal errors (→ PAUSE; status PAUSED, or FAILED if unrecoverable)
 
-- A required skill (`baton-pass`/`tdd`/`code-review`/`ecc-security-review`) or
+- A required skill (`baton-pass`/`tdd`/`code-review`/`security-review`) or
   `scripts/gate.sh` is missing in the worktree.
 - Test infrastructure cannot run at all (not "tests fail" — that is normal work).
 - A unit returns `FATAL`, or `INCOMPLETE` ≥3× with no progress.
