@@ -295,7 +295,7 @@ async def test_full_command_flow_daily_buy_portfolio(
         fields = portfolio_data.get("fields", [])
         longs_field = next(f for f in fields if f.get("name") == "Longs")
         assert str(target_id) in longs_field["value"]
-        # Ephemeral on read-commands per CLAUDE.md visibility table.
+        # Ephemeral on read-commands per AGENTS.md visibility table.
         # Wave 1 (#82 H13): replies route through ``followup.send`` after a
         # ``response.defer(ephemeral=True)``.
         send_kwargs = portfolio_interaction.followup.send.await_args.kwargs

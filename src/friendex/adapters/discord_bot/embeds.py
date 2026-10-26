@@ -594,7 +594,7 @@ def build_intro_embed() -> discord.Embed:
 def build_help_embed() -> discord.Embed:
     """Static help embed — lists every canonical slash command.
 
-    Content mirrors the "Bot Commands" table in the project ``CLAUDE.md`` so
+    Content mirrors the "Bot Commands" table in the project ``AGENTS.md`` so
     the help text and the architecture spec stay in lockstep.
     """
     embed = discord.Embed(

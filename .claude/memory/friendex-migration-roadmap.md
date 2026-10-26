@@ -15,6 +15,6 @@ Friendex is the Discord stock-exchange bot at `~/Friendex` (GitHub `z0rd0n88/Fri
 
 **Why:** Original spec was a single `bot.py` skeleton; the rebuild makes every layer testable in isolation and replaces JSON files with SQLite via Alembic migrations.
 
-**How to apply:** When asked "what's next" on Friendex, query issue #2 (above) — do not quote a status line from this memory. New work goes on `feat/phase-N-<slug>` branches in `.worktrees/phase-N-<slug>` (per the repo CLAUDE.md hard rule). **Each phase PR ticks its #2 checkbox on merge** — that discipline is what keeps the source of truth current. Don't propose architecture work outside the phase plan — propose a phase deviation instead.
+**How to apply:** When asked "what's next" on Friendex, query issue #2 (above) — do not quote a status line from this memory. New work goes on `feat/phase-N-<slug>` branches in `.worktrees/phase-N-<slug>` (per the repo AGENTS.md hard rule). **Each phase PR ticks its #2 checkbox on merge** — that discipline is what keeps the source of truth current. Don't propose architecture work outside the phase plan — propose a phase deviation instead.
 
 **Trap to remember:** PR #6's rename moved `src/stockxchange/` → `src/friendex/`. Any worktree branched before the rename still writes to `src/stockxchange/`; needs `git mv` after rebase. Worktree `.git` files pointing at the old `/home/alex/StockXchange/` path are unrepairable via `git worktree repair` — recreate from `origin/<branch>` instead (branches are pushed, so files won't be lost).

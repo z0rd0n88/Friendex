@@ -125,7 +125,7 @@ Continuity (what already exists — honor it, don't duplicate or contradict):
 
 Use the `tdd` skill. For EACH acceptance criterion: write the test first, run it,
 and RECORD THE ACTUAL FAILING (RED) OUTPUT in your baton, then implement to green.
-Honor the repo CLAUDE.md (e.g. invoke python-patterns for Python). Implement
+Honor the repo AGENTS.md (e.g. invoke python-patterns for Python). Implement
 exactly the criteria — no scope creep.
 <CONTAINMENT CONTRACT>
 <RETURN CONTRACT>

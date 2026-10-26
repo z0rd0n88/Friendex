@@ -14,7 +14,7 @@ It exposes:
 ``/mystock`` is intentionally a separate ``@app_commands.command`` rather
 than a default-argument variant of ``/price``: Discord slash commands have
 no aliases, and the canonical-name + autocomplete approach in the project
-``CLAUDE.md`` is to expose two distinct names that happen to share a
+``AGENTS.md`` is to expose two distinct names that happen to share a
 back-end.
 
 **Wave 1 (#82 H13)**: each callback ``await interaction.response.defer(...)``

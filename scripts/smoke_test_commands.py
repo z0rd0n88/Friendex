@@ -13,7 +13,7 @@ so the runbook can diff against a captured baseline.
 See:
 
 * ``docs/04-migration-plan.md`` §Phase 16 (lines 828-854) — phase contract.
-* ``CLAUDE.md`` §Bot Commands — canonical slash command table.
+* ``AGENTS.md`` §Bot Commands — canonical slash command table.
 * ``baton-runner/br-2026-05-27-phase-12/`` digests — listener surface.
 * ``baton-runner/br-2026-05-25-phase-9/digest-phase-9.md`` — task surface.
 * ``baton-runner/br-2026-05-26-phase-11/digest-phase-11c.md`` — ``/fund``
