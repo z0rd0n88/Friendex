@@ -1,7 +1,7 @@
 """Tests for ``scripts/smoke_test_commands.py``.
 
 These tests pin the contract of the Phase 16 cutover smoke-test driver
-(see ``docs/04-migration-plan.md`` §Phase 16 and ``CLAUDE.md`` §Bot
+(see ``docs/04-migration-plan.md`` §Phase 16 and ``AGENTS.md`` §Bot
 Commands).  They guarantee that:
 
 * Every slash command shipped in the bot is represented exactly once.

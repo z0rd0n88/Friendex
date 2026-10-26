@@ -427,6 +427,6 @@ Three things are worth knowing:
   [`.claude/skills/baton-runner/REFERENCE.md`](../../.claude/skills/baton-runner/REFERENCE.md)
 - Phase plan → [`docs/04-migration-plan.md`](../04-migration-plan.md)
 - Live phase status → GitHub issue #2 (never duplicate it in the repo)
-- Pass-baton conventions → [`baton-pass/CLAUDE.md`](../../baton-pass/CLAUDE.md),
+- Pass-baton conventions → [`baton-pass/AGENTS.md`](../../baton-pass/AGENTS.md),
   [`baton-pass/INDEX.md`](../../baton-pass/INDEX.md)
 - Testing strategy → [`docs/05-testing-strategy.md`](../05-testing-strategy.md)

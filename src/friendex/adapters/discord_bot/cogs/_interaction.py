@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 def guild_id_of(interaction: discord.Interaction) -> str:
     """Return ``str(interaction.guild.id)`` after narrowing the ``None`` case.
 
-    Slash commands sync globally (per the project ``CLAUDE.md``) and the
+    Slash commands sync globally (per the project ``AGENTS.md``) and the
     project commands also carry ``dm_permission=False`` decorators so Discord
     never dispatches them in a DM context. If a misconfigured deployment lets
     one slip through, we raise :class:`discord.app_commands.NoPrivateMessage`

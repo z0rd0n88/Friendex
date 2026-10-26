@@ -15,7 +15,7 @@ guild-scoped service, then delegates the use case.
 slash-command callback that does not acknowledge the interaction inside the
 3 s deadline. Every callback ``await interaction.response.defer(...)`` as
 its FIRST line and then replies via ``interaction.followup.send(...)``. The
-ephemeral/public mapping mirrors the project's CLAUDE.md table (here all
+ephemeral/public mapping mirrors the project's AGENTS.md table (here all
 three are ephemeral / personal).
 
 **Wave 1: ``@app_commands.guild_only()``** (issue #82 H14). Every command

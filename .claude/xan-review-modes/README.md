@@ -116,7 +116,7 @@ author's eyes only.
 
 Review passes are read-only — no worktree required. Follow-up *fixes*
 always go through `.claude/worktrees/<name>` on a `feat/` / `fix/` /
-`chore/` branch per the repo CLAUDE.md.
+`chore/` branch per the repo AGENTS.md.
 
 ## Severity discipline
 
