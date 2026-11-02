@@ -43,8 +43,8 @@ Discord's official documentation: [https://discord.com/developers/docs/intro](ht
 ## 2. Clone and install
 
 ```bash
-git clone https://github.com/z0rd0n88/Friendex.git
-cd Friendex
+git clone https://github.com/z0rd0n88/friendex.git
+cd friendex
 uv sync
 ```
 
@@ -285,12 +285,12 @@ at the repo root wires up the start command and restart policy.
 ### Prerequisites
 
 - A [Railway](https://railway.app) account (free tier works; Hobby plan recommended for always-on uptime)
-- The repo pushed to GitHub (already at `z0rd0n88/Friendex`)
+- The repo pushed to GitHub (already at `z0rd0n88/friendex`)
 
 ### Step 1 — Create the Railway project
 
 1. In the Railway dashboard click **New Project → Deploy from GitHub repo**.
-2. Select `z0rd0n88/Friendex`.
+2. Select `z0rd0n88/friendex`.
 3. Railway detects `railway.toml` and queues the first build. **Let it fail** — you
    haven't set the environment variables yet.
 
