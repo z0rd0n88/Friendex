@@ -386,5 +386,5 @@ with a custom **AI-assisted engineering workflow** under human direction:
 
 Released under the **MIT License** (declared in [`pyproject.toml`](./pyproject.toml)).
 
-Built by **Alex Fielder** · [github.com/z0rd0n88](https://github.com/z0rd0n88) ·
+Built by [**@z0rd0n88**](https://github.com/z0rd0n88) ·
 Issues and ideas: [github.com/z0rd0n88/friendex/issues](https://github.com/z0rd0n88/friendex/issues)
