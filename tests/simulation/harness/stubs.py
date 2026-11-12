@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 import discord
 
 if TYPE_CHECKING:
-    from tests.e2e.harness.schema import UserSpec
+    from tests.simulation.harness.schema import UserSpec
 
 
 class _EmptyAsyncIterator:

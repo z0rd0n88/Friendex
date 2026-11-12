@@ -9,8 +9,8 @@ that is the point.
 
 from __future__ import annotations
 
-from tests.e2e.conftest import scenario_paths
-from tests.e2e.harness.schema import (
+from tests.simulation.conftest import scenario_paths
+from tests.simulation.harness.schema import (
     COMMAND_NAMES,
     EVENT_NAMES,
     TASK_NAMES,

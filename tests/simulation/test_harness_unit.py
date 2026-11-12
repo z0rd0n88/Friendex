@@ -17,8 +17,8 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from tests.e2e.harness.expect import SimulationAssertionFailure, check_matcher
-from tests.e2e.harness.schema import ScenarioError, load_scenario
+from tests.simulation.harness.expect import SimulationAssertionFailure, check_matcher
+from tests.simulation.harness.schema import ScenarioError, load_scenario
 
 _MINIMAL = """
 name: minimal

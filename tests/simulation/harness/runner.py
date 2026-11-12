@@ -13,14 +13,17 @@ from typing import TYPE_CHECKING
 
 from freezegun import freeze_time
 
-from tests.e2e.harness.actions import execute
-from tests.e2e.harness.expect import SimulationAssertionFailure, check_expectation
-from tests.e2e.harness.world import SimWorld
+from tests.simulation.harness.actions import execute
+from tests.simulation.harness.expect import (
+    SimulationAssertionFailure,
+    check_expectation,
+)
+from tests.simulation.harness.world import SimWorld
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from tests.e2e.harness.schema import Scenario
+    from tests.simulation.harness.schema import Scenario
 
 
 def _on_action_failure(

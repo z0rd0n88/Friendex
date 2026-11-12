@@ -22,7 +22,7 @@ from friendex.domain.models import (
     Stock,
     UserAccount,
 )
-from tests.e2e.harness import stubs
+from tests.simulation.harness import stubs
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from friendex.application.liquidation_events import LiquidationEvent
-    from tests.e2e.harness.schema import Scenario
+    from tests.simulation.harness.schema import Scenario
 
 _VALID_TOKEN = "x" * 32
 
