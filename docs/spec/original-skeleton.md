@@ -1572,10 +1572,10 @@ async def mystats(ctx):
 
 def get\_intro\_embed() \-\> discord.Embed:  
     embed \= discord.Embed(  
-        title="Welcome to the Slut Friends Stock XxXChange",  
+        title="Welcome to the Friendex Stock Exchange",  
         description=(  
             "Opt-in to receive $10,000 starting. Come back every day to get a daily bonus. "  
-            "Start a hedge fund to cash in your earnings for sexy perks, prizes, and more."  
+            "Start a hedge fund to cash in your earnings for perks, prizes, and more."  
         ),  
         color=discord.Color.pink()  
     )  
@@ -1583,7 +1583,7 @@ def get\_intro\_embed() \-\> discord.Embed:
 
 @bot.command(name='optin')  
 async def optin(ctx):  
-    """Opt in to the Slut Friends Stock XxXChange."""  
+    """Opt in to the Friendex Stock Exchange."""  
     user\_id \= str(ctx.author.id)  
     ensure\_user(user\_id)
 
@@ -1596,7 +1596,7 @@ async def optin(ctx):
         users\_data\[user\_id\]\["intro\_shown"\] \= True
 
     save\_data()  
-    await ctx.send("✅ You are opted \*\*in\*\* to the Slut Friends Stock XxXChange.", delete\_after=15)
+    await ctx.send("✅ You are opted \*\*in\*\* to the Friendex Stock Exchange.", delete\_after=15)
 
 @bot.command(name='optout')  
 async def optout(ctx):  
@@ -1622,8 +1622,8 @@ async def game\_intro(ctx):
 
 @bot.command(name='help')  
 async def help\_cmd(ctx):  
-    """Show help for Slut Friends Stock XxXChange commands."""  
-    embed \= discord.Embed(title="Slut Friends Stock XxXChange – Help", color=discord.Color.blurple())  
+    """Show help for Friendex Stock Exchange commands."""  
+    embed \= discord.Embed(title="Friendex Stock Exchange – Help", color=discord.Color.blurple())  
     embed.add\_field(  
         name="Core",  
         value=(  
