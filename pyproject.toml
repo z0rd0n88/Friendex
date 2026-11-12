@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
-    { name = "alex", email = "afielder1188@gmail.com" },
+    { name = "z0rd0n88", email = "11729278+z0rd0n88@users.noreply.github.com" },
 ]
 keywords = ["discord", "bot", "stock-exchange", "game"]
 classifiers = [
@@ -35,8 +35,8 @@ dependencies = [
 friendex = "friendex.main:main"
 
 [project.urls]
-Repository = "https://github.com/z0rd0n88/Friendex"
-Issues = "https://github.com/z0rd0n88/Friendex/issues"
+Repository = "https://github.com/z0rd0n88/friendex"
+Issues = "https://github.com/z0rd0n88/friendex/issues"
 
 [dependency-groups]
 dev = [

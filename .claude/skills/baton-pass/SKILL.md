@@ -6,7 +6,7 @@ description: Write session baton-pass notes to baton-pass/ in this repository. T
 # baton-pass
 
 Sole authorized writer to `baton-pass/`. Enforces the directory's three hard
-rules (see `baton-pass/CLAUDE.md`): three-digit sequential numbering per
+rules (see `baton-pass/AGENTS.md`): three-digit sequential numbering per
 directory, feature/epic subdirectories, append-only.
 
 ## Workflow
@@ -260,7 +260,7 @@ following its `## References` upward).
 - **No skill self-reference in baton-pass content.** Pass-Batons are for the
   next *engineering* session — never mention this skill, the `baton-pass/`
   directory rules, or meta-architecture. Those belong in
-  `baton-pass/CLAUDE.md`.
+  `baton-pass/AGENTS.md`.
 - **Numbering is per-directory.** `baton-pass/phase-2-config/000-...` and
   `baton-pass/phase-3-domain/000-...` both validly start at `000`.
 - **`max + 1`, not `count + 1`.** Deleted entries leave gaps that stay

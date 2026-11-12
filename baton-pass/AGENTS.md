@@ -20,7 +20,7 @@ Numbering is **per-directory** — each subdirectory has its own sequence starti
 
 ## Hard Rule: Subdirectories for Features and Epics
 
-**Every baton-pass that pertains to a feature or epic MUST live in a feature/epic-named subdirectory of `baton-pass/`.** The top level of `baton-pass/` is reserved for cross-cutting items (this `CLAUDE.md`, `INDEX.md`, seed entries). Feature-scoped baton-passs at the top level are forbidden.
+**Every baton-pass that pertains to a feature or epic MUST live in a feature/epic-named subdirectory of `baton-pass/`.** The top level of `baton-pass/` is reserved for cross-cutting items (this `AGENTS.md`, `INDEX.md`, seed entries). Feature-scoped baton-passs at the top level are forbidden.
 
 Subdirectory naming: kebab-case identifier matching the feature/epic, e.g. `baton-pass/phase-2-config/`, `baton-pass/phase-3-domain/`, `baton-pass/auth-refactor/`. **Before creating a new subdirectory, the writer must list existing ones and prefer an existing match** to prevent drift like `phase-3-domain` vs `phase3-domain` vs `domain-phase-3`.
 
@@ -28,6 +28,6 @@ Subdirectory naming: kebab-case identifier matching the feature/epic, e.g. `bato
 
 **No tool, agent, or human edits may write directly to `baton-pass/` or any subdirectory of it.** All additions go through the project-scoped `baton-pass` skill so the invariants above (sequential numbering, feature-scoped subdirs, append-only, INDEX kept current) are enforced uniformly.
 
-- Editing `baton-pass/CLAUDE.md` (this file) is permitted — rules can evolve through normal PR review.
+- Editing `baton-pass/AGENTS.md` (this file) is permitted — rules can evolve through normal PR review.
 - Editing existing baton-pass entries is **not** permitted. Pass-Batons are an append-only log; superseding information goes in a new, higher-numbered entry.
 - `INDEX.md` is maintained by the skill on every write; do not hand-edit.

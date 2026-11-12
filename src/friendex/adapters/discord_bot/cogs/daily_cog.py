@@ -4,7 +4,7 @@ The cog passes ``str(interaction.user.id)`` plus a fresh
 ``datetime.now(tz=UTC)`` through to
 :meth:`~friendex.application.daily_service.DailyService.claim_daily` and
 replies publicly so the channel sees the claim — matching the spec's
-``/daily`` visibility (Bot Commands table in the project ``CLAUDE.md``).
+``/daily`` visibility (Bot Commands table in the project ``AGENTS.md``).
 
 **Wave 1 (#82 H13)**: ``defer(ephemeral=False)`` runs first so Discord sees
 the ack within 3 s, then the result embed is delivered via

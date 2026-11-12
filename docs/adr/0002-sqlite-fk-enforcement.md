@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Accepted |
 | **Date** | 2026-05-25 |
-| **Deciders** | Alex Fielder |
+| **Deciders** | @z0rd0n88 |
 | **Supersedes** | — |
 | **Superseded by** | — |
 

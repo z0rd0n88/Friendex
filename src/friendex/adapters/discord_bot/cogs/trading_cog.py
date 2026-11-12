@@ -11,7 +11,7 @@ exposes:
   (public; cooldown-gated like ``/short``).
 
 All four commands are PUBLIC (action commands stay visible in-channel per the
-project ``CLAUDE.md`` reply-visibility rule). Every send carries
+project ``AGENTS.md`` reply-visibility rule). Every send carries
 ``allowed_mentions=AllowedMentions.none()`` for I2 consistency — although the
 confirmation embeds today only mention real Discord snowflakes (from service
 result DTOs, not user-provided text), the carry-forward bar applies uniformly

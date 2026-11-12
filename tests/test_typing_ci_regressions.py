@@ -19,7 +19,7 @@ remain fixed and cannot silently regress:
   vestigial if it existed).  ``[mypy-freezegun.*]`` IS present and valid
   (``freezegun`` is imported in multiple test modules).
 
-* **CLAUDE.md / PR template** — the ``Development`` block and PR template
+* **AGENTS.md / PR template** — the ``Development`` block and PR template
   both reference ``mypy --strict src/ tests/`` rather than the stale
   ``mypy src/friendex`` that caused CI/local divergence in earlier waves.
 """
@@ -189,19 +189,19 @@ def test_freezegun_is_actually_imported_in_tests() -> None:
 
 
 # ---------------------------------------------------------------------------
-# CLAUDE.md / PR template — correct mypy invocation documented
+# AGENTS.md / PR template — correct mypy invocation documented
 # ---------------------------------------------------------------------------
 
 
-def test_claude_md_documents_strict_src_tests_mypy() -> None:
-    """``CLAUDE.md`` must document ``mypy --strict src/ tests/`` (H18 / doc fix).
+def test_agents_md_documents_strict_src_tests_mypy() -> None:
+    """``AGENTS.md`` must document ``mypy --strict src/ tests/`` (H18 / doc fix).
 
     The stale ``mypy src/friendex`` command caused CI/local divergence in
     earlier waves; this test ensures the documented command matches CI.
     """
-    content = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    content = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     assert "mypy --strict src/ tests/" in content, (
-        "CLAUDE.md Development block must show 'mypy --strict src/ tests/'; "
+        "AGENTS.md Development block must show 'mypy --strict src/ tests/'; "
         "the old 'mypy src/friendex' command diverges from CI (H18 doc regression)"
     )
 
