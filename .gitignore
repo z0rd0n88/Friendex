@@ -54,3 +54,7 @@ Thumbs.db
 # Per-developer skip-list for xan-multi-agent-review --prompt-prelude
 # (the .example sibling is the tracked starter)
 .claude/xan-review-modes/skip-list.md
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json
