@@ -1,4 +1,4 @@
-"""Shared fixtures for the e2e simulation suite."""
+"""Shared fixtures for the simulation suite."""
 
 from __future__ import annotations
 
